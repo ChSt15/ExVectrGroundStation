@@ -1,0 +1,86 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f4f5f7; --panel: #fff; --fg: #1b1f24; --dim: #6b7380; --line: #d5d9e0;
+  --ok: #1a7f37; --warn: #9a6700; --bad: #cf222e; --info: #0969da; --stale: #b35900;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #11151a; --panel: #1a2027; --fg: #e3e8ee; --dim: #8b95a3; --line: #2d3641;
+    --ok: #3fb950; --warn: #d29922; --bad: #f85149; --info: #58a6ff; --stale: #e0a040; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.4 system-ui, sans-serif; }
+button, select, input { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px; min-height: 28px; }
+button { cursor: pointer; } button:disabled { opacity: .45; cursor: default; }
+button.danger { border-color: var(--bad); color: var(--bad); }
+.grow { flex: 1 1 8em; min-width: 0; }
+
+header.top { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.brand { font-size: 14px; }
+.toggle { display: inline-flex; } .toggle button { border-radius: 0; } .toggle button:first-child { border-radius: 4px 0 0 4px; } .toggle button:last-child { border-radius: 0 4px 4px 0; }
+.toggle button[aria-pressed="true"] { background: var(--info); color: #fff; border-color: var(--info); }
+body[data-view="replay"] header.top { box-shadow: inset 0 -3px 0 var(--warn); }
+.chips { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+.chip { font-variant-numeric: tabular-nums; white-space: nowrap; }
+[data-tone="ok"] { color: var(--ok); } [data-tone="warn"] { color: var(--warn); } [data-tone="bad"] { color: var(--bad); } [data-tone="info"] { color: var(--info); }
+.dot { display: inline-block; width: .7em; height: .7em; border-radius: 50%; background: var(--dim); }
+.dot[data-tone="ok"] { background: var(--ok); } .dot[data-tone="warn"] { background: var(--warn); } .dot[data-tone="bad"] { background: var(--bad); }
+.chip.rec[data-tone="bad"] { font-weight: 600; }
+
+#panels { display: grid; gap: 10px; padding: 10px; align-items: start; }
+.area { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; min-width: 0; }
+.panel[hidden] { display: none; }
+.panel > header { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--line); }
+.panel > header h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--dim); flex: 1; cursor: pointer; }
+.panel > header .fold { border: 0; padding: 0 4px; min-height: 0; background: none; transition: transform .1s; }
+.panel[data-collapsed="true"] .fold { transform: rotate(-90deg); }
+.panel[data-collapsed="true"] > .body { display: none; }
+.panel[data-collapsed="true"] > header { border-bottom: 0; }
+.badge-age { font-size: 11px; color: var(--stale); } .badge-age[data-state="missing"] { color: var(--dim); }
+.body { padding: 6px 8px; overflow-x: auto; }
+
+.sect + .sect { margin-top: 6px; }
+.sect-title { font-size: 11px; color: var(--dim); margin: 4px 0 2px; }
+.row { display: flex; gap: 8px; align-items: baseline; padding: 1px 0; flex-wrap: wrap; }
+.row .lbl { flex: 0 0 11em; color: var(--dim); }
+.row .note { color: var(--dim); font-size: 11px; }
+.hint { color: var(--dim); font-size: 11px; margin-top: 3px; }
+
+/* values and freshness: fresh normal, stale dimmed with age, missing and not supplied greyed */
+.val { font-variant-numeric: tabular-nums; }
+.val .src { margin-left: .5em; font-size: 10px; color: var(--dim); border: 1px solid var(--line); border-radius: 3px; padding: 0 3px; }
+.val .src:empty, .val .age:empty, .val .unit:empty { display: none; }
+.val .unit { color: var(--dim); }
+.val .age { margin-left: .5em; font-size: 11px; color: var(--stale); }
+.val .age::before { content: "\23F1  "; }
+.val[data-state="stale"] .v { opacity: .5; text-decoration: line-through; text-decoration-color: var(--stale); }
+.val[data-state="missing"] .v { color: var(--dim); }
+.val[data-state="not supplied"] .v { color: var(--dim); font-style: italic; }
+.val[data-tone="ok"] .v { color: var(--ok); } .val[data-tone="warn"] .v { color: var(--warn); } .val[data-tone="bad"] .v { color: var(--bad); font-weight: 600; } .val[data-tone="info"] .v { color: var(--info); }
+.val[data-state="stale"][data-tone] .v, .val[data-state="missing"][data-tone] .v { color: inherit; }
+.val.strong .v { font-weight: 600; }
+.val.big .v { font-size: 26px; font-weight: 700; }
+.val.badge .v { border: 1px solid currentColor; border-radius: 4px; padding: 1px 6px; font-weight: 600; }
+.modes { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; } .badges { display: flex; gap: 6px; }
+[data-state="stale"] { color: var(--stale); }
+
+table.grid { border-collapse: collapse; width: 100%; }
+table.grid th, table.grid td { text-align: left; padding: 2px 6px; border-bottom: 1px solid var(--line); font-weight: normal; }
+table.grid th { color: var(--dim); }
+table.inspect tr { cursor: pointer; } table.inspect tr.sel { background: color-mix(in srgb, var(--info) 18%, transparent); }
+tr.incomplete td { color: var(--dim); }
+
+.toolbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 3px 0; }
+.toolbar .scrub { padding: 0; min-width: 8em; }
+.time { font-variant-numeric: tabular-nums; }
+.msg:empty, .info:empty { display: none; } .msg { color: var(--warn); margin-top: 3px; } .err { color: var(--bad); }
+.recording { color: var(--bad); font-weight: 600; }
+.console { height: 12em; overflow: auto; font: 12px/1.35 ui-monospace, Menlo, Consolas, monospace; background: color-mix(in srgb, var(--bg) 60%, var(--panel)); padding: 4px; border: 1px solid var(--line); }
+.console .ln { white-space: pre-wrap; word-break: break-all; } .console .ts { color: var(--dim); }
+.console .gs { color: var(--info); } .console .warn { color: var(--warn); } .console .error { color: var(--bad); }
+.inspect-list { max-height: 14em; overflow: auto; }
+
+@media (max-width: 600px) {
+  #panels { padding: 6px; gap: 6px; } .row .lbl { flex-basis: 9em; }
+  header.top { padding: 6px; } .val.big .v { font-size: 22px; } .loglist, .body { overflow-x: auto; }
+}
