@@ -6,7 +6,7 @@ Index and quick start. The authoritative spec is [ground-station-design.md](grou
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'     # Python 3.11+
-.venv/bin/exgs core --config config/gs.example.toml            # prints a 1 Hz summary
+.venv/bin/exgs core --config config/gs.example.toml            # prints a 1 Hz summary; serves the API on :8765
 .venv/bin/exgs schema                                          # packet types as JSON (--markdown for docs)
 .venv/bin/pytest && .venv/bin/ruff check src tests tools
 ```
@@ -23,7 +23,7 @@ The example config enables only the fake source, which runs a scripted flight (S
 | [wire-profiles.md](wire-profiles.md) | Wire profile and framer contract | T1 |
 | [testing.md](testing.md) | Test layers, fake source scenarios | T1 |
 | [log-format.md](log-format.md) | `.exlog` format (text codec is implemented, files in T2) | skeleton |
-| [api.md](api.md) | WebSocket protocol and CLI | skeleton |
+| [api.md](api.md) | WebSocket protocol and CLI | T3 |
 | [gui.md](gui.md) | GUI panels, 3D view | skeleton |
 | [radio.md](radio.md) | Virtual radio, leases | skeleton |
 | [operations.md](operations.md) | Field setup, udev, systemd | skeleton |

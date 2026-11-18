@@ -10,6 +10,7 @@ Strategy: design section 8.2. Run everything with `.venv/bin/pytest`; lint with 
 | State store, history, bus, clock, config | `tests/unit/test_state.py`, `test_core_parts.py` | Freshness with a fake clock, EWMA, preferred source, downsampling. |
 | Fake source | `tests/unit/test_fake_source.py` | Rates per profile, determinism, scripted flight, fault injection. |
 | Wire, stubs | `tests/unit/test_wire_and_stubs.py` | `fake` profile, stubs raise `NotImplementedError`. |
+| API, hub, CLI client | `tests/unit/test_api_protocol.py`, `tests/integration/test_api.py`, `tests/integration/test_cli_client.py` | Real server and WebSocket clients on loopback, FakeSource data, `exgs` subprocesses against a core process. |
 | CLI | `tests/integration/test_cli.py` | `exgs core` against the fake source, `exgs schema`, `docs/packet-types.md` is current. |
 
 ## Fake source scenarios

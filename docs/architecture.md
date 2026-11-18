@@ -22,7 +22,7 @@ FakeSource ---------------------------------------------> Packet -^
 | Frame, Framer, WireProfile protocols, `load_profile`, `fake` profile | `exvectr_gs.wire` | T1 |
 | Source ABC, `FakeSource`, scripted scenario | `exvectr_gs.sources` | T1 |
 | Recorder, LogReader, LogLibrary | `exvectr_gs.recording` | stub (T2) |
-| ApiServer, Hub | `exvectr_gs.api` | stub (T3) |
+| ApiServer, Hub, protocol helpers | `exvectr_gs.api` | implemented (T3), see [api.md](api.md) |
 | Replayer | `exvectr_gs.replay` | stub (T4) |
 | Serial source, `provisional-1` profile | `exvectr_gs.sources`, `exvectr_gs.wire` | T5 |
 | RcController, radio config | `exvectr_gs.rc` | stub (T6) |
