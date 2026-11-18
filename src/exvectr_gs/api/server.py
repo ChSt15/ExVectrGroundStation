@@ -443,7 +443,10 @@ class ApiServer:
             raise ProtocolError("control_denied", "this client is not on a control host (view only)")
         kind, dur = P.parse_rc_acquire(msg)
         if client.lease_id:
-            raise ProtocolError("busy", "this connection already holds a lease")
+            cur = rc.status().lease  # a lease that ended (expiry, heartbeat loss) is not "held" any more
+            if cur is not None and cur.id == client.lease_id:
+                raise ProtocolError("busy", "this connection already holds a lease")
+            client.lease_id = None
         lease = await self._call(rc.acquire, client.name or client.id, kind, dur, client.addr)
         client.lease_id = lease.id
         self._push_rc()
