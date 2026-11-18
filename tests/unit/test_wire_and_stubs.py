@@ -1,6 +1,5 @@
 import pytest
 
-from exvectr_gs.api import ApiServer
 from exvectr_gs.core import Bus, History, StateStore
 from exvectr_gs.packets import REGISTRY
 from exvectr_gs.rc import RadioConfig, RcController
@@ -51,7 +50,6 @@ async def test_async_stubs_raise_not_implemented(tmp_path):
     bus = Bus()
     rp = Replayer(LogLibrary(tmp_path), bus, StateStore(REGISTRY, []), History(REGISTRY))
     rc = RcController(RadioConfig(), [], bus)
-    api = ApiServer(None, "127.0.0.1", 0)
-    for coro in (rp.open("x"), rc.run(), api.start(), api.stop()):
+    for coro in (rp.open("x"), rc.run()):
         with pytest.raises(NotImplementedError):
             await coro

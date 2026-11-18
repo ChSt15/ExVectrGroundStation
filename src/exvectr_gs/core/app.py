@@ -27,6 +27,10 @@ class CoreApp:
         self.bus = Bus()
         self.store = StateStore(REGISTRY, cfg.core.source_priority, cfg.core.stale_min_s, self.clock.now)
         self.history = History(REGISTRY)
+        # replay view (T4 fills these; the API serves them as view "replay")
+        self.replay_bus = Bus()
+        self.replay_store = StateStore(REGISTRY, [], cfg.core.stale_min_s)
+        self.replay_history = History(REGISTRY)
         self.packet_counts: Counter[str] = Counter()  # per source id
         self._last_counts: Counter[str] = Counter()
         self.bus.subscribe(self._on_packet)
@@ -73,15 +77,25 @@ class CoreApp:
             parts.append(f"pos=[{x:.2f},{y:.2f},{z:.2f}]")
         return " | ".join(parts)
 
-    async def run(self, duration_s: float | None = None, summary=print) -> None:
-        """Run all sources until cancelled (or `duration_s`), printing a 1 Hz summary."""
+    async def run(self, duration_s: float | None = None, summary=print, serve: bool = False) -> None:
+        """Run all sources until cancelled (or `duration_s`), printing a 1 Hz summary. With `serve`,
+        also run the API server on cfg.server.bind:port."""
         tasks = [asyncio.create_task(s.run(self.bus.publish), name=f"source-{s.id}") for s in self.sources]
+        api = None
         try:
+            if serve:
+                from ..api import ApiServer
+
+                api = ApiServer(self, self.cfg.server.bind, self.cfg.server.port)
+                await api.start()
+                summary(f"api: listening on {self.cfg.server.bind}:{api.port}")
             end = None if duration_s is None else self.clock.now() + int(duration_s * 1e9)
             while end is None or self.clock.now() < end:
                 await asyncio.sleep(1.0)
                 summary(self.summary_line())
         finally:
+            if api is not None:
+                await api.stop()
             for t in tasks:
                 t.cancel()
             for t in tasks:

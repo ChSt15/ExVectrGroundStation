@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ExVectr ground station (raw stream)</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; margin: 0; padding: 8px 12px; }
+  header { display: flex; gap: 1em; align-items: baseline; flex-wrap: wrap; }
+  #state { font-weight: bold; }
+  pre { white-space: pre-wrap; word-break: break-all; margin: 6px 0; }
+  #status { border: 1px solid #8888; padding: 4px 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 style="font-size:1em;margin:0">ExVectr ground station: raw message stream</h1>
+  <span id="state">connecting</span>
+  <label><input id="pause" type="checkbox"> pause</label>
+</header>
+<pre id="status"></pre>
+<pre id="log"></pre>
+<script type="module">
+// Placeholder shell (replaced by the GUI in task T7): shows the raw WebSocket messages.
+const MAX_LINES = 300;
+const logEl = document.getElementById("log");
+const statusEl = document.getElementById("status");
+const stateEl = document.getElementById("state");
+const pause = document.getElementById("pause");
+const lines = [];
+
+function connect() {
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => {
+    stateEl.textContent = "connected";
+    ws.send(JSON.stringify({ op: "hello", client: "gui", name: "raw-stream", protocol: 1 }));
+    ws.send(JSON.stringify({ op: "subscribe", view: "live", types: "*", mode: "latest", max_rate_hz: 5 }));
+  };
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.op === "status") { statusEl.textContent = JSON.stringify(msg, null, 1); return; }
+    if (pause.checked) return;
+    lines.push(ev.data);
+    if (lines.length > MAX_LINES) lines.shift();
+    logEl.textContent = lines.join("\n");
+  };
+  ws.onclose = () => { stateEl.textContent = "disconnected, retrying"; setTimeout(connect, 1000); };
+}
+connect();
+</script>
+</body>
+</html>
