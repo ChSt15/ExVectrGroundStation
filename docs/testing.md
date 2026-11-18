@@ -10,6 +10,9 @@ Strategy: design section 8.2. Run everything with `.venv/bin/pytest`; lint with 
 | State store, history, bus, clock, config | `tests/unit/test_state.py`, `test_core_parts.py` | Freshness with a fake clock, EWMA, preferred source, downsampling. |
 | Fake source | `tests/unit/test_fake_source.py` | Rates per profile, determinism, scripted flight, fault injection. |
 | Wire, stubs | `tests/unit/test_wire_and_stubs.py` | `fake` profile, stubs raise `NotImplementedError`. |
+| Recorder | `tests/unit/test_recorder.py` | Header/`#type`/`#end` lines, never overwrites (pre-created file, same-second starts), no auto-start, a restart leaves the old file untouched and starts a new one, flush interval, disk-full path (file wrapper raising ENOSPC), queue overflow, crash (a subprocess is killed with SIGKILL: readable, at most about 100 ms lost). |
+| Log reader, index, library | `tests/unit/test_logfile.py` | Truncated last line, bad lines, offsets, gzip, keyframes and seek, gaps, markers, history, index of a 1 h synthetic log (about 1 M lines) in under 10 s, `LogLibrary.list()` for complete, crashed and foreign files. |
+| `exgs log` | `tests/integration/test_log_cli.py` | validate (ok, incomplete, corrupt, miscount), stats (text, JSON), cat filters, `CoreApp.recorder` does not auto-record. |
 | CLI | `tests/integration/test_cli.py` | `exgs core` against the fake source, `exgs schema`, `docs/packet-types.md` is current. |
 
 ## Fake source scenarios

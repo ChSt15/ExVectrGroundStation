@@ -11,6 +11,7 @@ from pathlib import Path
 
 from ..core.config import ConfigError, load_config
 from ..packets import REGISTRY
+from . import logcmd
 
 DEFAULT_CONFIG = "~/.config/exvectr-gs/gs.toml"
 
@@ -50,6 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("schema", help="print the packet types (JSON, or Markdown with --markdown)")
     s.add_argument("--markdown", action="store_true")
     s.set_defaults(func=_cmd_schema)
+    logcmd.register(sub)
     return p
 
 

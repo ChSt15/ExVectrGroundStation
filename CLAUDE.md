@@ -19,7 +19,7 @@ The ground station **never makes control, mission or safety decisions** for the 
 
 Keep the layers strict so each can be replaced later: source -> framer / wire profile -> packet registry -> codec -> bus / state store -> API -> panels. **Wire-format knowledge lives only in a wire profile plug-in.** Everything above it sees semantic `Packet` objects. Logs are semantic text and stay readable after the wire format changes.
 
-Status: tasks T1 onward of design section 9. Unimplemented interfaces (Recorder, Replayer, RcController, ApiServer) are stubs that raise `NotImplementedError` until their task lands.
+Status: tasks T1 onward of design section 9. Recorder, log reader/index/library and the offline `exgs log` tools are done (T2). Unimplemented interfaces (Replayer, RcController, ApiServer) are stubs that raise `NotImplementedError` until their task lands.
 
 ## Setup and commands
 
