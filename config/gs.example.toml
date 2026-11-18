@@ -1,0 +1,49 @@
+# Example ground station config. Runs with the fake source (no hardware needed).
+# Copy to ~/.config/exvectr-gs/gs.toml and edit.
+
+[core]
+wire_profile = "provisional-1"
+source_priority = ["usb", "link", "fake"]     # preferred source per value when several are fresh
+stale_min_s = 0.5
+
+[server]
+bind = "0.0.0.0"
+port = 8765
+control_hosts = ["127.0.0.1", "::1"]          # who may take RC control (others are view-only)
+
+[recorder]
+directory = "~/exvectr-recordings"
+raw_frames = "unknown"                         # only undecodable frames are kept
+flush_interval_ms = 100
+fsync_interval_ms = 1000
+
+[[source]]
+id = "usb"
+kind = "vehicle_usb"
+match = { vid = "16c0", pid = "0483" }         # Teensy USB serial; or device = "/dev/serial/by-id/..."
+rc_role = "control"
+enabled = false                                # serial source arrives in task T5
+
+[[source]]
+id = "link"
+kind = "link_module"
+match = { device = "/dev/serial/by-id/usb-Silicon_Labs_CP2102_XXXX-if00-port0" }
+baud = 921600
+rc_role = "mirror"
+enabled = false
+
+[[source]]
+id = "fake"
+kind = "fake"
+profile = "usb"                                # "usb" (full set) or "radio" (reduced set)
+seed = 1
+speed = 1.0                                    # simulated seconds per wall second
+rc_role = "none"
+# faults = [ { kind = "dropout", at = 10, duration = 2, types = ["Attitude"] } ]
+
+[radio]
+config = "config/radio.pocket.toml"
+
+[gui]
+layout = "config/layout.default.json"
+model = "config/model.placeholder.json"
