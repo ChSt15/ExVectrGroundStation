@@ -5,7 +5,7 @@ Spec: design sections 2.4, 3.6 and 6.1. Wire-format knowledge lives **only** in 
 ## Contract (`exvectr_gs.wire.profile`)
 
 - `Framer`: `feed(bytes, t)` yields `Frame` (channel, payload, t, meta) or `ConsoleText` (non-frame bytes, one line each); `encode(frame)`; `reset()` on (re)connect; `stats` (bytes, frames, crc_errors, resyncs).
-- `WireProfile`: `name`, `make_framer()`, `decode(frame, src)` (never raises, undecodable frames become a `RawFrame` packet), `encode(packet)` (`None` if the profile cannot send that type), `supported_types()`.
+- `WireProfile`: `name`, `make_framer()`, `decode(frame, src)` (never raises, undecodable frames become a `RawFrame` packet), `encode(packet)` (`None` if the profile cannot send that type), `supported_types()`. A profile may also offer `decode_many(frame, src) -> list[Packet]` (one wire packet feeding several semantic types, or none for a suppressed duplicate). Callers use `decode_frame(profile, frame, src)`, which falls back to `[decode(...)]`. `SerialSource` does.
 - `load_profile(name)` imports `exvectr_gs.wire.<name with dashes as underscores>` and calls its `make_profile()`. Unknown names raise `ProfileNotFound`.
 
 ## Profiles
@@ -13,10 +13,74 @@ Spec: design sections 2.4, 3.6 and 6.1. Wire-format knowledge lives **only** in 
 | Name | State |
 |---|---|
 | `fake` | Implemented (T1). No bytes: `FakeSource` emits packets directly. Decodes nothing, encodes nothing. |
-| `provisional-1` | Implemented (T5), **temporary**. Legacy payload layouts in a provisional COBS framer. No vehicle speaks it yet. |
-| `exvectrnet-2` | After roadmap step 3: COBS stream frames with CRC-16, 4-byte network header, 2-byte transport header (`docs/network-design.md` section 4). Replaces `provisional-1`. |
+| `provisional-1` | Implemented (T5), **temporary**, kept working. Legacy payload layouts in a provisional COBS framer. No vehicle speaks it. |
+| `exvectrnet-1` | Implemented, **the real format**: COBS stream frames with CRC-16, 4-byte network header, 2-byte transport header, heartbeats, packets from the generated `exvectr_packets` (`docs/network-design.md` section 4). Section "`exvectrnet-1`" below. |
 
 To add a profile: write the module with `make_profile()`, adjust the registry for new or changed semantic types, select it with `core.wire_profile` in `gs.toml`. Recorded logs are semantic text and stay readable. The package is `src/exvectr_gs/wire/provisional_1/` (`framing.py`, `layouts.py`, `profile.py`); a new profile is a sibling package and nothing else changes.
+
+## `exvectrnet-1`
+
+Package `src/exvectr_gs/wire/exvectrnet_1/`: `framing.py` (stream frame, network and transport header, `NetFramer`), `profile.py` (`ExVectrNet1Profile`: presence, version check, duplicate suppression, port to class via `exvectr_packets`, uplink) and `mapping.py` (wire packet to GS semantic packets). Spec: `docs/network-design.md` 4.1 to 4.5 and 4.7. `framing.py` reuses `cobs_encode`, `cobs_decode` and `crc16` of `provisional_1/framing.py` (unit tests check them against `ExVectrNetwork/test/vectors/wire_v1.json`, including the 254/255 byte COBS edge cases and the invalid vectors; the independent encoder of the fake vehicle is checked against the same file).
+
+### Dependencies
+
+Git submodules `lib/ExVectrPackets` (generated Python packets, schema, vectors, docs) and `lib/ExVectrNetwork` (spec vectors), pinned to commits that are **not on GitHub yet** (they come from the local `Development` clones; `git submodule update --init` needs them pushed or fetched from the local clone). `exvectr_packets` is imported from `lib/ExVectrPackets/python` without copying: `pyproject.toml` puts it on the pytest path, and `exvectrnet_1/_deps.py` adds it to `sys.path` at import if it is not installed. Hash values, flag masks, ports and scalings are always taken from the generated module, never written here: the profile never contains the schema hash or a flag value (the `MOTOR_ENABLE` flag of `RC_STATE` is expected to leave the schema soon: nothing here refers to it).
+
+### Framing and headers
+
+```
+wire    := COBS(decoded) 0x00                      (no leading delimiter; empty runs are ignored)
+decoded := SKIND 0x01 | network frame (4..240 B) | CRC-16/CCITT-FALSE LE over SKIND..frame
+network := CTRL | TTL | DST | SRC | (DATA) PORT | SEQ | payload   or   (HEARTBEAT) 11 B payload
+```
+
+- The framer drops a frame (and only that frame) when COBS fails, the decoded length is outside 7..243, the CRC differs, SKIND is not 1, the network version is not 1, the type is reserved, or a DATA frame has no full transport header. Bad CRC counts as `crc_errors`, everything else as `resyncs`. More than 256 bytes without a delimiter are discarded up to the next delimiter. No console text exists on this stream (the vehicle's `LOG_TEXT` packet replaces it).
+- `Frame.channel` is the port (DATA) or `0x100` (heartbeat). `Frame.meta` has `type`, `qos`, `latest`, `ttl`, `dst`, `src` (node id) and `seq`.
+- Node ids: 0 ground station, 1 vehicle, 2 TX module, 3 vehicle RX module, 0xFF broadcast.
+
+### Heartbeats, presence, duplicates
+
+- Every valid frame from node 0..3 counts as presence for that node, per source id. A heartbeat produces a `NetworkStatus` packet: `present` and `age` of the four nodes (present = a valid frame within 3 s, evaluated when a heartbeat arrives), the sender's role, version, schema hash and uptime, `incompatible` (any present node with another network version or schema hash than this GS: `exvectr_packets.SCHEMA_HASH`) and `detail`. A change of that state also emits one `GsEvent` of kind `link_warning` (and a log warning). Frames are still decoded (append-only evolution).
+- Duplicate suppression (design 3.4): per (source id, node, port) a DATA frame is accepted if `(seq - last) mod 256` is in 1..127, or if nothing arrived on that key for 1 s, or it is the first. Otherwise it is dropped (`decode_many` returns `[]`, `profile.duplicates_dropped` counts them). Keys include the source id, so the same frame arriving over two links (vehicle USB and TX module) is shown for both and the state store picks the preferred source. Consequence of the rule: after a vehicle reboot with a fresh random sequence number, frames can be dropped until the sequence passes the old value or one second of silence has gone by. Heartbeats carry no sequence number and are not filtered.
+
+### Ports and mapping (wire packet to GS types)
+
+Decoded values are SI already. Where the wire does not carry a field, the GS field stays `None`; nothing is derived or inferred. Enumerations the GS knows are decoded to the enum, other values stay plain integers. A wire packet may feed more than one GS type so that the existing panels keep working.
+
+| Port | Wire packet | GS packet types | Notes |
+|---|---|---|---|
+| - | `HEARTBEAT` | `NetworkStatus`, `GsEvent` (on change) | see above |
+| 0x01 | `LINK_STATS` | node 2: `TxModuleStats` and `RadioLinkStats`; node 3: `RxModuleStats` | other senders: `RawFrame`. `RadioLinkStats` gets `rssi_dbm = [rssi]` (one element), `lq_pct`, `snr_db`, `antenna` (RX winner); `up_hz`, `down_hz` are not supplied. Antenna byte split into `rx_antenna` and `tx_antenna` |
+| 0x02 | `LOG_TEXT` | `ConsoleText` | text is `[node N SEVERITY] text`, shown in the console panel |
+| 0x03 | `HANDSET_TELEM` | `HandsetTelem` | flags split into bools; shown as the vehicle sent it (no inference) |
+| 0x10 | `RC_STATE` | `RcState` | origin `gs` if sent by node 0, otherwise `handset` (the Pocket via the TX module). `ch_us = 1500 + ch / 2` (round half up), `CH_INVALID` becomes 0, `seq` is the wire sequence, `flags` and `source_ok` as received |
+| 0x11 | `REQUEST` | `RawFrame` | an uplink packet, not expected from a peer |
+| 0x12 | `REQUEST_ACK` | `RequestAck` | |
+| 0x20 | `VEHICLE_STATUS` | `VehicleStatus`, `VehicleState` | `VehicleState` gets `mode`, `armed`, `sim` only (what the wire states directly) |
+| 0x21 | `AIR_POSE` | `Attitude` (`q` only), `Position` (`pos`, `vel`) | radio set; fixed point values already scaled |
+| 0x80 | `POSE` | `Attitude` (`omega`, `q`), `Position` (`pos`, `vel`) | USB; accuracy fields not supplied |
+| 0x81 | `ACTUATORS` | `Actuators`, `FlapState` (`angle` = flaps) | `FlapState.cmd` and `enabled` not supplied |
+| 0x82 | `MISSION` | `MissionState` | `mission_time` in seconds to `t_mission` ns; `mission_mode` not on this packet (see `VehicleStatus`) |
+| 0x83 | `GNSS` | `Gps` | radians; `h_acc`, `v_acc`, `s_acc` to `pos_acc`, `alt_acc`, `vel_acc`; new field `fix_type` |
+| 0x90 | `IMU_RAW` | `ImuRaw` | debug set, USB only |
+| 0x91 | `ESTIMATOR` | `Estimator` | debug set |
+| 0x92 | `TASK_TIMING` | `TaskTiming` | debug set; `NaN` marks an invalid entry |
+| other | unknown port | `RawFrame` | `err = "unknown port"`; a known port with a bad payload gives `err = "<PACKET>: ..."` |
+
+Vehicle time (`t_us` of each packet) is not carried into the GS packets: `t` is the host receive time. `VehicleStatus.vehicle_time` keeps the full vehicle clock. `RawFrame` stays the only raw-bytes record.
+
+### Uplink (`encode`)
+
+Only `RC_STATE` with `origin = gs` and 16 channels. `ch = clamp((us - 1500) * 2, CH_MIN, CH_MAX)`, a pulse width of 0 or less becomes `CH_INVALID`. `flags` contains only `SOURCE_OK` (the ground-station input is active: the core sends only while a client holds the lease), unless the packet says `source_ok = False`. No other flag is ever set; the motor enable is just a channel in the vehicle's fixed mapping. The frame is addressed to the vehicle (DST 1, SRC 0, TTL 3, QoS and LATEST from the generated class), whichever link carries it. The sequence number counts per port in the profile (the `RcState.seq` of the controller is not used). The profile does not send heartbeats or any other packet. `SerialSource` still sends `RcState` only through the source with `rc_role = "control"`: configure the vehicle USB as `control` and the TX module as `mirror`, because the vehicle rejects node 0 on the radio path.
+
+### Sources
+
+| Source | Peer | Role |
+|---|---|---|
+| `kind = "vehicle_usb"` | vehicle, node 1, direct | full USB rates and debug set; `rc_role = "control"` |
+| `kind = "link_module"` | TX module, node 2 | forwards the vehicle radio set (node 1), RX module (node 3), the Pocket's `RC_STATE` and its own `LINK_STATS`; `rc_role = "mirror"` |
+
+`source_priority = ["usb", "link", "fake"]` prefers the vehicle USB per type when both are fresh.
 
 ## `provisional-1`
 
@@ -84,10 +148,13 @@ Behaviour:
 
 ## Fake vehicle (`tools/fake_vehicle_pty.py`)
 
-A pseudo-terminal that speaks `provisional-1` bytes from the scripted scenario, with console text interleaved. It is a test stand-in with no vehicle logic: it only records the frames the ground station sends (`received`). Its payload packers are written independently of `layouts.py`, so decode tests compare two implementations.
+A pseudo-terminal that speaks `provisional-1` or (`profile="exvectrnet-1"`) real ExVectrNetwork bytes from the scripted scenario. `exvectrnet-1` has two roles: `role="vehicle"` is node 1 on USB (heartbeat, `VEHICLE_STATUS`, `POSE`, `ACTUATORS`, `MISSION`, `GNSS`, `HANDSET_TELEM`, debug packets), `role="txmodule"` is node 2 forwarding node 1's radio set, node 3 and node 2 `LINK_STATS`, heartbeats of nodes 1, 2 and 3, and the Pocket's `RC_STATE` (node 2, 25 Hz). Its encoder (`tools/fake_vehicle_net.py`: COBS, CRC, headers, struct packers) is written from the wire spec and the packet reference tables, independent of `exvectrnet_1` and of the generated encoders (only the schema hash value is read from `exvectr_packets`, and `schema_hash=` / `net_version=` can override it to provoke the mismatch warning); a test decodes its packers with the generated module. `received` holds the DATA frames the ground station sent (parsed by the independent decoder, `meta` has src, dst, seq).
+
+The `provisional-1` mode: It is a test stand-in with no vehicle logic: it only records the frames the ground station sends (`received`). Its payload packers are written independently of `layouts.py`, so decode tests compare two implementations.
 
 ```bash
 .venv/bin/python tools/fake_vehicle_pty.py --link /tmp/fake-vehicle   # symlink to the pty slave
+.venv/bin/python tools/fake_vehicle_pty.py --link /tmp/fake-vehicle --profile exvectrnet-1 [--role txmodule]
 # gs.toml: [[source]] id = "usb", kind = "vehicle_usb", match = { device = "/tmp/fake-vehicle" }
 ```
 

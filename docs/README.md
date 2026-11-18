@@ -11,7 +11,7 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'     # Python 3.11+
 .venv/bin/pytest && .venv/bin/ruff check src tests tools
 ```
 
-The example config enables only the fake source, which runs a scripted flight (Startup, SensorInit, Ready, Running with Hover, Ascent, Descent, Landing, Completed). Serial sources (`vehicle_usb`, `link_module`) are configured but disabled in the example: enable them and set `match` for the real device, or point one at the pty fake vehicle (`tools/fake_vehicle_pty.py`, see [wire-profiles.md](wire-profiles.md)).
+The example config enables only the fake source, which runs a scripted flight (Startup, SensorInit, Ready, Running with Hover, Ascent, Descent, Landing, Completed). Serial sources (`vehicle_usb`, `link_module`) are configured but disabled in the example (`wire_profile = "exvectrnet-1"`: vehicle USB is peer node 1, the TX module on USB is peer node 2): enable them and set `match` for the real device, or point one at the pty fake vehicle (`tools/fake_vehicle_pty.py --profile exvectrnet-1`, see [wire-profiles.md](wire-profiles.md)). The generated packets come from the git submodules: `git submodule update --init` after cloning (the pinned commits are not pushed yet, see wire-profiles.md).
 
 ## Index
 
@@ -20,7 +20,7 @@ The example config enables only the fake source, which runs a scripted flight (S
 | [ground-station-design.md](ground-station-design.md) | Full design and task plan | spec |
 | [architecture.md](architecture.md) | Modules, data flow, layers as built | T1 |
 | [packet-types.md](packet-types.md) | Packet types and fields | generated |
-| [wire-profiles.md](wire-profiles.md) | Wire profile and framer contract | T1 |
+| [wire-profiles.md](wire-profiles.md) | Wire profile and framer contract, `provisional-1`, `exvectrnet-1` (ports, mapping, uplink), fake vehicle | T1, T5, `exvectrnet-1` |
 | [testing.md](testing.md) | Test layers, fake source scenarios | T1 |
 | [log-format.md](log-format.md) | `.exlog` format, recorder, reader, index, library, `exgs log` tools | written (T2) |
 | [api.md](api.md) | WebSocket protocol and CLI | T3 |

@@ -2,8 +2,12 @@
 # Copy to ~/.config/exvectr-gs/gs.toml and edit.
 
 [core]
-wire_profile = "provisional-1"
-source_priority = ["usb", "link", "fake"]     # preferred source per value when several are fresh
+# "exvectrnet-1": the real ExVectrNetwork wire format (docs/network-design.md section 4, docs/wire-profiles.md).
+# "provisional-1": the old temporary profile, only for the legacy firmware. Fake sources need neither.
+wire_profile = "exvectrnet-1"
+# Preferred source per value when several are fresh: the vehicle's own USB (full rate, debug set) first,
+# then the TX module (radio set plus the Pocket's RC state and link statistics).
+source_priority = ["usb", "link", "fake"]
 stale_min_s = 0.5
 
 [server]
@@ -17,6 +21,9 @@ raw_frames = "unknown"                         # only undecodable frames are kep
 flush_interval_ms = 100
 fsync_interval_ms = 1000
 
+# Peer 1: the vehicle on USB (ExVectrNetwork node 1, direct). Telemetry at the USB rates including the debug
+# set (ports 0x90 and up). The only source that may carry the GS's own RC_STATE (rc_role = "control"); the
+# vehicle accepts it as the bench control source (node 0 over USB).
 [[source]]
 id = "usb"
 kind = "vehicle_usb"
@@ -24,6 +31,9 @@ match = { vid = "16c0", pid = "0483" }         # Teensy USB serial; or device = 
 rc_role = "control"
 enabled = false                                # set true when the Teensy is on USB (or use tools/fake_vehicle_pty.py)
 
+# Peer 2: the ExVectrLink TX module on USB (node 2). It also forwards the vehicle's radio set (node 1), the
+# vehicle RX module (node 3) and the Pocket's RC_STATE (handset origin), plus its own LINK_STATS. The GS never
+# sends RC state through it: the vehicle rejects node 0 on the radio path anyway (rc_role = "mirror").
 [[source]]
 id = "link"
 kind = "link_module"

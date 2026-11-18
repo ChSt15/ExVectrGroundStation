@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fake vehicle on a pseudo-terminal, speaking `provisional-1` bytes (design section 6.5).
+"""Fake vehicle on a pseudo-terminal, speaking `provisional-1` or `exvectrnet-1` bytes (design section 6.5).
 
 Drives the same scripted scenario as FakeSource, but as bytes: COBS frames on ports 10/11/12/50/51
 interleaved with console text. Used to test SerialSource, the framer, the profile, reconnect and the
@@ -9,7 +9,13 @@ logic, it only records the frames the ground station sends (`received`).
 The payload packers below are written independently of `exvectr_gs.wire.provisional_1.layouts`
 (from the legacy docs), so that the decoder is checked against a second implementation.
 
-Run:  python tools/fake_vehicle_pty.py --link /tmp/fake-vehicle [--speed 1] [--seed 1]
+`profile="exvectrnet-1"` speaks the real ExVectrNetwork format with its own encoder (`fake_vehicle_net.py`,
+written from the wire spec): role `vehicle` is node 1 on USB (heartbeat, VEHICLE_STATUS, POSE, ACTUATORS,
+MISSION, GNSS, HANDSET_TELEM, debug packets 0x90-0x92), role `txmodule` is node 2 on USB forwarding the
+vehicle's radio set (node 1), the RX module (node 3) and the Pocket's RC_STATE (node 2, 25 Hz).
+
+Run:  python tools/fake_vehicle_pty.py --link /tmp/fake-vehicle [--profile exvectrnet-1 --role vehicle]
+      [--speed 1] [--seed 1]
 then point a source at `match = { device = "/tmp/fake-vehicle" }`.
 """
 
@@ -21,11 +27,16 @@ import math
 import os
 import pty
 import struct
+import sys
 import threading
 import time
+import tty
 from pathlib import Path
 
-from exvectr_gs.sources.scenario import Scenario
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import fake_vehicle_net as net  # noqa: E402  isort: skip
+from exvectr_gs.sources.scenario import Scenario  # noqa: E402
 from exvectr_gs.wire.profile import ConsoleText, Frame
 from exvectr_gs.wire.provisional_1.framing import ProvisionalFramer, encode_frame
 
@@ -116,6 +127,15 @@ PACKERS = {
     "MissionState": (51, pack_mission_state),
 }
 DEFAULT_RATES = {"Attitude": 50.0, "Position": 25.0, "VehicleState": 10.0, "MissionState": 5.0, "Gps": 1.0}
+# exvectrnet-1, packet name -> Hz. Vehicle on USB sends the full set, the TX module forwards the radio set.
+NET_VEHICLE_RATES = {
+    "VEHICLE_STATUS": 20.0, "POSE": 50.0, "ACTUATORS": 10.0, "MISSION": 10.0, "GNSS": 5.0, "HANDSET_TELEM": 2.0,
+    "IMU_RAW": 20.0, "ESTIMATOR": 10.0, "TASK_TIMING": 5.0,
+}  # fmt: skip
+NET_TX_RATES = {
+    "VEHICLE_STATUS": 5.0, "AIR_POSE": 10.0, "HANDSET_TELEM": 2.0, "LINK_STATS_TX": 2.0, "LINK_STATS_RX": 2.0,
+    "POCKET_RC": 25.0,
+}  # fmt: skip
 
 
 class FakeVehiclePty:
@@ -125,11 +145,30 @@ class FakeVehiclePty:
     """
 
     def __init__(self, link: str | Path, seed: int = 1, speed: float = 1.0, rates: dict[str, float] | None = None,
-                 console: bool = True):  # fmt: skip
+                 console: bool = True, profile: str = "provisional-1", role: str = "vehicle",
+                 hb_hz: float = 1.0, schema_hash: int | None = None, net_version: int = 1):  # fmt: skip
+        if profile not in ("provisional-1", "exvectrnet-1") or role not in ("vehicle", "txmodule"):
+            raise ValueError(f"unknown profile {profile!r} or role {role!r}")
+        self.profile = profile
+        self.role = role
+        self.hb_hz = hb_hz
+        self.net_version = net_version
+        if schema_hash is None:
+            import exvectr_packets  # only the hash value is taken from the generated module
+
+            schema_hash = exvectr_packets.SCHEMA_HASH
+        self.schema_hash = schema_hash
+        self._seq: dict[tuple[int, int], int] = {}
+        if rates is None:
+            rates = (
+                DEFAULT_RATES
+                if profile == "provisional-1"
+                else (NET_VEHICLE_RATES if role == "vehicle" else NET_TX_RATES)
+            )
         self.link = Path(link)
         self.scenario = Scenario(seed)
         self.speed = speed
-        self.rates = dict(DEFAULT_RATES if rates is None else rates)
+        self.rates = dict(rates)
         self.console = console
         self.received: list[Frame] = []
         self.received_text: list[str] = []
@@ -139,6 +178,7 @@ class FakeVehiclePty:
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
         self._rx = ProvisionalFramer()
+        self._rx_buf = bytearray()
 
     @property
     def running(self) -> bool:
@@ -146,12 +186,14 @@ class FakeVehiclePty:
 
     def start(self) -> None:
         self._master, self._slave = pty.openpty()
+        tty.setraw(self._slave)  # no echo: the vehicle must not read its own transmissions back
         os.set_blocking(self._master, False)
         with contextlib.suppress(FileNotFoundError):
             self.link.unlink()
         self.link.symlink_to(os.ttyname(self._slave))
         self._stop.clear()
         self._rx = ProvisionalFramer()
+        self._rx_buf.clear()
         self._threads = [
             threading.Thread(target=self._tx_loop, daemon=True, name="fakeveh-tx"),
             threading.Thread(target=self._rx_loop, daemon=True, name="fakeveh-rx"),
@@ -181,7 +223,26 @@ class FakeVehiclePty:
                 os.write(self._master, data)
 
     def send_frame(self, channel: int, payload: bytes) -> None:
-        self.write_raw(encode_frame(channel, payload))
+        """provisional-1: a frame on `channel`. exvectrnet-1: a DATA frame from this role's node, port=channel."""
+        if self.profile == "exvectrnet-1":
+            self.send_net(self.node, 0, channel, payload)
+        else:
+            self.write_raw(encode_frame(channel, payload))
+
+    @property
+    def node(self) -> int:
+        return 1 if self.role == "vehicle" else 2
+
+    def send_net(self, src: int, dst: int, port: int, payload: bytes, seq: int | None = None) -> None:
+        """exvectrnet-1: one DATA frame from node `src` (the sequence number counts up per (src, port))."""
+        if seq is None:
+            seq = self._seq.get((src, port), 0)
+            self._seq[(src, port)] = (seq + 1) & 0xFF
+        self.write_raw(net.stream_frame(net.net_data(src, dst, port, seq, payload)))
+
+    def send_heartbeat(self, src: int | None = None, **kw) -> None:
+        src = self.node if src is None else src
+        self.write_raw(net.stream_frame(net.net_heartbeat(src, role=src, **kw)))
 
     def send_console(self, text: str) -> None:
         self.write_raw(text.encode() + b"\n")
@@ -191,16 +252,20 @@ class FakeVehiclePty:
     def _tx_loop(self) -> None:
         t0 = time.monotonic()
         due = {name: 0.0 for name in self.rates}
+        hb_due = 0.0
         next_console = 0.0
         while not self._stop.is_set():
             sim_t = (time.monotonic() - t0) * self.speed
             out = bytearray()
             for name, rate in self.rates.items():
-                chan, pack = PACKERS[name]
                 while rate > 0 and due[name] <= sim_t:
-                    out += encode_frame(chan, pack(self.scenario.fields(name, due[name])))
+                    out += self._emit(name, due[name])
                     due[name] += 1.0 / rate
-            if self.console and next_console <= sim_t:
+            if self.profile == "exvectrnet-1":
+                while self.hb_hz > 0 and hb_due <= sim_t:
+                    out += self._heartbeats(hb_due)
+                    hb_due += 1.0 / self.hb_hz
+            if self.console and self.profile == "provisional-1" and next_console <= sim_t:
                 mode, _, phase = self.scenario.phase_at(sim_t)
                 out += f"[fake-vehicle] t={sim_t:.1f}s mode={mode.name} phase={phase.name}\n".encode()
                 next_console += 1.0
@@ -211,6 +276,64 @@ class FakeVehiclePty:
                     pass  # nobody reading yet (buffer full) or gone: drop, like a real USB CDC would
             time.sleep(0.005)
 
+    def _next_seq(self, src: int, port: int) -> int:
+        seq = self._seq.get((src, port), 0)
+        self._seq[(src, port)] = (seq + 1) & 0xFF
+        return seq
+
+    def _data(self, src: int, dst: int, port: int, payload: bytes) -> bytes:
+        return net.stream_frame(net.net_data(src, dst, port, self._next_seq(src, port), payload))
+
+    def _heartbeats(self, t: float) -> bytes:
+        nodes = (1,) if self.role == "vehicle" else (1, 2, 3)
+        ms = int(t * 1000)
+        return b"".join(
+            net.stream_frame(net.net_heartbeat(n, n, self.schema_hash, ms, self.net_version)) for n in nodes
+        )
+
+    def _emit(self, name: str, t: float) -> bytes:
+        """Wire bytes for the packet `name` (a key of NET_*_RATES, or a provisional-1 type) at sim time t."""
+        if self.profile == "provisional-1":
+            chan, pack = PACKERS[name]
+            return encode_frame(chan, pack(self.scenario.fields(name, t)))
+        sc = self.scenario
+        t_us = int(t * 1e6) & 0xFFFFFFFF
+        att, pos, gps = sc.fields("Attitude", t), sc.fields("Position", t), sc.fields("Gps", t)
+        vs, ms = sc.fields("VehicleState", t), sc.fields("MissionState", t)
+        src = 1
+        if name == "VEHICLE_STATUS":
+            pl = net.pack_vehicle_status(int(t * 1e9), vs, ms["mission_mode"], ms["mission_phase"])
+            return self._data(src, 0, net.PORT_VEHICLE_STATUS, pl)
+        if name == "POSE":
+            return self._data(src, 0, net.PORT_POSE, net.pack_pose(t_us, att, pos))
+        if name == "AIR_POSE":
+            return self._data(src, 0, net.PORT_AIR_POSE, net.pack_air_pose(t_us, att, pos))
+        if name == "ACTUATORS":
+            flaps = sc.fields("FlapState", t)["angle"]
+            vane = sc.fields("TvcState", t)["vane"]
+            pl = net.pack_actuators(t_us, flaps, [vane[0], vane[2]], vs["tvc_thrust"][2], vs["ground_dist"])
+            return self._data(src, 0, net.PORT_ACTUATORS, pl)
+        if name == "MISSION":
+            return self._data(src, 0, net.PORT_MISSION, net.pack_mission(t_us, ms))
+        if name == "GNSS":
+            return self._data(src, 0, net.PORT_GNSS, net.pack_gnss(t_us, gps))
+        if name == "HANDSET_TELEM":
+            return self._data(src, 0, net.PORT_HANDSET, net.pack_handset(vs, gps, att, vs["mode"].name[:8]))
+        if name == "IMU_RAW":
+            return self._data(src, 0, net.PORT_IMU, net.pack_imu(t_us, t))
+        if name == "ESTIMATOR":
+            return self._data(src, 0, net.PORT_ESTIMATOR, net.pack_estimator(t_us))
+        if name == "TASK_TIMING":
+            return self._data(src, 0, net.PORT_TIMING, net.pack_timing(t_us))
+        if name in ("LINK_STATS_TX", "LINK_STATS_RX"):
+            node = 2 if name.endswith("TX") else 3
+            pl = net.pack_link_stats(int(t * 1000), 3, 97 - node, -70 - node, 9, 0x10 | (node & 1), int(t * 25))
+            return self._data(node, 0xFF, net.PORT_LINK_STATS, pl)
+        if name == "POCKET_RC":  # the Pocket's RC state as the TX module forwards it
+            ch = [(c - 1500) * 2 for c in sc.handset_channels(t)]
+            return self._data(2, 1, net.PORT_RC_STATE, net.pack_rc_state(1, ch))
+        raise KeyError(name)
+
     def _rx_loop(self) -> None:
         while not self._stop.is_set():
             try:
@@ -218,11 +341,29 @@ class FakeVehiclePty:
             except (BlockingIOError, OSError):
                 time.sleep(0.005)
                 continue
+            if self.profile == "exvectrnet-1":
+                self._rx_net(data)
+                continue
             for item in self._rx.feed(data, time.monotonic_ns()):
                 if isinstance(item, Frame):
                     self.received.append(item)
                 elif isinstance(item, ConsoleText):
                     self.received_text.append(item.text)
+
+    def _rx_net(self, data: bytes) -> None:
+        """What the ground station sends: DATA frames, parsed with the independent decoder."""
+        for b in data:
+            if b:
+                self._rx_buf.append(b)
+                continue
+            raw, self._rx_buf = bytes(self._rx_buf), bytearray()
+            try:
+                f = net.parse_stream(net.cobs_decode(raw)) if raw else None
+            except ValueError:
+                f = None
+            if f and f["type"] == "data":
+                meta = {"src": f["src"], "dst": f["dst"], "seq": f["seq"], "ttl": f["ttl"]}
+                self.received.append(Frame(channel=f["port"], payload=f["payload"], t=time.monotonic_ns(), meta=meta))
 
 
 def main() -> None:
@@ -230,8 +371,10 @@ def main() -> None:
     ap.add_argument("--link", default="/tmp/exvectr-fake-vehicle", help="symlink to the pty slave")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--speed", type=float, default=1.0)
+    ap.add_argument("--profile", choices=["provisional-1", "exvectrnet-1"], default="provisional-1")
+    ap.add_argument("--role", choices=["vehicle", "txmodule"], default="vehicle", help="exvectrnet-1 only")
     args = ap.parse_args()
-    veh = FakeVehiclePty(args.link, seed=args.seed, speed=args.speed)
+    veh = FakeVehiclePty(args.link, seed=args.seed, speed=args.speed, profile=args.profile, role=args.role)
     veh.start()
     print(f"fake vehicle on {args.link} -> {os.ttyname(veh._slave)} (Ctrl-C to stop)")
     try:
