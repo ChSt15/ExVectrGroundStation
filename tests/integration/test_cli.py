@@ -13,7 +13,7 @@ def exgs(*args, timeout=30):
 
 
 def test_core_runs_with_fake_source_and_prints_summary():
-    r = exgs("core", "--config", "config/gs.example.toml", "--duration", "3")
+    r = exgs("core", "--config", "config/gs.example.toml", "--duration", "3", "--no-api")
     assert r.returncode == 0, r.stderr
     summary = [ln for ln in r.stdout.splitlines() if ln.startswith("fake:connected")]
     assert len(summary) >= 2 and "pkt/s" in summary[0] and "mode=" in summary[-1]
