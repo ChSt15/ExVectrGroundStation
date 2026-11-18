@@ -63,4 +63,6 @@ def build_source(cfg: SourceConfig, profile: WireProfile) -> Source:
         from .fake_source import FakeSource
 
         return FakeSource(cfg)
-    raise NotImplementedError(f"source kind {cfg.kind!r} (serial source) is implemented in task T5")
+    from .serial_source import SerialSource
+
+    return SerialSource(cfg, profile)

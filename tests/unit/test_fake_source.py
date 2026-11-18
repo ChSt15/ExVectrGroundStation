@@ -23,7 +23,9 @@ def test_build_source_and_caps():
     src = build_source(SourceConfig(id="f", kind="fake", rc_role="mirror"), load_profile("fake"))
     assert src.kind is SourceKind.FAKE and src.caps.rc_role == "mirror" and not src.caps.can_send
     assert asyncio.run(src.send(None)) is False  # type: ignore[arg-type]
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(
+        ConfigError
+    ):  # serial kinds need a `match` (serial source: tests/integration/test_serial_source.py)
         build_source(SourceConfig(id="u", kind="vehicle_usb"), load_profile("fake"))
 
 
