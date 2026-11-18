@@ -22,8 +22,7 @@ def test_fake_profile_contract():
 def test_unknown_profile():
     with pytest.raises(ProfileNotFound):
         load_profile("does-not-exist")
-    with pytest.raises(ProfileNotFound):
-        load_profile("provisional-1")  # arrives with T5
+    assert load_profile("provisional-1").name == "provisional-1"
 
 
 def test_stubs_raise_not_implemented(tmp_path):
