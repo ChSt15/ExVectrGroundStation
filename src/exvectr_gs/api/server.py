@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import ipaddress
 import json
 import logging
 import tomllib
@@ -25,6 +24,7 @@ from urllib.parse import urlsplit
 from aiohttp import WSMsgType, web
 
 from .. import __version__
+from ..core.hosts import is_control_host  # noqa: F401  (re-exported)
 from ..core.state import StateStore
 from ..packets import REGISTRY
 from ..rc.controller import ControlDenied
@@ -40,27 +40,6 @@ RC_PERIOD_S = 0.2
 CONFIG_NAMES = ("radio", "layout", "model")
 
 Handler = Callable[[Client, dict], Awaitable[Any]]
-
-
-def is_control_host(addr: str, control_hosts: list[str]) -> bool:
-    """True if the peer address is one of `control_hosts` (IPs, CIDR networks or `localhost`)."""
-    try:
-        ip = ipaddress.ip_address(addr)
-    except ValueError:
-        return False
-    if getattr(ip, "ipv4_mapped", None):
-        ip = ip.ipv4_mapped  # type: ignore[assignment]
-    for entry in control_hosts:
-        if entry == "localhost":
-            if ip.is_loopback:
-                return True
-            continue
-        try:
-            if ip in ipaddress.ip_network(entry, strict=False):
-                return True
-        except ValueError:
-            continue
-    return False
 
 
 def _resolve(path: str) -> Path:
@@ -486,7 +465,9 @@ class ApiServer:
     async def _op_rc_set(self, client: Client, msg: dict) -> dict:
         rc = self._need("rc", "RC control")
         values = P.parse_rc_set(msg)
-        st = await self._call(rc.set, self._rc_lease_id(client), values)
+        hold_s = P.parse_rc_hold(msg)
+        args = (self._rc_lease_id(client), values) if hold_s is None else (self._rc_lease_id(client), values, hold_s)
+        st = await self._call(rc.set, *args)
         return P.rc_status_json(st)
 
     def _client_gone(self, client: Client) -> None:

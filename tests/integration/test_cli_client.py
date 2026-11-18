@@ -124,10 +124,6 @@ def test_wait_bad_expression_and_usage_errors_exit_1(core):
 @pytest.mark.parametrize(
     "args",
     [
-        ("rc", "acquire", "--duration", "5"),
-        ("rc", "set", "SA=1"),
-        ("rc", "release"),
-        ("rc", "show"),
         ("sources", "enable", "fake"),
     ],
 )
@@ -136,6 +132,15 @@ def test_unimplemented_modules_report_not_implemented(core, args):
     assert r.returncode == 1, (args, r.stdout, r.stderr)
     (d,) = jl(r)
     assert d["ok"] is False and d["error"]["code"] == "not_implemented"
+
+
+def test_rc_without_control_source_is_denied(core):
+    """The shared core's only source has rc_role = none: no control source, so no lease (exit 3)."""
+    r = exgs(core, "rc", "acquire", "--duration", "5", "--json")
+    assert r.returncode == 3
+    assert jl(r)[0]["error"]["code"] == "control_denied"
+    assert exgs(core, "rc", "set", "SA=1").returncode == 3  # no lease
+    assert exgs(core, "rc", "show").returncode == 0
 
 
 @pytest.mark.parametrize(
