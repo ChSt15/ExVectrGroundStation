@@ -406,3 +406,37 @@ def test_independent_packers_decode_with_the_generated_module():
     assert rcs.ch == list(range(-8, 8)) and rcs.flags == 1
     hb = xp.Heartbeat.decode(net.net_heartbeat(1, 1, 0xABCD, 4000)[4:])
     assert (hb.schema_hash, hb.uptime, hb.role, hb.net_version) == (0xABCD, 4.0, 1, 1)
+
+
+def test_heartbeat_bytes_match_the_independent_encoder():
+    p = load_profile("exvectrnet-1")
+    f = p.encode_heartbeat(12.3456)
+    expect = net.stream_frame(net.net_heartbeat(0, 0, xp.SCHEMA_HASH, 12345, 1))
+    assert p.make_framer().encode(f) == expect
+    # the spec bytes: CTRL 0x56, TTL 3, DST broadcast, SRC 0, then the 11-byte payload
+    (back,) = fr.NetFramer().feed(expect, S)
+    assert back.channel == fr.HEARTBEAT_CHANNEL and len(back.payload) == 11
+    assert back.meta["ttl"] == 3 and back.meta["dst"] == 0xFF and back.meta["src"] == 0
+    assert back.meta["qos"] == 1 and back.meta["latest"] is True
+    hb = xp.Heartbeat.decode(back.payload)
+    assert hb.role == xp.HeartbeatRole.GROUND_STATION and hb.net_version == 1 and hb.flags == 0
+    assert hb.schema_hash == xp.SCHEMA_HASH and hb.uptime == pytest.approx(12.345)
+
+
+def test_heartbeat_uptime_wraps_like_u32_and_never_negative():
+    p = load_profile("exvectrnet-1")
+    assert xp.Heartbeat.decode(p.encode_heartbeat(-5.0).payload).uptime == 0
+    assert xp.Heartbeat.decode(p.encode_heartbeat(2**32 / 1000 + 1).payload).uptime == pytest.approx(1.0)
+
+
+def test_heartbeat_is_not_a_packet_and_does_not_disturb_rc_encoding():
+    p = load_profile("exvectrnet-1")
+    p.encode_heartbeat(1.0)
+    p.encode_heartbeat(2.0)
+    assert p.encode(rc()).meta["seq"] == 0  # heartbeats do not touch the RC sequence counter
+    assert p.encode_heartbeat(3.0).channel not in range(256)  # no DATA port: it can never be a control packet
+
+
+def test_other_profiles_have_no_heartbeat():
+    assert not hasattr(load_profile("provisional-1"), "encode_heartbeat")
+    assert not hasattr(load_profile("fake"), "encode_heartbeat")

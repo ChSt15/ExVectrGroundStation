@@ -20,7 +20,7 @@ from ...packets.defs.host import GsEvent, GsEventKind, RawFrame
 from ...packets.defs.link import NetworkStatus, RcOrigin, RcState
 from ..profile import Frame
 from . import mapping
-from .framing import HEARTBEAT_CHANNEL, NET_VERSION, NetFramer
+from .framing import BROADCAST, DEFAULT_TTL, HEARTBEAT_CHANNEL, NET_VERSION, NetFramer
 
 log = logging.getLogger(__name__)
 
@@ -144,7 +144,8 @@ class ExVectrNet1Profile:
     def encode(self, pkt: Packet) -> Frame | None:
         """Only RC_STATE with origin gs, addressed to the vehicle (node 1), which is the final
         destination whether the GS sits on the vehicle's USB or behind a TX module. Everything
-        else, including heartbeats, is not sent (design 1.4)."""
+        else is not sent (design 1.4). The ground station's own heartbeat is not a packet: it has its
+        own method, `encode_heartbeat`."""
         try:
             if REGISTRY.get(pkt.TYPE).direction is not Direction.UP:
                 return None
@@ -163,6 +164,22 @@ class ExVectrNet1Profile:
         self._tx_seq[GS_RC_PORT] = (seq + 1) & 0xFF
         meta = {"dst": NODE_VEHICLE, "seq": seq, "qos": R.QOS, "latest": R.LATEST}
         return Frame(channel=GS_RC_PORT, payload=payload, t=pkt.t, meta=meta)
+
+    def encode_heartbeat(self, uptime_s: float) -> Frame:
+        """The ground station's own heartbeat (network-design 4.5): role 0, network version, schema hash
+        of the generated module, uptime, flags 0. Broadcast, TTL 3, QoS LINK, LATEST (spec values,
+        from the generated class). It carries presence information only, never control data."""
+        H = xp.Heartbeat
+        ms = max(int(uptime_s * 1000), 0) & 0xFFFFFFFF
+        payload = H(
+            role=xp.HeartbeatRole.GROUND_STATION,
+            net_version=NET_VERSION,
+            schema_hash=xp.SCHEMA_HASH,
+            uptime=ms / 1000,
+            flags=0,
+        ).encode()
+        meta = {"dst": BROADCAST, "src": NODE_GS, "ttl": DEFAULT_TTL, "qos": H.QOS, "latest": H.LATEST}
+        return Frame(channel=HEARTBEAT_CHANNEL, payload=payload, t=0, meta=meta)
 
     def supported_types(self) -> set[str]:
         return set(mapping.PRODUCED_TYPES)

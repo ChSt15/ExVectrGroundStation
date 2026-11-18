@@ -145,12 +145,28 @@ class SerialSource(Source):
         frame = self._profile.encode(pkt)
         if frame is None:
             return False
-        data = self._framer.encode(frame)
+        return self._enqueue(conn, self._framer.encode(frame), drop_oldest=True)
+
+    async def send_heartbeat(self, uptime_s: float) -> bool:
+        """Queue the ground station's heartbeat (any rc_role: it is presence information, not control).
+
+        False if the source is down, the profile has no heartbeat, or the writer queue is full: a
+        heartbeat is dropped silently and never displaces or delays a queued frame, never blocks.
+        """
+        conn = self._conn
+        make = getattr(self._profile, "encode_heartbeat", None)
+        if conn is None or conn.stop.is_set() or not self.caps.can_send or make is None:
+            return False
+        return self._enqueue(conn, self._framer.encode(make(uptime_s)), drop_oldest=False)
+
+    def _enqueue(self, conn: _Conn, data: bytes, drop_oldest: bool) -> bool:
         while True:  # latest wins: when the port cannot keep up, the oldest queued frame is dropped
             try:
                 conn.tx.put_nowait(data)
                 break
             except queue.Full:
+                if not drop_oldest:
+                    return False
                 with contextlib.suppress(queue.Empty):
                     conn.tx.get_nowait()
         self._tx_frames += 1

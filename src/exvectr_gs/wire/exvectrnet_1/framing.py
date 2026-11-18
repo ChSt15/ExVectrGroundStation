@@ -128,8 +128,18 @@ class NetFramer:
         return frame
 
     def encode(self, frame: Frame) -> bytes:
-        """DATA frames only. `meta`: dst (default 1 = vehicle), seq, qos, latest, ttl, src."""
+        """DATA frames (`meta`: dst (default 1 = vehicle), seq, qos, latest, ttl, src) and heartbeats
+        (`channel == HEARTBEAT_CHANNEL`, `meta`: qos, latest, ttl, dst (default broadcast), src)."""
         m = frame.meta
+        if frame.channel == HEARTBEAT_CHANNEL:
+            hdr = struct.pack(
+                "<BBBB",
+                make_ctrl(TYPE_HEARTBEAT, int(m.get("qos", 1)), bool(m.get("latest", True))),
+                int(m.get("ttl", DEFAULT_TTL)),
+                int(m.get("dst", BROADCAST)),
+                int(m.get("src", self.node_id)),
+            )
+            return build_stream_frame(hdr + frame.payload)
         net = build_data_frame(
             src=int(m.get("src", self.node_id)),
             dst=int(m.get("dst", 1)),

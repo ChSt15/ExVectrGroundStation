@@ -93,7 +93,7 @@ def parse_stream(decoded: bytes) -> dict | None:
     if kind == 0 and len(f) >= 6:
         return {"type": "data", "src": src, "dst": dst, "ttl": ttl, "port": f[4], "seq": f[5], "payload": bytes(f[6:])}
     if kind == 1:
-        return {"type": "heartbeat", "src": src, "payload": bytes(f[4:])}
+        return {"type": "heartbeat", "src": src, "dst": dst, "ttl": ttl, "ctrl": ctrl, "payload": bytes(f[4:])}
     return None
 
 

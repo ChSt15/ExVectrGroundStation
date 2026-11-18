@@ -172,6 +172,11 @@ class FakeVehiclePty:
         self.console = console
         self.received: list[Frame] = []
         self.received_text: list[str] = []
+        # exvectrnet-1: heartbeats received from the ground station (dicts of `parse_stream`, with `t`),
+        # and what a TX module would pass on to its vehicle side (the router rule: node 0 heartbeats
+        # are dropped before the air link, everything else is forwarded).
+        self.received_heartbeats: list[dict] = []
+        self.forwarded: list[dict] = []
         self._lock = threading.Lock()
         self._master = -1
         self._slave = -1
@@ -243,6 +248,10 @@ class FakeVehiclePty:
     def send_heartbeat(self, src: int | None = None, **kw) -> None:
         src = self.node if src is None else src
         self.write_raw(net.stream_frame(net.net_heartbeat(src, role=src, **kw)))
+
+    def heartbeats_from(self, node: int = 0) -> list[dict]:
+        """Heartbeats received from `node` (default: the ground station), oldest first."""
+        return [h for h in self.received_heartbeats if h["src"] == node]
 
     def send_console(self, text: str) -> None:
         self.write_raw(text.encode() + b"\n")
@@ -361,6 +370,13 @@ class FakeVehiclePty:
                 f = net.parse_stream(net.cobs_decode(raw)) if raw else None
             except ValueError:
                 f = None
+            if f and f["type"] == "heartbeat":
+                f["t"] = time.monotonic_ns()
+                self.received_heartbeats.append(f)
+                if self.role != "txmodule" or f["src"] != 0:
+                    self.forwarded.append(f)
+            elif f and self.role == "txmodule":
+                self.forwarded.append(f)
             if f and f["type"] == "data":
                 meta = {"src": f["src"], "dst": f["dst"], "seq": f["seq"], "ttl": f["ttl"]}
                 self.received.append(Frame(channel=f["port"], payload=f["payload"], t=time.monotonic_ns(), meta=meta))

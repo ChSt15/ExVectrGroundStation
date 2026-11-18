@@ -53,6 +53,11 @@ class Source(ABC):
     async def send(self, pkt: Packet) -> bool:
         """False if not connected or not encodable."""
 
+    async def send_heartbeat(self, uptime_s: float) -> bool:
+        """Send the ground station's heartbeat (presence only, never control data) if this source
+        and its profile support it. Never blocks. Default: unsupported."""
+        return False
+
     @abstractmethod
     def status(self) -> SourceStatus: ...
 

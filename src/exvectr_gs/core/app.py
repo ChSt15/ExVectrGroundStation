@@ -25,6 +25,8 @@ from .state import StateStore
 
 log = logging.getLogger(__name__)
 
+HEARTBEAT_PERIOD_S = 1.0
+
 
 class CoreApp:
     def __init__(self, cfg: GsConfig, clock: Clock | None = None):
@@ -105,10 +107,26 @@ class CoreApp:
             parts.append(f"pos=[{x:.2f},{y:.2f},{z:.2f}]")
         return " | ".join(parts)
 
+    async def _heartbeat_loop(self) -> None:
+        """Ground-station heartbeat at 1 Hz to every connected source that supports it (any rc_role).
+
+        Independent of the RcController and of leases: nothing here reads RC state, and nothing in
+        the RC path reads this task. Presence information only (network-design Revision 1)."""
+        t0 = self.clock.now()
+        while True:
+            uptime = (self.clock.now() - t0) / 1e9
+            for s in self.sources:
+                try:
+                    await s.send_heartbeat(uptime)
+                except Exception:  # never let a source problem stop the others
+                    log.exception("heartbeat to %s failed", s.id)
+            await asyncio.sleep(HEARTBEAT_PERIOD_S)
+
     async def run(self, duration_s: float | None = None, summary=print, serve: bool = False) -> None:
         """Run all sources until cancelled (or `duration_s`), printing a 1 Hz summary. With `serve`,
         also run the API server on cfg.server.bind:port."""
         tasks = [asyncio.create_task(s.run(self.bus.publish), name=f"source-{s.id}") for s in self.sources]
+        tasks.append(asyncio.create_task(self._heartbeat_loop(), name="gs-heartbeat"))
         api = None
         try:
             if serve:

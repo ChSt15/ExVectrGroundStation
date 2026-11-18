@@ -50,6 +50,9 @@ class WireProfile(Protocol):
     def encode(self, pkt: Packet) -> Frame | None: ...  # None if this profile cannot send the type
     def supported_types(self) -> set[str]: ...
 
+    # Optional (looked up with getattr): `encode_heartbeat(uptime_s: float) -> Frame` builds the
+    # ground station's own heartbeat. Profiles without one (provisional-1, fake) send nothing.
+
 
 def decode_frame(profile: WireProfile, frame: Frame, src: str) -> list[Packet]:
     """All semantic packets of one frame. A profile may offer `decode_many(frame, src)` (one wire
