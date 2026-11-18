@@ -273,17 +273,21 @@ class History:
 class RecordingInfo: path: Path; name: str; started: int; stopped: int | None; packets: int; bytes: int
 
 class Recorder:
-    def __init__(self, directory: Path, registry: PacketRegistry, bus: Bus, meta: Mapping[str, str]): ...
+    def __init__(self, directory: Path, registry: PacketRegistry, bus: Bus, meta: Mapping[str, str], *,
+                 sources=(), clock=time.time_ns, flush_interval_ms=100, fsync_interval_ms=1000,
+                 on_error=None, opener=None, max_queue=500_000): ...   # keyword-only extras added in T2
     def start(self, label: str | None = None) -> RecordingInfo: ...   # new file, never overwrites; raises if already recording
     def stop(self) -> RecordingInfo | None: ...                        # flush, fsync, trailer
     def note(self, text: str) -> None: ...                             # publishes a Note packet (recorded if active)
-    def status(self) -> "RecorderStatus": ...                          # active, current info, last error, free disk
+    def source_connected(self, info: Mapping[str, str]) -> None: ...  # writes a #source line while recording
+    def status(self) -> "RecorderStatus": ...                          # active, info, last_error, free_bytes, dropped
 
 class LogReader:                                     # shared by Replayer, LogLibrary and `exgs log` tools
     def __init__(self, path: Path): ...
     def header(self) -> dict[str, str]: ...
     def iter_packets(self, start_offset: int = 0) -> Iterator[tuple[int, Packet]]: ...   # (byte offset, packet); skips a truncated last line
-    def build_index(self, keyframe_s: float = 1.0) -> "LogIndex": ...
+    def sources(self) -> list[dict[str, str]]: ...   # #source lines of the header block
+    def build_index(self, keyframe_s: float = 1.0, history_hz: float = 20.0) -> "LogIndex": ...
 
 @dataclass
 class LogInfo: name: str; path: Path; started: int; duration_s: float | None; size: int
@@ -364,7 +368,7 @@ directory = "~/exvectr-recordings"
 raw_frames = "unknown"                         # only undecodable frames (decision 10.1-2); "all" is not offered
 flush_interval_ms = 100
 fsync_interval_ms = 1000
-resume_after_crash = true                      # core restart while recording -> new file automatically
+# Recording starts and stops only by explicit user action (decision 10.1-3): no auto-start, no resume after a crash.
 
 [[source]]
 id = "usb"
@@ -450,8 +454,8 @@ Derived from today's telemetry (`flight-software/docs/project/hardware-and-drive
   - `#type ...`: written before the first packet of each type in the file. It lists version, fields and units, so a log documents itself even if the registry changes later.
   - `#end ...`: written on clean stop (stop time, packet count). Its absence marks an incomplete (crashed) recording, which stays fully readable up to its last complete line.
 - **Naming:** `<directory>/YYYY-MM-DD_HH-MM-SS[_label].exlog` in local time (e.g. `2026-11-18_14-03-12_hover-test.exlog`). The file is created with `open(path, "x")` (O_EXCL), so an existing file is never overwritten. On a collision (two starts in the same second) a suffix `-2`, `-3`, ... is added.
-- **Crash behaviour:** the writer thread writes lines as they come and calls `flush()` at least every `flush_interval_ms` (100 ms) and `os.fsync()` every `fsync_interval_ms` (1 s) and on stop. A core crash loses at most the last ~100 ms (unflushed user-space buffer). An OS crash or power loss loses at most ~1 s. The reader ignores a truncated final line. With `resume_after_crash`, the core keeps a state file (`recording.active`). If it finds one at start-up (crash, systemd restart), it starts a **new** recording automatically and writes `GsEvent kind=rec_start detail="resumed after crash"`. It never appends to the old file.
-- **Disk full / write error:** the recorder stops, emits an `event` (level error) to all clients, and the core keeps running.
+- **Crash behaviour:** the writer thread writes lines as they come and calls `flush()` at least every `flush_interval_ms` (100 ms) and `os.fsync()` every `fsync_interval_ms` (1 s) and on stop. A core crash loses at most the last ~100 ms (unflushed user-space buffer). An OS crash or power loss loses at most ~1 s. The reader ignores a truncated final line. After a crash the old file stays as it is (valid, readable up to its last complete line, no `#end`). The core does **not** start a recording by itself after a restart (decision 10.1-3): the user starts a new recording manually, which always goes to a new file. The recorder never appends to an old file.
+- **Disk full / write error:** the recorder stops, reports the error (`Recorder.status().last_error` and the `on_error` callback, which the API turns into an `event` of level error for all clients), and the core keeps running. The partial file stays valid. The user starts a new recording manually.
 - **Size estimate:** ~120 bytes/line. USB at 1500 packets/s ≈ 650 MB/h. Radio at ~60 packets/s ≈ 26 MB/h. Compression (`exgs log compress` → `.exlog.gz`, readable by `LogReader`) is a later tool.
 
 ### 3.4 Text line format
@@ -507,7 +511,7 @@ Example log (made-up values):
 
 ### 3.5 What gets recorded
 
-Everything on the LiveBus: all decoded packets from every live source, `RawFrame`, `ConsoleText`, `LinkStats`, `RadioLinkStats`, `RcState` from the handset (every packet) and from the GS (every change plus 1 Hz while sending, so the log shows exactly what was commanded without 25 Hz noise), `GsEvent` and `Note`. Replay packets are never recorded.
+Recording runs only between an explicit Start and Stop by the user (decision 10.1-3), never automatically, also not after a crash or restart. While it runs, everything on the LiveBus: all decoded packets from every live source, `RawFrame` (only frames the wire profile could not decode, decision 10.1-2; there is no option to record the raw bytes of every frame), `ConsoleText`, `LinkStats`, `RadioLinkStats`, `RcState` from the handset (every packet) and from the GS (every change plus 1 Hz while sending, so the log shows exactly what was commanded without 25 Hz noise), `GsEvent` and `Note`. Replay packets are never recorded.
 
 ### 3.6 Isolating the wire format
 
@@ -917,7 +921,7 @@ ground-station/
 - **Codec round trip (unit, property-based):** for every registered type, hypothesis-generated packets (including NaN, ±inf, None, extreme ints, unknown enum values, Unicode strings) satisfy `decode(encode(p)) == p` (NaN-aware equality). Golden-file test: a checked-in `.exlog` decodes to known values (catches accidental format changes).
 - **Wire profile (unit):** byte vectors for each legacy struct built from the documented layouts (e.g. a quaternion of `[1,0,0,0]` → `[32767,0,0,0]`), saturation, the GPS radians quirk. Framer: split and merged reads, garbage between frames, CRC errors, console text interleaving, resync.
 - **State store:** freshness transitions with a fake clock, EWMA interval, preferred-source fallback.
-- **Recorder:** never overwrites (pre-created files, same-second collisions), header/type/end lines, a crash simulation (kill a subprocess mid-write → the file is readable up to the last complete line, at most 100 ms lost), resume-after-crash creates a new file, disk-full error path (a small tmpfs or a mocked write).
+- **Recorder:** never overwrites (pre-created files, same-second collisions), header/type/end lines, a crash simulation (kill a subprocess mid-write → the file is readable up to the last complete line, at most 100 ms lost), a restart never auto-records or touches the old file (a new start creates a new file), disk-full error path (a small tmpfs or a mocked write).
 - **Replayer:** seek correctness (the state after a seek equals the state after a full sequential replay to the same t), speed, end-of-log, incomplete logs.
 - **RC controller:** no sending without a lease; lease expiry stops sending within one period; heartbeat loss; momentary auto-release; defaults after start; send rate ±5 %; only the control source receives; mirror/conflict detection; `control_hosts` denial.
 - **Integration:** core with `FakeSource` + a WebSocket client: subscribe/snapshot/packets, `latest` coalescing at a high rate, slow-client dropping without core stalls. Serial via `fake_vehicle_pty.py`, including reconnect.
@@ -965,8 +969,8 @@ T1 ──┬── T2 ──── T4 ──┐
 ### T2: Recorder, log reader, index, library
 - **Goal:** crash-tolerant recording and efficient log reading.
 - **Inputs:** §3.3–§3.5, T1 interfaces.
-- **Outputs:** `recording/` (Recorder with writer thread, naming, LogReader with truncated-line handling and `build_index` with keyframes and history preload, LogLibrary); resume-after-crash; `exgs log validate|stats|cat` (offline); `tools/make_sample_logs.py` (generates logs from FakeSource scenarios, including one without `FlapState` and one with dropouts); `docs/log-format.md`.
-- **Acceptance:** recorder tests in §8.2 pass (never overwrites, crash loses ≤ 100 ms, new file on resume, disk-full path); the index of a 1 h synthetic log builds in < 10 s on a laptop; `LogLibrary.list()` reports incomplete files correctly.
+- **Outputs:** `recording/` (Recorder with writer thread, naming, LogReader with truncated-line handling and `build_index` with keyframes and history preload, LogLibrary); `exgs log validate|stats|cat` (offline); `tools/make_sample_logs.py` (generates logs from FakeSource scenarios, including one without `FlapState` and one with dropouts); `docs/log-format.md`.
+- **Acceptance:** recorder tests in §8.2 pass (never overwrites, crash loses ≤ 100 ms, a new start after a crash makes a new file and leaves the old one untouched, disk-full path); the index of a 1 h synthetic log builds in < 10 s on a laptop; `LogLibrary.list()` reports incomplete files correctly.
 - **Depends on:** T1.
 
 ### T3: API server, hub and read-side CLI

@@ -15,7 +15,10 @@ ROOT = Path(__file__).parents[2]
 @pytest.fixture(scope="module")
 def core(tmp_path_factory):
     cfg = tmp_path_factory.mktemp("cfg") / "gs.toml"
-    cfg.write_text((ROOT / "config/gs.example.toml").read_text().replace('bind = "0.0.0.0"', 'bind = "127.0.0.1"'))
+    rec_dir = tmp_path_factory.mktemp("rec")
+    text = (ROOT / "config/gs.example.toml").read_text().replace('bind = "0.0.0.0"', 'bind = "127.0.0.1"')
+    text = text.replace('directory = "~/exvectr-recordings"', f'directory = "{rec_dir}"')
+    cfg.write_text(text)
     p = subprocess.Popen(
         [sys.executable, "-m", "exvectr_gs.cli.main", "core", "--config", str(cfg), "--port", "0", "--duration", "300"],
         cwd=ROOT,
@@ -121,10 +124,6 @@ def test_wait_bad_expression_and_usage_errors_exit_1(core):
 @pytest.mark.parametrize(
     "args",
     [
-        ("rec", "start", "--label", "x"),
-        ("rec", "stop"),
-        ("rec", "note", "hello"),
-        ("logs",),
         ("replay", "open", "x"),
         ("replay", "play"),
         ("replay", "speed", "2"),

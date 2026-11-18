@@ -22,7 +22,7 @@ The example config enables only the fake source, which runs a scripted flight (S
 | [packet-types.md](packet-types.md) | Packet types and fields | generated |
 | [wire-profiles.md](wire-profiles.md) | Wire profile and framer contract | T1 |
 | [testing.md](testing.md) | Test layers, fake source scenarios | T1 |
-| [log-format.md](log-format.md) | `.exlog` format (text codec is implemented, files in T2) | skeleton |
+| [log-format.md](log-format.md) | `.exlog` format, recorder, reader, index, library, `exgs log` tools | written (T2) |
 | [api.md](api.md) | WebSocket protocol and CLI | T3 |
 | [gui.md](gui.md) | GUI panels, 3D view | skeleton |
 | [radio.md](radio.md) | Virtual radio, leases | skeleton |

@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import dataclasses
 import json
+import tempfile
 import time
 from dataclasses import dataclass
 
@@ -31,6 +32,7 @@ def make_app(control_hosts=("127.0.0.1", "::1"), rates=None, **fake):
             "core": {"source_priority": ["fake"]},
             "server": {"bind": "127.0.0.1", "port": 1, "control_hosts": list(control_hosts)},
             "source": [{"id": "fake", "kind": "fake", **opts}],
+            "recorder": {"directory": tempfile.mkdtemp(prefix="exgs-test-rec-")},
         }
     )
     return CoreApp(cfg)
@@ -419,14 +421,10 @@ async def test_cross_origin_websocket_is_refused():
 # ---------------------------------------------------------------- modules that have not landed yet
 
 
-async def test_recording_replay_rc_are_not_implemented_without_modules():
+async def test_replay_rc_are_not_implemented_without_modules():
     async with running() as rig:
         c = await Client.connect(rig)
         for op, f in [
-            ("rec.start", {}),
-            ("rec.stop", {}),
-            ("rec.note", {"text": "x"}),
-            ("logs.list", {}),
             ("replay.open", {"name": "x"}),
             ("replay.play", {}),
             ("replay.seek", {"t": 1.0}),
@@ -437,24 +435,21 @@ async def test_recording_replay_rc_are_not_implemented_without_modules():
         ]:
             assert await c.err(op, **f) == "not_implemented", op
         st = await c.expect("status")
-        assert st["recorder"]["available"] is False and st["rc"] is None and st["replay"]["state"] == "closed"
+        assert st["recorder"]["available"] is True and st["rc"] is None and st["replay"]["state"] == "closed"
         await c.close()
 
 
-async def test_stub_modules_that_raise_not_implemented_map_to_the_error_code(tmp_path):
-    from exvectr_gs.recording.recorder import LogLibrary, Recorder
+async def test_stub_modules_that_raise_not_implemented_map_to_the_error_code():
     from exvectr_gs.replay.replayer import Replayer
 
     app = make_app()
-    app.recorder = Recorder(tmp_path, None, app.bus, {})  # T1 stubs
-    app.library = LogLibrary(tmp_path)
-    app.replayer = Replayer(app.library, app.bus, app.store, app.history)
+    app.replayer = Replayer(app.library, app.bus, app.store, app.history)  # T1 stub until T4 lands
     async with running(app) as rig:
         c = await Client.connect(rig)
-        for op, f in [("rec.start", {}), ("logs.list", {}), ("replay.open", {"name": "x"}), ("replay.play", {})]:
+        for op, f in [("replay.open", {"name": "x"}), ("replay.play", {})]:
             assert await c.err(op, **f) == "not_implemented", op
         st = await c.expect("status")
-        assert st["recorder"]["available"] is False and st["replay"]["available"] is False
+        assert st["recorder"]["available"] is True and st["replay"]["available"] is False
         await c.close()
 
 
