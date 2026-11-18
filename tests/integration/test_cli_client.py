@@ -124,9 +124,6 @@ def test_wait_bad_expression_and_usage_errors_exit_1(core):
 @pytest.mark.parametrize(
     "args",
     [
-        ("replay", "open", "x"),
-        ("replay", "play"),
-        ("replay", "speed", "2"),
         ("rc", "acquire", "--duration", "5"),
         ("rc", "set", "SA=1"),
         ("rc", "release"),
@@ -139,6 +136,19 @@ def test_unimplemented_modules_report_not_implemented(core, args):
     assert r.returncode == 1, (args, r.stdout, r.stderr)
     (d,) = jl(r)
     assert d["ok"] is False and d["error"]["code"] == "not_implemented"
+
+
+@pytest.mark.parametrize(
+    ("args", "code"),
+    [(("replay", "open", "x"), "not_found"), (("replay", "play"), "busy"), (("replay", "speed", "2"), None)],
+)
+def test_replay_without_open_log(core, args, code):
+    r = exgs(core, *args, "--json")
+    (d,) = jl(r)
+    if code is None:  # speed can be set before a log is open
+        assert d["ok"] is True
+    else:
+        assert r.returncode == 1 and d["error"]["code"] == code
 
 
 def test_sources_list(core):

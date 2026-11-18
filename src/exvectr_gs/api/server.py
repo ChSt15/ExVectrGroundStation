@@ -109,6 +109,7 @@ class ApiServer:
             "replay.pause": self._op_replay_simple("pause"),
             "replay.seek": self._op_replay_seek,
             "replay.speed": self._op_replay_speed,
+            "replay.markers": self._op_replay_markers,
             "rc.acquire": self._op_rc_acquire,
             "rc.release": self._op_rc_release,
             "rc.heartbeat": self._op_rc_heartbeat,
@@ -417,7 +418,7 @@ class ApiServer:
         async def handler(client: Client, msg: dict) -> dict:
             rp = self._need("replayer", "replay")
             await self._call(getattr(rp, method))
-            if method == "close":
+            if method in ("close", "play"):  # play from `ended` restarts at the beginning
                 self.replay_reset()
             return {}
 
@@ -430,6 +431,10 @@ class ApiServer:
         await self._call(rp.seek, P.ns(t))
         self.replay_reset()
         return {}
+
+    async def _op_replay_markers(self, client: Client, msg: dict) -> list:
+        rp = self._need("replayer", "replay")
+        return [{"t": m.t / 1e9, "kind": m.kind, "src": m.src, "label": m.label} for m in await self._call(rp.markers)]
 
     async def _op_replay_speed(self, client: Client, msg: dict) -> dict:
         rp = self._need("replayer", "replay")

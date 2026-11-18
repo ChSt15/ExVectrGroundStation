@@ -31,10 +31,11 @@ As in design 4.2. Additions and differences:
 | `get_snapshot` | Optional filters (extension): `types`, `src`, and `preferred: true` for one item per type chosen by the state store (highest-priority fresh source). Used by `exgs get`. |
 | `sources.enable` | The source is named by **`source`** (design: `id`), because `id` is the request id. The Source interface has no run-time enable yet: answers `not_implemented` unless a source provides `set_enabled(bool)` (T5). |
 | `rec.*`, `logs.list` | Call `app.recorder` / `app.library` (T2). `rec.start` while recording is `busy`, `rec.stop` while idle is `busy`. |
-| `replay.*` | Call `app.replayer` (T4). After `open`, `seek` and `close` the core sends a fresh `snapshot` for the replay view. |
+| `replay.*` | Call `app.replayer` (T4). After `open`, `seek`, `close` and `play` (which restarts from `ended`) the core sends a fresh `snapshot` for the replay view. `replay.play`, `pause` and `seek` with no log open (or still loading) answer `busy`; `open` of an unknown log is `not_found`; `replay.speed` may be set before a log is open. |
+| `replay.markers` | Extension (T4): returns `[{t, kind, src, label}]` (`kind` is `event`, `note` or `mode`; `t` in seconds) from the open log's index, for the scrubber markers. `[]` when nothing is open. |
 | `rc.*` | Thin pass-through to `app.rc` (T6), see "RC rules" below. |
 
-The server only looks at these optional attributes of the core application object: `recorder`, `library`, `replayer`, `rc`, `replay_bus`, `replay_store`, `replay_history` (the last three exist on `CoreApp` and are filled by T4). A missing attribute, or a module whose methods raise `NotImplementedError`, gives `not_implemented`.
+The server only looks at these optional attributes of the core application object: `recorder`, `library`, `replayer`, `rc`, `replay_bus`, `replay_store`, `replay_history` (`CoreApp` has all of them except `rc`; the replay ones are filled by the Replayer). A missing attribute, or a module whose methods raise `NotImplementedError`, gives `not_implemented`.
 
 What the modules must provide (contract for T2, T4, T6):
 
