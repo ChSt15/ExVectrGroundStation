@@ -33,6 +33,12 @@ registerPanel({
     });
     s2.append(table);
     b.row(s2, "Flaps enabled", { type: "FlapState", field: "enabled", kind: "bool", labels: ["no", "yes"] }, { tone: flagTone });
-    return { onTick: () => b.update(), onViewChange: () => b.update(), freshness: () => b.freshness() };
+    const noFlaps = h("div", { class: "hint", text: "flap data: none (3D view shows the default 45°)" });
+    s2.append(noFlaps);
+    const update = () => {
+      b.update();
+      noFlaps.hidden = !!ctx.store.get(ctx.view(), "FlapState");
+    };
+    return { onTick: update, onViewChange: update, freshness: () => b.freshness() };
   },
 });
