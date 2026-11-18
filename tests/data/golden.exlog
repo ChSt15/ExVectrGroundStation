@@ -1,0 +1,17 @@
+#exlog v=1
+#meta started=2026-11-18T14:03:12.481+01:00 gs=0.1.0 host=fieldpc profile=provisional-1 label=hover-test
+1763471000100000000 gs GsEvent kind=rec_start detail="manual"
+1763471000123456789 link Attitude omega=[0.0123,-0.0041,0.0007] q=[0.99981,0.0102,-0.0163,0.0021] tilt_acc=0.0035 north_acc=0.021
+1763471000125001000 link Position pos=[0.12,-0.31,2.47] vel=[0.02,-0.01,0.85] h_acc=0.4 v_acc=0.2
+1763471000130000000 link Gps lat=0.8996 lon=0.0 alt=102.47 vel=[0.02,-0.01,0.85] num_sats=12 pos_acc=1.5 alt_acc=2.0 vel_acc=0.1
+1763471000140220000 link VehicleState mode=Running sensor_gnss=Ready sensor_imu=Ready sensor_baro=Ready sensor_mag=Ready sensor_att_kf=Ready sensor_pos_kf=Ready fail_sensor=false fail_radio_loss=false sim=false armed=true tvc_thrust=[0.12,-0.05,11.8] tvc_torque=0.01
+1763471000150000000 link MissionState sp_vel=[0.0,0.0,0.5] sp_pos=[0.0,0.0,3.0] mission_mode=Running mission_phase=Ascent t_mission=4250000000 mission_index=0
+1763471000152000000 usb FlapState angle=[1.5707963267948966,0.2617993877991494,1.0,1.2] cmd=[1.5,0.3,1.0,1.2] enabled=true
+1763471000153000000 usb TvcState vane=[0.1,-0.1,0.0,0.05] motor=[0.4,0.4] enabled=true motors_enabled=true
+1763471000160000000 link RcState origin=handset ch_us=[1500,1500,1000,1500,2000,1000,1500,1000,1500,1500,1500,1500,1500,1500,1500,1500] seq=8812
+1763471000200000000 link RadioLinkStats rssi_dbm=[-71.0,-74.0] lq_pct=98.0 snr_db=9.5 up_hz=50.0 down_hz=48.0 antenna=0
+1763471000300000000 link LinkStats connected=true rx_bytes_s=8540.0 rx_frames_s=61.0 tx_frames_s=0.0 crc_errors=0 decode_errors=0 reconnects=0
+1763471000350000000 usb ConsoleText text="[teensy] sensor init done"
+1763471000412000000 link RawFrame channel=77 len=4 hex="0a1f00c8" err="unknown channel"
+1763471001000000000 gs Note text="gusts from the west, ~3 m/s"
+#end stopped=2026-11-18T14:21:40.002+01:00 packets=14
