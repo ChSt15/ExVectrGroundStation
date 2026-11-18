@@ -13,6 +13,8 @@ def test_all_section_3_2_types_registered():
     assert names == {
         "Attitude", "Position", "Gps", "VehicleState", "MissionState", "FlapState", "TvcState", "RcState",
         "RadioLinkStats", "LinkStats", "ConsoleText", "RawFrame", "GsEvent", "Note",
+            "VehicleStatus", "Actuators", "HandsetTelem", "ImuRaw", "Estimator", "TaskTiming", "TxModuleStats",
+            "RxModuleStats", "RequestAck", "NetworkStatus",
     }  # fmt: skip
 
 

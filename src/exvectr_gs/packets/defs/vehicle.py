@@ -44,6 +44,15 @@ class MissionPhase(IntEnum):
     Completed = 7
 
 
+class ControlSource(IntEnum):
+    """Active control source as applied by the vehicle (`ControlSource` in ExVectrPackets)."""
+
+    NONE = 0
+    RADIO = 1
+    USB = 2
+    UART = 3
+
+
 @packet(
     "Attitude",
     version=1,
@@ -80,7 +89,7 @@ class Position(Packet):
     direction=Direction.DOWN,
     nominal_rate_hz=1,
     history=False,
-    desc="GNSS fix. Legacy wire holds rad x 1e7 (known issue), decoded here as radians.",
+    desc="GNSS fix, lat/lon in radians (provisional-1: legacy wire holds rad x 1e7, a known issue).",
 )
 class Gps(Packet):
     lat: float = f(unit="rad")
@@ -88,6 +97,7 @@ class Gps(Packet):
     alt: float = f(unit="m")
     vel: list[float] = f(unit="m/s", labels=("x", "y", "z"))
     num_sats: int = f()
+    fix_type: int | None = f(desc="GNSS fix type as reported (exvectrnet-1 profile only)")
     pos_acc: float = f(unit="m")
     alt_acc: float = f(unit="m")
     vel_acc: float = f(unit="m/s")
@@ -167,3 +177,116 @@ class TvcState(Packet):
     motor: list[float] = f(unit="1", labels=("m1", "m2"), desc="0..1")
     enabled: bool = f()
     motors_enabled: bool = f()
+
+
+@packet(
+    "VehicleStatus",
+    version=1,
+    direction=Direction.DOWN,
+    nominal_rate_hz=5,
+    history=False,
+    desc="exvectrnet-1 VEHICLE_STATUS: what the vehicle applied (mode, control source, motor gate, failsafe).",
+)
+class VehicleStatus(Packet):
+    vehicle_time: int = f(unit="ns", kind="time_ns", desc="vehicle clock, not the host clock")
+    mode: VehicleMode = f()
+    mission_mode: MissionMode = f()
+    mission_phase: MissionPhase = f()
+    ctrl_source: ControlSource = f(desc="active control source as applied by the vehicle")
+    armed: bool = f(desc="applied arm state")
+    simulation: bool = f()
+    motors_enabled: bool = f(desc="the hard motor gate is currently open")
+    gs_present: bool = f()
+    incompatible: bool = f(desc="vehicle reports a version or schema mismatch")
+    failsafe: bool = f()
+    failure_bits: int = f()
+    sensor_state: int = f(desc="bit field, numbering owned by the flight software")
+    last_req_id: int = f(desc="last executed REQUEST id, 0 = none")
+    last_req_status: int = f()
+    rc_age: float | None = f(unit="s", desc="age of the last accepted RC_STATE on the vehicle, NaN = none")
+
+
+@packet(
+    "Actuators",
+    version=1,
+    direction=Direction.DOWN,
+    nominal_rate_hz=10,
+    history=True,
+    desc="exvectr_packets ACTUATORS: flap angles, TVC deflection, thrust, ground distance.",
+)
+class Actuators(Packet):
+    flaps: list[float] = f(unit="rad", labels=("tl", "tr", "bl", "br"), desc="0 = extended, increasing = folded")
+    tvc: list[float] = f(unit="rad", labels=("x", "y"), desc="thrust vector deflection")
+    thrust: float = f(unit="N")
+    ground_distance: float = f(unit="m", desc="NaN if unavailable")
+
+
+@packet(
+    "HandsetTelem",
+    version=1,
+    direction=Direction.DOWN,
+    nominal_rate_hz=2,
+    history=False,
+    desc="Display-ready values the vehicle sends for the handset (HANDSET_TELEM), shown as sent.",
+)
+class HandsetTelem(Packet):
+    armed: bool = f()
+    failure: bool = f()
+    simulation: bool = f()
+    gnss_fix: bool = f()
+    mode_text: str = f()
+    latitude: float = f(unit="rad")
+    longitude: float = f(unit="rad")
+    ground_speed: float = f(unit="m/s")
+    heading: float = f(unit="rad")
+    altitude: float = f(unit="m", desc="above the reference")
+    satellites: int = f()
+    vertical_speed: float = f(unit="m/s")
+    pitch: float = f(unit="rad")
+    roll: float = f(unit="rad")
+    yaw: float = f(unit="rad")
+    battery: float = f(unit="V", desc="NaN = unknown")
+
+
+@packet(
+    "ImuRaw",
+    version=1,
+    direction=Direction.DOWN,
+    nominal_rate_hz=100,
+    history=False,
+    desc="Debug set (USB only): raw sensor values.",
+)
+class ImuRaw(Packet):
+    gyro: list[float] = f(unit="rad/s", labels=("x", "y", "z"))
+    accel: list[float] = f(unit="m/s^2", labels=("x", "y", "z"))
+    mag: list[float] = f(unit="T", labels=("x", "y", "z"))
+    pressure: float = f(unit="Pa")
+    temperature: float = f(unit="K")
+
+
+@packet(
+    "Estimator",
+    version=1,
+    direction=Direction.DOWN,
+    nominal_rate_hz=20,
+    history=False,
+    desc="Debug set (USB only): estimator accuracy as standard deviations.",
+)
+class Estimator(Packet):
+    att_std: list[float] = f(unit="rad", labels=("x", "y", "z"))
+    vel_std: list[float] = f(unit="m/s", labels=("x", "y", "z"))
+    pos_std: list[float] = f(unit="m", labels=("x", "y", "z"))
+
+
+@packet(
+    "TaskTiming",
+    version=1,
+    direction=Direction.DOWN,
+    nominal_rate_hz=5,
+    history=False,
+    desc="Debug set (USB only): execution time of the first scheduler tasks (NaN = invalid entry).",
+)
+class TaskTiming(Packet):
+    count: int = f(desc="number of valid entries, at most 8")
+    avg: list[float] = f(unit="s", length=8)
+    max: list[float] = f(unit="s", length=8)

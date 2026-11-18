@@ -16,6 +16,7 @@ class GsEventKind(IntEnum):
     lease_released = 5
     lease_expired = 6
     replay_note = 7
+    link_warning = 8
 
 
 @packet(

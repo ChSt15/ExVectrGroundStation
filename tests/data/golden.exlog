@@ -14,4 +14,14 @@
 1763471000350000000 usb ConsoleText text="[teensy] sensor init done"
 1763471000412000000 link RawFrame channel=77 len=4 hex="0a1f00c8" err="unknown channel"
 1763471001000000000 gs Note text="gusts from the west, ~3 m/s"
-#end stopped=2026-11-18T14:21:40.002+01:00 packets=14
+1763471001100000000 usb VehicleStatus vehicle_time=123456789012 mode=Running mission_mode=Running mission_phase=Ascent ctrl_source=USB armed=true simulation=true motors_enabled=false gs_present=true incompatible=false failsafe=false failure_bits=0 sensor_state=5 last_req_id=7 last_req_status=0 rc_age=0.04
+1763471001100001000 usb Actuators flaps=[0.1,0.2,0.3,0.4] tvc=[0.01,-0.02] thrust=11.8 ground_distance=nan
+1763471001100002000 link HandsetTelem armed=true failure=false simulation=true gnss_fix=true mode_text="RUN" latitude=0.8996 longitude=0.0 ground_speed=1.5 heading=1.2 altitude=102.0 satellites=12 vertical_speed=0.5 pitch=0.01 roll=-0.02 yaw=1.2 battery=nan
+1763471001100003000 usb ImuRaw gyro=[0.01,0.02,0.03] accel=[0.0,0.1,9.81] mag=[2e-05,0.0,4e-05] pressure=101325.0 temperature=293.15
+1763471001100004000 usb Estimator att_std=[0.01,0.01,0.02] vel_std=[0.1,0.1,0.1] pos_std=[0.5,0.5,0.8]
+1763471001100005000 usb TaskTiming count=2 avg=[0.0001,0.0002,nan,nan,nan,nan,nan,nan] max=[0.0002,0.0003,nan,nan,nan,nan,nan,nan]
+1763471001100006000 link TxModuleStats module_uptime=100.5 air_state=3 rx_lq=97 rssi=-71 snr=9 tx_power=10 rx_antenna=1 tx_antenna=0 air_rx_ok=1000 air_rx_bad=3 frames_dropped=0 frames_expired=1 queue_peak=12
+1763471001100007000 link RxModuleStats module_uptime=99.5 air_state=3 rx_lq=95 rssi=-73 snr=8 tx_power=10 rx_antenna=0 tx_antenna=1 air_rx_ok=990 air_rx_bad=4 frames_dropped=0 frames_expired=0 queue_peak=9
+1763471001100008000 usb RequestAck req_id=258 status=0 detail=0
+1763471001100009000 usb NetworkStatus node=1 role=1 net_version=1 schema_hash=2077240843 uptime=12.5 present=[0,1,0,0] age=[nan,0.2,nan,nan] incompatible=false local_schema_hash=2077240843 detail=""
+#end stopped=2026-11-18T14:21:40.002+01:00 packets=24

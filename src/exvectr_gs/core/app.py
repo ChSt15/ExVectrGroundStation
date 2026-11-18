@@ -69,9 +69,9 @@ class CoreApp:
     def _profile(self, needed: bool) -> WireProfile:
         try:
             return load_profile(self.cfg.core.wire_profile)
-        except ProfileNotFound:
+        except (ProfileNotFound, ModuleNotFoundError) as e:  # the latter: a submodule is not checked out
             if needed:
-                raise ConfigError(f"wire profile {self.cfg.core.wire_profile!r} not available") from None
+                raise ConfigError(f"wire profile {self.cfg.core.wire_profile!r} not available: {e}") from None
             log.info(
                 "wire profile %r not available yet, using 'fake' (no serial source enabled)",
                 self.cfg.core.wire_profile,

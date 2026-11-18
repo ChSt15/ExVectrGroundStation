@@ -34,7 +34,7 @@ Version 1, direction `down`, nominal rate 10 Hz, history: yes.
 
 ## Gps
 
-GNSS fix. Legacy wire holds rad x 1e7 (known issue), decoded here as radians.
+GNSS fix, lat/lon in radians (provisional-1: legacy wire holds rad x 1e7, a known issue).
 
 Version 1, direction `down`, nominal rate 1 Hz, history: no.
 
@@ -45,6 +45,7 @@ Version 1, direction `down`, nominal rate 1 Hz, history: no.
 | `alt` | float | m |  |
 | `vel` | float_array[3] | m/s | Elements: x, y, z. |
 | `num_sats` | int | - |  |
+| `fix_type` | int | - | GNSS fix type as reported (exvectrnet-1 profile only) |
 | `pos_acc` | float | m |  |
 | `alt_acc` | float | m |  |
 | `vel_acc` | float | m/s |  |
@@ -117,17 +118,120 @@ Version 1, direction `down`, nominal rate 10 Hz, history: yes.
 | `enabled` | bool | - |  |
 | `motors_enabled` | bool | - |  |
 
+## VehicleStatus
+
+exvectrnet-1 VEHICLE_STATUS: what the vehicle applied (mode, control source, motor gate, failsafe).
+
+Version 1, direction `down`, nominal rate 5 Hz, history: no.
+
+| Field | Kind | Unit | Description |
+|---|---|---|---|
+| `vehicle_time` | time_ns | ns | vehicle clock, not the host clock |
+| `mode` | enum (VehicleMode: Startup=0, SensorInit=1, SensorCalib=2, Ready=3, Running=4, Failure=5) | - |  |
+| `mission_mode` | enum (MissionMode: Idle=0, Initialisation=1, Startup=2, Running=3, Finished=4) | - |  |
+| `mission_phase` | enum (MissionPhase: Idle=0, Hover=1, Ascent=2, Descent=3, Deceleration=4, RTH=5, Landing=6, Completed=7) | - |  |
+| `ctrl_source` | enum (ControlSource: NONE=0, RADIO=1, USB=2, UART=3) | - | active control source as applied by the vehicle |
+| `armed` | bool | - | applied arm state |
+| `simulation` | bool | - |  |
+| `motors_enabled` | bool | - | the hard motor gate is currently open |
+| `gs_present` | bool | - |  |
+| `incompatible` | bool | - | vehicle reports a version or schema mismatch |
+| `failsafe` | bool | - |  |
+| `failure_bits` | int | - |  |
+| `sensor_state` | int | - | bit field, numbering owned by the flight software |
+| `last_req_id` | int | - | last executed REQUEST id, 0 = none |
+| `last_req_status` | int | - |  |
+| `rc_age` | float | s | age of the last accepted RC_STATE on the vehicle, NaN = none |
+
+## Actuators
+
+exvectr_packets ACTUATORS: flap angles, TVC deflection, thrust, ground distance.
+
+Version 1, direction `down`, nominal rate 10 Hz, history: yes.
+
+| Field | Kind | Unit | Description |
+|---|---|---|---|
+| `flaps` | float_array[4] | rad | 0 = extended, increasing = folded Elements: tl, tr, bl, br. |
+| `tvc` | float_array[2] | rad | thrust vector deflection Elements: x, y. |
+| `thrust` | float | N |  |
+| `ground_distance` | float | m | NaN if unavailable |
+
+## HandsetTelem
+
+Display-ready values the vehicle sends for the handset (HANDSET_TELEM), shown as sent.
+
+Version 1, direction `down`, nominal rate 2 Hz, history: no.
+
+| Field | Kind | Unit | Description |
+|---|---|---|---|
+| `armed` | bool | - |  |
+| `failure` | bool | - |  |
+| `simulation` | bool | - |  |
+| `gnss_fix` | bool | - |  |
+| `mode_text` | str | - |  |
+| `latitude` | float | rad |  |
+| `longitude` | float | rad |  |
+| `ground_speed` | float | m/s |  |
+| `heading` | float | rad |  |
+| `altitude` | float | m | above the reference |
+| `satellites` | int | - |  |
+| `vertical_speed` | float | m/s |  |
+| `pitch` | float | rad |  |
+| `roll` | float | rad |  |
+| `yaw` | float | rad |  |
+| `battery` | float | V | NaN = unknown |
+
+## ImuRaw
+
+Debug set (USB only): raw sensor values.
+
+Version 1, direction `down`, nominal rate 100 Hz, history: no.
+
+| Field | Kind | Unit | Description |
+|---|---|---|---|
+| `gyro` | float_array[3] | rad/s | Elements: x, y, z. |
+| `accel` | float_array[3] | m/s^2 | Elements: x, y, z. |
+| `mag` | float_array[3] | T | Elements: x, y, z. |
+| `pressure` | float | Pa |  |
+| `temperature` | float | K |  |
+
+## Estimator
+
+Debug set (USB only): estimator accuracy as standard deviations.
+
+Version 1, direction `down`, nominal rate 20 Hz, history: no.
+
+| Field | Kind | Unit | Description |
+|---|---|---|---|
+| `att_std` | float_array[3] | rad | Elements: x, y, z. |
+| `vel_std` | float_array[3] | m/s | Elements: x, y, z. |
+| `pos_std` | float_array[3] | m | Elements: x, y, z. |
+
+## TaskTiming
+
+Debug set (USB only): execution time of the first scheduler tasks (NaN = invalid entry).
+
+Version 1, direction `down`, nominal rate 5 Hz, history: no.
+
+| Field | Kind | Unit | Description |
+|---|---|---|---|
+| `count` | int | - | number of valid entries, at most 8 |
+| `avg` | float_array[8] | s |  |
+| `max` | float_array[8] | s |  |
+
 ## RcState
 
-RC channel state. Sent by the GS (origin gs) or mirrored from the handset via the TX module.
+RC channel state. Sent by the GS (origin gs) or mirrored from the handset via the TX module. ch_us 0 = channel not provided (exvectrnet-1).
 
 Version 1, direction `up`, nominal rate 25 Hz, history: no.
 
 | Field | Kind | Unit | Description |
 |---|---|---|---|
 | `origin` | enum (RcOrigin: gs=0, handset=1) | - |  |
-| `ch_us` | int_array[16] | us | channel pulse widths, 1000-2000 |
-| `seq` | int | - |  |
+| `ch_us` | int_array[16] | us | channel pulse widths, 1000-2000 (wire -1000..1000 maps to 1000..2000) |
+| `seq` | int | - | wire sequence number (exvectrnet-1) or the sender's counter (provisional-1) |
+| `flags` | int | - | generic flag byte of the wire packet (exvectrnet-1), as sent or received |
+| `source_ok` | bool | - | SOURCE_OK flag: the input is fresh (exvectrnet-1) |
 
 ## RadioLinkStats
 
@@ -143,6 +247,81 @@ Version 1, direction `down`, nominal rate 2 Hz, history: no.
 | `up_hz` | float | Hz |  |
 | `down_hz` | float | Hz |  |
 | `antenna` | int | - |  |
+
+## TxModuleStats
+
+LINK_STATS from the TX module (node 2). Also fills RadioLinkStats.
+
+Version 1, direction `down`, nominal rate 2 Hz, history: no.
+
+| Field | Kind | Unit | Description |
+|---|---|---|---|
+| `module_uptime` | float | s |  |
+| `air_state` | int | - | 0 off, 1 searching, 2 syncing, 3 synced |
+| `rx_lq` | int | % | valid air packets in the last 1 s, percent of expected |
+| `rssi` | int | dBm | of the last valid packet |
+| `snr` | int | dB | of the last valid packet |
+| `tx_power` | int | dBm |  |
+| `rx_antenna` | int | - | RX winner |
+| `tx_antenna` | int | - |  |
+| `air_rx_ok` | int | - | cumulative, wraps at 65536 |
+| `air_rx_bad` | int | - | cumulative, wraps at 65536 |
+| `frames_dropped` | int | - | queue full, cumulative |
+| `frames_expired` | int | - | cumulative |
+| `queue_peak` | int | % | peak queue fill in the last 1 s |
+
+## RxModuleStats
+
+LINK_STATS from the vehicle RX module (node 3), forwarded by the TX module.
+
+Version 1, direction `down`, nominal rate 2 Hz, history: no.
+
+| Field | Kind | Unit | Description |
+|---|---|---|---|
+| `module_uptime` | float | s |  |
+| `air_state` | int | - | 0 off, 1 searching, 2 syncing, 3 synced |
+| `rx_lq` | int | % | valid air packets in the last 1 s, percent of expected |
+| `rssi` | int | dBm | of the last valid packet |
+| `snr` | int | dB | of the last valid packet |
+| `tx_power` | int | dBm |  |
+| `rx_antenna` | int | - | RX winner |
+| `tx_antenna` | int | - |  |
+| `air_rx_ok` | int | - | cumulative, wraps at 65536 |
+| `air_rx_bad` | int | - | cumulative, wraps at 65536 |
+| `frames_dropped` | int | - | queue full, cumulative |
+| `frames_expired` | int | - | cumulative |
+| `queue_peak` | int | % | peak queue fill in the last 1 s |
+
+## RequestAck
+
+Vehicle acknowledgement of a REQUEST (status 0 done, 1 in progress, 2 rejected state, 3 invalid, 4 failed).
+
+Version 1, direction `down`, nominal rate n/a, history: no.
+
+| Field | Kind | Unit | Description |
+|---|---|---|---|
+| `req_id` | int | - |  |
+| `status` | int | - |  |
+| `detail` | int | - |  |
+
+## NetworkStatus
+
+Node presence and version check from ExVectrNetwork heartbeats (exvectrnet-1), one per heartbeat.
+
+Version 1, direction `down`, nominal rate 3 Hz, history: no.
+
+| Field | Kind | Unit | Description |
+|---|---|---|---|
+| `node` | int | - | sender of this heartbeat |
+| `role` | int | - | 0 ground station, 1 vehicle, 2 link TX, 3 link RX |
+| `net_version` | int | - |  |
+| `schema_hash` | int | - | sender's schema hash |
+| `uptime` | float | s |  |
+| `present` | int_array[4] | - | 1 = a valid frame within 3 s Elements: gs, vehicle, tx, rx. |
+| `age` | float_array[4] | s | NaN = never seen Elements: gs, vehicle, tx, rx. |
+| `incompatible` | bool | - | any present node has another network version or schema hash than this GS |
+| `local_schema_hash` | int | - | schema hash of the exvectr_packets this GS was built with |
+| `detail` | str | - | what differs, empty if compatible |
 
 ## LinkStats
 
@@ -191,7 +370,7 @@ Version 1, direction `local`, nominal rate n/a, history: no.
 
 | Field | Kind | Unit | Description |
 |---|---|---|---|
-| `kind` | enum (GsEventKind: rec_start=0, rec_stop=1, source_up=2, source_down=3, lease_acquired=4, lease_released=5, lease_expired=6, replay_note=7) | - |  |
+| `kind` | enum (GsEventKind: rec_start=0, rec_stop=1, source_up=2, source_down=3, lease_acquired=4, lease_released=5, lease_expired=6, replay_note=7, link_warning=8) | - |  |
 | `detail` | str | - |  |
 
 ## Note
