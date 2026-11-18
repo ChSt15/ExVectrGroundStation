@@ -19,7 +19,7 @@ The ground station **never makes control, mission or safety decisions** for the 
 
 Keep the layers strict so each can be replaced later: source -> framer / wire profile -> packet registry -> codec -> bus / state store -> API -> panels. **Wire-format knowledge lives only in a wire profile plug-in.** Everything above it sees semantic `Packet` objects. Logs are semantic text and stay readable after the wire format changes.
 
-Status: T1, T2 and T3 done (packet model and fake source; recorder, log reader/index/library and the offline `exgs log` tools; API server and read-side CLI). Unimplemented interfaces (Replayer, RcController) are stubs that raise `NotImplementedError` until their task lands.
+Status: T1, T2, T3 and T7 done (packet model and fake source; recorder, log reader/index/library and the offline `exgs log` tools; API server and read-side CLI; GUI shell and data panels, `docs/gui.md`). Unimplemented interfaces (Replayer, RcController) are stubs that raise `NotImplementedError` until their task lands.
 
 ## Setup and commands
 
@@ -28,6 +28,7 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'     # Python 3.11+
 .venv/bin/pytest                                               # all tests
 .venv/bin/ruff check src tests tools && .venv/bin/ruff format --check src tests tools
 .venv/bin/exgs core --config config/gs.example.toml            # fake source, 1 Hz summary (Ctrl-C to stop)
+.venv/bin/python tools/run_js_tests.py                         # GUI unit tests (node --test, or headless Chromium if node is missing)
 .venv/bin/exgs status --json                                   # client commands talk to the running core (docs/api.md)
 .venv/bin/exgs schema --markdown > docs/packet-types.md        # regenerate after changing packet types
 ```

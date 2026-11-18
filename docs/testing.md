@@ -15,6 +15,7 @@ Strategy: design section 8.2. Run everything with `.venv/bin/pytest`; lint with 
 | Log reader, index, library | `tests/unit/test_logfile.py` | Truncated last line, bad lines, offsets, gzip, keyframes and seek, gaps, markers, history, index of a 1 h synthetic log (about 1 M lines) in under 10 s, `LogLibrary.list()` for complete, crashed and foreign files. |
 | `exgs log` | `tests/integration/test_log_cli.py` | validate (ok, incomplete, corrupt, miscount), stats (text, JSON), cat filters, `CoreApp.recorder` does not auto-record. |
 | CLI | `tests/integration/test_cli.py` | `exgs core` against the fake source, `exgs schema`, `docs/packet-types.md` is current. |
+| GUI | `web/test/*.test.js`, `tests/integration/test_gui.py` | `fmt` (freshness states, units, NaN markers, derived values, quaternion maths), store and view clock, layout validation and presets, reconnect backoff: `node --test web/test`, or `tools/run_js_tests.py` (same files in headless Chromium when node is missing). Static checks of `web/` (panel registration, imports resolve, layout names registered panels, no external resources). Browser smoke test against the core with the fake source: panels show fresh values with source tags, a dropout turns values stale with an age, LIVE/REPLAY switch, phone width without horizontal scroll, record start/stop. Browser tests skip without Chromium or Chrome. |
 
 ## Fake source scenarios
 
