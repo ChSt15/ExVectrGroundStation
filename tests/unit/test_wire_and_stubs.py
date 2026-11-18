@@ -4,7 +4,7 @@ from exvectr_gs.api import ApiServer
 from exvectr_gs.core import Bus, History, StateStore
 from exvectr_gs.packets import REGISTRY
 from exvectr_gs.rc import RadioConfig, RcController
-from exvectr_gs.recording import LogLibrary, LogReader, Recorder
+from exvectr_gs.recording import LogLibrary
 from exvectr_gs.replay import Replayer
 from exvectr_gs.wire import Frame, ProfileNotFound, load_profile
 
@@ -29,14 +29,10 @@ def test_unknown_profile():
 
 def test_stubs_raise_not_implemented(tmp_path):
     bus = Bus()
-    rec = Recorder(tmp_path, REGISTRY, bus, {})
-    reader = LogReader(tmp_path / "x.exlog")
     lib = LogLibrary(tmp_path)
     rp = Replayer(lib, bus, StateStore(REGISTRY, []), History(REGISTRY))
     rc = RcController(RadioConfig(), [], bus)
     calls = [
-        lambda: rec.start(), lambda: rec.stop(), lambda: rec.note("x"), lambda: rec.status(),
-        lambda: reader.header(), lambda: reader.iter_packets(), lambda: reader.build_index(), lambda: lib.list(),
         lambda: rp.close(), lambda: rp.play(), lambda: rp.pause(), lambda: rp.seek(0), lambda: rp.set_speed(1),
         lambda: rp.status(),
         lambda: rc.acquire("me", "timed", 1.0), lambda: rc.release("x"), lambda: rc.heartbeat("x"),

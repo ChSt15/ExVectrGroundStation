@@ -8,7 +8,7 @@ from typing import Literal
 from ..core.bus import Bus
 from ..core.history import History
 from ..core.state import StateStore
-from ..recording.recorder import LogInfo, LogLibrary
+from ..recording import LogInfo, LogLibrary
 
 _T4 = "implemented in task T4"
 

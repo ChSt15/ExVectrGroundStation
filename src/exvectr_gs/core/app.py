@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import logging
+import platform
 from collections import Counter
+from pathlib import Path
 
+from .. import __version__
 from ..packets import REGISTRY
 from ..packets.defs.vehicle import MissionState, VehicleState
+from ..recording import Recorder
 from ..sources import Source, build_source
 from ..wire import ProfileNotFound, WireProfile, load_profile
 from .bus import Bus
@@ -33,6 +38,24 @@ class CoreApp:
         enabled = [s for s in cfg.sources if s.enabled]
         profile = self._profile(any(s.kind != "fake" for s in enabled))
         self.sources: list[Source] = [build_source(s, profile) for s in enabled]
+        # Recording starts only by explicit user action (decision 10.1-3): nothing is opened here.
+        self.recorder = Recorder(
+            Path(cfg.recorder.directory).expanduser(),
+            REGISTRY,
+            self.bus,
+            {
+                "gs": __version__,
+                "host": platform.node() or "unknown",
+                "profile": cfg.core.wire_profile,
+                "config": hashlib.sha1(repr(cfg).encode()).hexdigest()[:12],
+            },
+            sources=[
+                {"id": s.id, "kind": s.kind, "device": s.match.get("device", ""), "rc_role": s.rc_role} for s in enabled
+            ],
+            clock=self.clock.now,
+            flush_interval_ms=cfg.recorder.flush_interval_ms,
+            fsync_interval_ms=cfg.recorder.fsync_interval_ms,
+        )
 
     def _profile(self, needed: bool) -> WireProfile:
         try:
