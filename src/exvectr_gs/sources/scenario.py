@@ -1,0 +1,212 @@
+"""Deterministic scripted flight used by the fake source and the fake vehicle (design section 6.5).
+
+Pure functions of simulation time `t` (seconds) and a seed: no state, no RNG calls, so the same
+(seed, t) always gives the same values. NWU world frame, quaternion body -> world.
+"""
+
+from __future__ import annotations
+
+import math
+import random
+from typing import Any
+
+from ..packets.defs.vehicle import MissionMode, MissionPhase, SensorState, VehicleMode
+
+T_READY = 2.0
+T_START = 4.0  # mission begins (Hover)
+T_ASCENT = 6.0
+T_DESCENT = 16.0
+T_LANDING = 26.0
+T_DONE = 30.0
+G = 9.81
+
+# (start time, vehicle mode, mission mode, mission phase)
+TIMELINE = [
+    (0.0, VehicleMode.Startup, MissionMode.Idle, MissionPhase.Idle),
+    (1.0, VehicleMode.SensorInit, MissionMode.Idle, MissionPhase.Idle),
+    (T_READY, VehicleMode.Ready, MissionMode.Idle, MissionPhase.Idle),
+    (T_START, VehicleMode.Running, MissionMode.Running, MissionPhase.Hover),
+    (T_ASCENT, VehicleMode.Running, MissionMode.Running, MissionPhase.Ascent),
+    (T_DESCENT, VehicleMode.Running, MissionMode.Running, MissionPhase.Descent),
+    (T_LANDING, VehicleMode.Running, MissionMode.Running, MissionPhase.Landing),
+    (T_DONE, VehicleMode.Running, MissionMode.Finished, MissionPhase.Completed),
+]
+
+
+def _smooth(x: float) -> float:
+    x = min(1.0, max(0.0, x))
+    return x * x * (3 - 2 * x)
+
+
+def _quat_from_euler(roll: float, pitch: float, yaw: float) -> list[float]:
+    cr, sr = math.cos(roll / 2), math.sin(roll / 2)
+    cp, sp = math.cos(pitch / 2), math.sin(pitch / 2)
+    cy, sy = math.cos(yaw / 2), math.sin(yaw / 2)
+    return [
+        cr * cp * cy + sr * sp * sy,
+        sr * cp * cy - cr * sp * sy,
+        cr * sp * cy + sr * cp * sy,
+        cr * cp * sy - sr * sp * cy,
+    ]
+
+
+class Scenario:
+    def __init__(self, seed: int = 1):
+        rng = random.Random(seed)
+        self.seed = seed
+        self._ph = [rng.uniform(0, 2 * math.pi) for _ in range(8)]
+
+    # ---- state machine
+
+    def phase_at(self, t: float) -> tuple[VehicleMode, MissionMode, MissionPhase]:
+        cur = TIMELINE[0]
+        for entry in TIMELINE:
+            if t >= entry[0]:
+                cur = entry
+        return cur[1], cur[2], cur[3]
+
+    # ---- kinematics
+
+    def _env(self, t: float) -> float:
+        """0 on the ground, 1 while flying (smooth in and out)."""
+        return _smooth((t - T_START) / 2) * (1 - _smooth((t - T_LANDING) / 4))
+
+    def pos(self, t: float) -> list[float]:
+        if t < T_START:
+            z = 0.0
+        elif t < T_ASCENT:
+            z = _smooth(t - T_START)
+        elif t < T_DESCENT:
+            z = 1 + 4 * _smooth((t - T_ASCENT) / 10)
+        elif t < T_LANDING:
+            z = 5 - 4 * _smooth((t - T_DESCENT) / 10)
+        elif t < T_DONE:
+            z = 1 - _smooth((t - T_LANDING) / 4)
+        else:
+            z = 0.0
+        env = self._env(t)
+        x = 0.5 * math.sin(0.3 * (t - T_START) + self._ph[0]) * env
+        y = 0.4 * math.sin(0.23 * (t - T_START) + self._ph[1]) * env
+        return [x, y, z]
+
+    def vel(self, t: float, h: float = 1e-3) -> list[float]:
+        a, b = self.pos(t - h), self.pos(t + h)
+        return [(q - p) / (2 * h) for p, q in zip(a, b, strict=True)]
+
+    def euler(self, t: float) -> list[float]:
+        env = self._env(t)
+        ph = self._ph
+        roll = 0.05 * math.sin(0.8 * t + ph[2]) * env + 0.002 * math.sin(17 * t + ph[3])
+        pitch = 0.05 * math.sin(0.6 * t + ph[4]) * env + 0.002 * math.sin(13 * t + ph[5])
+        yaw = 0.1 * math.sin(0.1 * t + ph[6])
+        return [roll, pitch, yaw]
+
+    def omega(self, t: float, h: float = 1e-3) -> list[float]:
+        a, b = self.euler(t - h), self.euler(t + h)
+        return [(q - p) / (2 * h) for p, q in zip(a, b, strict=True)]
+
+    # ---- packet fields (full "usb" set; sources drop what their profile does not supply)
+
+    def fields(self, type_name: str, t: float) -> dict[str, Any]:
+        return getattr(self, f"_f_{type_name}")(t)
+
+    def _f_Attitude(self, t: float) -> dict[str, Any]:
+        return {
+            "omega": self.omega(t),
+            "q": _quat_from_euler(*self.euler(t)),
+            "tilt_acc": 0.0035 + 0.0005 * math.sin(t),
+            "north_acc": 0.021,
+        }
+
+    def _f_Position(self, t: float) -> dict[str, Any]:
+        return {"pos": self.pos(t), "vel": self.vel(t), "h_acc": 0.4, "v_acc": 0.2}
+
+    def _f_Gps(self, t: float) -> dict[str, Any]:
+        return {
+            "lat": 0.8996,
+            "lon": 0.0,
+            "alt": 100.0 + self.pos(t)[2],
+            "vel": self.vel(t),
+            "num_sats": 12,
+            "pos_acc": 1.5,
+            "alt_acc": 2.0,
+            "vel_acc": 0.1,
+        }
+
+    def _f_VehicleState(self, t: float) -> dict[str, Any]:
+        mode, _, _ = self.phase_at(t)
+        ready = t >= T_READY
+        sensor = SensorState.Ready if ready else SensorState.Init
+        running = mode == VehicleMode.Running
+        z = self.pos(t)[2]
+        az = self.vel(t + 0.05)[2] - self.vel(t - 0.05)[2]
+        return {
+            "mode": mode,
+            "sensor_gnss": sensor,
+            "sensor_imu": sensor,
+            "sensor_baro": sensor,
+            "sensor_mag": sensor,
+            "sensor_att_kf": sensor,
+            "sensor_pos_kf": sensor,
+            "fail_sensor": False,
+            "fail_attitude": False,
+            "fail_position": False,
+            "fail_pos_oob": False,
+            "fail_att_oob": False,
+            "fail_radio_loss": False,
+            "sim": True,
+            "armed": running,
+            "tvc_thrust": [0.1 * math.sin(t), -0.05, (G + az * 10) * 0.9] if running else [0.0, 0.0, 0.0],
+            "tvc_torque": 0.01 if running else 0.0,
+            "ground_dist": min(z, 2.0),
+            "ground_dist_cov": 0.01,
+        }
+
+    def _f_MissionState(self, t: float) -> dict[str, Any]:
+        _, mmode, phase = self.phase_at(t)
+        ahead = t + 1.0
+        return {
+            "sp_vel": self.vel(ahead),
+            "sp_pos": self.pos(ahead),
+            "mission_mode": mmode,
+            "mission_phase": phase,
+            "t_mission": int((t - T_START) * 1e9),
+            "mission_index": 0,
+        }
+
+    def _f_FlapState(self, t: float) -> dict[str, Any]:
+        def angle(tt: float) -> list[float]:  # sweeps 15..90 deg
+            return [math.radians(52.5 + 37.5 * math.sin(0.7 * tt + i * math.pi / 2)) for i in range(4)]
+
+        return {
+            "angle": angle(t),
+            "cmd": angle(t + 0.1),
+            "enabled": self.phase_at(t)[0] == VehicleMode.Running,
+        }
+
+    def _f_TvcState(self, t: float) -> dict[str, Any]:
+        mode, _, _ = self.phase_at(t)
+        running = mode == VehicleMode.Running
+        motor = min(1.0, max(0.0, 0.3 + 0.1 * self.pos(t)[2])) if running else 0.0
+        return {
+            "vane": [0.1 * math.sin(1.3 * t + i) for i in range(4)],
+            "motor": [motor, motor],
+            "enabled": running,
+            "motors_enabled": running,
+        }
+
+    def _f_RadioLinkStats(self, t: float) -> dict[str, Any]:
+        return {
+            "rssi_dbm": [-71 + 2 * math.sin(t), -74 + 2 * math.cos(t)],
+            "lq_pct": 98.0,
+            "snr_db": 9.5,
+            "up_hz": 50.0,
+            "down_hz": 48.0,
+            "antenna": 0,
+        }
+
+    def handset_channels(self, t: float) -> list[int]:
+        ch = [1500] * 16
+        ch[2] = 1000
+        ch[0] = 1500 + int(100 * math.sin(t))
+        return ch

@@ -1,0 +1,89 @@
+"""Core wiring: sources -> LiveBus -> state store and history. Later tasks add recorder, API, RC."""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import logging
+from collections import Counter
+
+from ..packets import REGISTRY
+from ..packets.defs.vehicle import MissionState, VehicleState
+from ..sources import Source, build_source
+from ..wire import ProfileNotFound, WireProfile, load_profile
+from .bus import Bus
+from .clock import Clock, MonotonicClock
+from .config import ConfigError, GsConfig
+from .history import History
+from .state import StateStore
+
+log = logging.getLogger(__name__)
+
+
+class CoreApp:
+    def __init__(self, cfg: GsConfig, clock: Clock | None = None):
+        self.cfg = cfg
+        self.clock = clock or MonotonicClock()
+        self.bus = Bus()
+        self.store = StateStore(REGISTRY, cfg.core.source_priority, cfg.core.stale_min_s, self.clock.now)
+        self.history = History(REGISTRY)
+        self.packet_counts: Counter[str] = Counter()  # per source id
+        self._last_counts: Counter[str] = Counter()
+        self.bus.subscribe(self._on_packet)
+        enabled = [s for s in cfg.sources if s.enabled]
+        profile = self._profile(any(s.kind != "fake" for s in enabled))
+        self.sources: list[Source] = [build_source(s, profile) for s in enabled]
+
+    def _profile(self, needed: bool) -> WireProfile:
+        try:
+            return load_profile(self.cfg.core.wire_profile)
+        except ProfileNotFound:
+            if needed:
+                raise ConfigError(f"wire profile {self.cfg.core.wire_profile!r} not available") from None
+            log.info(
+                "wire profile %r not available yet, using 'fake' (no serial source enabled)",
+                self.cfg.core.wire_profile,
+            )
+            return load_profile("fake")
+
+    def _on_packet(self, pkt) -> None:
+        self.store.update(pkt)
+        self.history.update(pkt)
+        self.packet_counts[pkt.src] += 1
+
+    def summary_line(self, period_s: float = 1.0) -> str:
+        """One line: per-source rate and connection state plus the headline vehicle values."""
+        parts = []
+        for s in self.sources:
+            st = s.status()
+            n = self.packet_counts[s.id]
+            parts.append(f"{s.id}:{st.state} {(n - self._last_counts[s.id]) / period_s:.0f}pkt/s")
+        self._last_counts = Counter(self.packet_counts)
+        vs = self.store.get(VehicleState.TYPE)
+        ms = self.store.get(MissionState.TYPE)
+        if vs is not None:
+            p = vs.packet
+            mode = getattr(p.mode, "name", f"#{p.mode}") if p.mode is not None else "?"
+            parts.append(f"mode={mode} armed={p.armed}")
+        if ms is not None and ms.packet.mission_phase is not None:
+            parts.append(f"phase={getattr(ms.packet.mission_phase, 'name', ms.packet.mission_phase)}")
+        pos = self.store.get("Position")
+        if pos is not None and pos.packet.pos is not None:
+            x, y, z = pos.packet.pos
+            parts.append(f"pos=[{x:.2f},{y:.2f},{z:.2f}]")
+        return " | ".join(parts)
+
+    async def run(self, duration_s: float | None = None, summary=print) -> None:
+        """Run all sources until cancelled (or `duration_s`), printing a 1 Hz summary."""
+        tasks = [asyncio.create_task(s.run(self.bus.publish), name=f"source-{s.id}") for s in self.sources]
+        try:
+            end = None if duration_s is None else self.clock.now() + int(duration_s * 1e9)
+            while end is None or self.clock.now() < end:
+                await asyncio.sleep(1.0)
+                summary(self.summary_line())
+        finally:
+            for t in tasks:
+                t.cancel()
+            for t in tasks:
+                with contextlib.suppress(asyncio.CancelledError):
+                    await t
