@@ -123,3 +123,26 @@ def test_expr_parse_and_evaluate():
 def test_expr_rejects(text):
     with pytest.raises(ExprError):
         parse_condition(text)
+
+
+def test_recorder_status_json_reads_the_real_recorder_status():
+    from pathlib import Path
+
+    from exvectr_gs.recording.recorder import RecorderStatus, RecordingInfo
+
+    info = RecordingInfo(
+        path=Path("x/a.exlog"), name="a.exlog", started=2_000_000_000, stopped=None, packets=7, bytes=99
+    )
+    j = P.recorder_status_json(RecorderStatus(active=True, info=info, last_error=None, free_bytes=5, dropped=0))
+    assert (j["active"], j["name"], j["started"], j["packets"], j["bytes"], j["free_bytes"]) == (
+        True,
+        "a.exlog",
+        2.0,
+        7,
+        99,
+        5,
+    )
+    j = P.recorder_status_json(
+        RecorderStatus(active=False, info=None, last_error="disk full", free_bytes=None, dropped=2)
+    )
+    assert (j["active"], j["name"], j["error"], j["dropped"]) == (False, None, "disk full", 2)

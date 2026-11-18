@@ -211,16 +211,26 @@ def log_info_json(info: Any) -> dict:
 
 
 def recorder_status_json(st: Any) -> dict:
-    """Design 4.3 `status.recorder`. Reads the attributes T2's `RecorderStatus` provides:
-    active, name, started (ns), packets, bytes, free_bytes, error."""
+    """Design 4.3 `status.recorder` from T2's `RecorderStatus` (active, info, last_error, free_bytes,
+    dropped). Flat attributes (name, started, packets, bytes, error) are used if the object has them."""
+    info = getattr(st, "info", None)
+
+    def pick(flat: str, from_info: str | None = None, default: Any = None) -> Any:
+        if hasattr(st, flat):
+            return getattr(st, flat)
+        if info is not None and from_info:
+            return getattr(info, from_info, default)
+        return default
+
     return {
         "active": bool(getattr(st, "active", False)),
-        "name": getattr(st, "name", None),
-        "started": secs(getattr(st, "started", None)),
-        "packets": getattr(st, "packets", 0),
-        "bytes": getattr(st, "bytes", 0),
+        "name": pick("name", "name"),
+        "started": secs(pick("started", "started")),
+        "packets": pick("packets", "packets", 0),
+        "bytes": pick("bytes", "bytes", 0),
         "free_bytes": getattr(st, "free_bytes", None),
-        "error": getattr(st, "error", None),
+        "error": pick("error", None) or getattr(st, "last_error", None),
+        "dropped": getattr(st, "dropped", 0),
     }
 
 

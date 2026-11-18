@@ -12,7 +12,7 @@ exgs core --port 0                                    # any free port (printed a
 exgs core --no-api                                    # sources and state only
 ```
 
-HTTP routes: `GET /` (GUI, currently a raw message stream, replaced by T7), `/static/...` (the `web/` folder), `/config/{radio|layout|model}.json`, `/models/...`, `GET /ws` (WebSocket).
+HTTP routes: `GET /` (the GUI, docs/gui.md), `/static/...` (the `web/` folder), `/config/{radio|layout|model}.json`, `/models/...`, `GET /ws` (WebSocket).
 
 ## Conventions
 
@@ -38,7 +38,7 @@ The server only looks at these optional attributes of the core application objec
 
 What the modules must provide (contract for T2, T4, T6):
 
-- `recorder.status()` returns an object with attributes `active, name, started (ns), packets, bytes, free_bytes, error`. `start()` raises `RuntimeError` if already recording (mapped to `busy`), `OSError` (mapped to `io_error`), `ValueError` (`invalid_value`).
+- `recorder.status()` returns T2's `RecorderStatus` (`active, info, last_error, free_bytes, dropped`, with `info.name, started, packets, bytes`); the API flattens it into `status.recorder` (`active, name, started, packets, bytes, free_bytes, error, dropped`). `start()` raises `RuntimeError` if already recording (mapped to `busy`), `OSError` (mapped to `io_error`), `ValueError` (`invalid_value`).
 - `replayer.status()` is the `ReplayStatus` of the design. `FileNotFoundError` or `KeyError` from `open` gives `not_found`.
 - `rc.acquire` raises `ControlDenied` (mapped to `control_denied`); `ValueError` or `KeyError` from `set` gives `invalid_value`.
 
