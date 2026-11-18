@@ -7,7 +7,17 @@ from .profile import (
     FramerStats,
     ProfileNotFound,
     WireProfile,
+    decode_frame,
     load_profile,
 )
 
-__all__ = ["ConsoleText", "Frame", "Framer", "FramerStats", "ProfileNotFound", "WireProfile", "load_profile"]
+__all__ = [
+    "ConsoleText",
+    "Frame",
+    "Framer",
+    "FramerStats",
+    "ProfileNotFound",
+    "WireProfile",
+    "decode_frame",
+    "load_profile",
+]

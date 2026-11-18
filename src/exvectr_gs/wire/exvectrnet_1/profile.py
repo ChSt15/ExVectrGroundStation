@@ -1,0 +1,172 @@
+"""WireProfile `exvectrnet-1`: ExVectrNetwork stream frames, heartbeats and generated packets.
+
+Layers inside the profile: `framing.NetFramer` (bytes to network/transport frames), this module
+(presence, version check, duplicate suppression, port to packet class via `exvectr_packets`) and
+`mapping` (wire packets to ground-station semantic packets). The profile is shared by all sources, so
+per-link state (presence, sequence numbers) is keyed by the source id passed to `decode_many`.
+"""
+
+from __future__ import annotations
+
+import logging
+import math
+
+from . import _deps  # noqa: F401
+
+import exvectr_packets as xp  # noqa: E402  isort: skip
+
+from ...packets import REGISTRY, Direction, Packet
+from ...packets.defs.host import GsEvent, GsEventKind, RawFrame
+from ...packets.defs.link import NetworkStatus, RcOrigin, RcState
+from ..profile import Frame
+from . import mapping
+from .framing import HEARTBEAT_CHANNEL, NET_VERSION, NetFramer
+
+log = logging.getLogger(__name__)
+
+NODE_GS = 0
+NODE_VEHICLE = 1
+NODES = 4  # 0 ground station, 1 vehicle, 2 link TX, 3 link RX
+PRESENCE_S = 3.0  # network-design 3.3.4
+DUP_RESET_S = 1.0  # network-design 3.4: nothing on (src, port) for 1 s accepts the next frame
+GS_RC_PORT = xp.RcState.PORT
+
+
+class ExVectrNet1Profile:
+    name = "exvectrnet-1"
+
+    def __init__(self) -> None:
+        self.duplicates_dropped = 0
+        self._last_seen: dict[tuple[str, int], int] = {}  # (source id, node) -> host t of last valid frame
+        self._last_seq: dict[tuple[str, int, int], tuple[int, int]] = {}  # (source, node, port) -> (seq, t)
+        self._incompat: dict[tuple[str, int], str] = {}  # (source, node) -> what differs
+        self._tx_seq: dict[int, int] = {}  # port -> next sequence number
+
+    def make_framer(self) -> NetFramer:
+        return NetFramer(node_id=NODE_GS)
+
+    # ---- receive
+
+    def decode(self, frame: Frame, src: str) -> Packet:
+        """First packet of `decode_many`, or a RawFrame if the frame was dropped as a duplicate."""
+        pkts = self.decode_many(frame, src)
+        return pkts[0] if pkts else self._raw(frame, src, "duplicate frame (sequence rule)")
+
+    def decode_many(self, frame: Frame, src: str) -> list[Packet]:
+        """All semantic packets of one frame. Never raises. Empty list: duplicate, suppressed."""
+        try:
+            return self._decode(frame, src)
+        except Exception as e:  # contract: never raises
+            return [self._raw(frame, src, f"decode error: {e}")]
+
+    @staticmethod
+    def _raw(frame: Frame, src: str, err: str) -> Packet:
+        return RawFrame(
+            t=frame.t, src=src, channel=frame.channel, len=len(frame.payload), hex=frame.payload.hex(), err=err
+        )
+
+    def _decode(self, frame: Frame, src: str) -> list[Packet]:
+        node = int(frame.meta.get("src", -1))
+        if 0 <= node < NODES:
+            self._last_seen[(src, node)] = frame.t
+        if frame.channel == HEARTBEAT_CHANNEL:
+            return self._heartbeat(frame, src, node)
+        if self._is_duplicate(frame, src, node):
+            self.duplicates_dropped += 1
+            return []
+        cls = xp.PACKETS_BY_PORT.get(frame.channel)
+        if cls is None:
+            return [self._raw(frame, src, "unknown port")]
+        try:
+            wire = cls.decode(frame.payload)
+        except ValueError as e:
+            return [self._raw(frame, src, str(e))]
+        out = mapping.MAPPERS[cls](wire, frame.t, src, frame.meta) if cls in mapping.MAPPERS else "no mapping"
+        if isinstance(out, str):
+            return [self._raw(frame, src, f"{cls.__name__}: {out}")]
+        return out
+
+    def _is_duplicate(self, frame: Frame, src: str, node: int) -> bool:
+        """Receiver rule of network-design 3.4: accept if (seq - last) mod 256 is in 1..127."""
+        seq = frame.meta.get("seq")
+        if seq is None:
+            return False
+        key = (src, node, frame.channel)
+        prev = self._last_seq.get(key)
+        accept = prev is None or frame.t - prev[1] > DUP_RESET_S * 1e9 or 1 <= (seq - prev[0]) % 256 <= 127
+        if accept:
+            self._last_seq[key] = (seq, frame.t)
+        return not accept
+
+    def _heartbeat(self, frame: Frame, src: str, node: int) -> list[Packet]:
+        if not 0 <= node < NODES:
+            return [self._raw(frame, src, f"heartbeat from unknown node {node}")]
+        hb = xp.Heartbeat.decode(frame.payload)
+        local = xp.SCHEMA_HASH
+        diffs = []
+        if hb.net_version != NET_VERSION:
+            diffs.append(f"network version {hb.net_version} (GS {NET_VERSION})")
+        if hb.schema_hash != local:
+            diffs.append(f"schema hash 0x{hb.schema_hash:08X} (GS 0x{local:08X})")
+        key = (src, node)
+        detail = f"node {node}: " + ", ".join(diffs) if diffs else ""
+        out: list[Packet] = []
+        if detail != self._incompat.get(key, ""):
+            self._incompat[key] = detail
+            msg = detail or f"node {node}: compatible again"
+            (log.warning if detail else log.info)("%s: %s", src, msg)
+            out.append(GsEvent(t=frame.t, src="gs", kind=GsEventKind.link_warning, detail=f"{src}: {msg}"))
+        present, age = [], []
+        for n in range(NODES):
+            seen = self._last_seen.get((src, n))
+            a = (frame.t - seen) / 1e9 if seen is not None else math.nan
+            age.append(a)
+            present.append(int(seen is not None and a <= PRESENCE_S))
+        problems = [d for (s, n), d in self._incompat.items() if s == src and d and present[n]]
+        status = NetworkStatus(
+            t=frame.t,
+            src=src,
+            node=node,
+            role=int(hb.role),
+            net_version=hb.net_version,
+            schema_hash=hb.schema_hash,
+            uptime=hb.uptime,
+            present=present,
+            age=age,
+            incompatible=bool(problems),
+            local_schema_hash=local,
+            detail="; ".join(problems),
+        )
+        return [status, *out]
+
+    # ---- send
+
+    def encode(self, pkt: Packet) -> Frame | None:
+        """Only RC_STATE with origin gs, addressed to the vehicle (node 1), which is the final
+        destination whether the GS sits on the vehicle's USB or behind a TX module. Everything
+        else, including heartbeats, is not sent (design 1.4)."""
+        try:
+            if REGISTRY.get(pkt.TYPE).direction is not Direction.UP:
+                return None
+        except KeyError:
+            return None
+        if not isinstance(pkt, RcState) or pkt.origin != RcOrigin.gs or pkt.ch_us is None or len(pkt.ch_us) != 16:
+            return None
+        R = xp.RcState
+        ch = [R.CH_INVALID if us <= 0 else min(max((int(us) - 1500) * 2, R.CH_MIN), R.CH_MAX) for us in pkt.ch_us]
+        flags = R.FLAGS_SOURCE_OK if pkt.source_ok in (None, True) else 0
+        try:
+            payload = R(flags=flags, ch=ch).encode()
+        except (ValueError, TypeError):
+            return None
+        seq = self._tx_seq.get(GS_RC_PORT, 0)
+        self._tx_seq[GS_RC_PORT] = (seq + 1) & 0xFF
+        meta = {"dst": NODE_VEHICLE, "seq": seq, "qos": R.QOS, "latest": R.LATEST}
+        return Frame(channel=GS_RC_PORT, payload=payload, t=pkt.t, meta=meta)
+
+    def supported_types(self) -> set[str]:
+        return set(mapping.PRODUCED_TYPES)
+
+
+def make_profile() -> ExVectrNet1Profile:
+    return ExVectrNet1Profile()

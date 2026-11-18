@@ -51,6 +51,14 @@ class WireProfile(Protocol):
     def supported_types(self) -> set[str]: ...
 
 
+def decode_frame(profile: WireProfile, frame: Frame, src: str) -> list[Packet]:
+    """All semantic packets of one frame. A profile may offer `decode_many(frame, src)` (one wire
+    packet feeding several semantic types, or none for a suppressed duplicate); otherwise it is
+    `[profile.decode(frame, src)]`."""
+    many = getattr(profile, "decode_many", None)
+    return list(many(frame, src)) if many is not None else [profile.decode(frame, src)]
+
+
 class ProfileNotFound(LookupError):
     pass
 

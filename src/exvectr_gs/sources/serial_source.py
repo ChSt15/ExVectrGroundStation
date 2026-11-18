@@ -30,7 +30,7 @@ from ..core.config import ConfigError, SourceConfig
 from ..packets import REGISTRY, Direction, Packet
 from ..packets.defs.host import ConsoleText as ConsoleTextPacket
 from ..packets.defs.host import GsEvent, GsEventKind, LinkStats
-from ..wire import ConsoleText, Frame, WireProfile
+from ..wire import ConsoleText, Frame, WireProfile, decode_frame
 from .base import PacketSink, Source, SourceCaps, SourceKind, SourceStatus
 
 log = logging.getLogger(__name__)
@@ -298,10 +298,10 @@ class SerialSource(Source):
             return
         for item in self._framer.feed(data, t):
             if isinstance(item, Frame):
-                pkt = self._profile.decode(item, self.id)
-                if pkt.TYPE == "RawFrame":
-                    self._decode_errors += 1
-                self._emit(pkt)
+                for pkt in decode_frame(self._profile, item, self.id):
+                    if pkt.TYPE == "RawFrame":
+                        self._decode_errors += 1
+                    self._emit(pkt)
             elif isinstance(item, ConsoleText):
                 self._emit(ConsoleTextPacket(t=item.t, src=self.id, text=item.text))
 

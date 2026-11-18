@@ -1,0 +1,209 @@
+"""Independent `exvectrnet-1` encoder and decoder for the fake vehicle (docs/network-design.md section 4).
+
+Written from the wire spec and the packet reference tables (`ExVectrPackets/docs/packet-reference.md`),
+with `struct`, and deliberately *not* using `exvectr_gs.wire.exvectrnet_1`, `provisional_1` or the
+generated `exvectr_packets` encoders, so that the profile is checked against a second implementation.
+Only the schema hash value comes from `exvectr_packets`.
+"""
+
+from __future__ import annotations
+
+import math
+import struct
+
+PORT_LINK_STATS, PORT_LOG_TEXT, PORT_HANDSET, PORT_RC_STATE = 0x01, 0x02, 0x03, 0x10
+PORT_VEHICLE_STATUS, PORT_AIR_POSE = 0x20, 0x21
+PORT_POSE, PORT_ACTUATORS, PORT_MISSION, PORT_GNSS = 0x80, 0x81, 0x82, 0x83
+PORT_IMU, PORT_ESTIMATOR, PORT_TIMING = 0x90, 0x91, 0x92
+QOS = {PORT_RC_STATE: 0, PORT_VEHICLE_STATUS: 1, PORT_HANDSET: 1, PORT_LINK_STATS: 1, PORT_LOG_TEXT: 2}
+LATEST = {PORT_RC_STATE, PORT_VEHICLE_STATUS, PORT_HANDSET, PORT_LINK_STATS}  # everything else is telemetry state
+
+
+def crc16(data: bytes) -> int:
+    crc = 0xFFFF
+    for b in data:
+        crc ^= b << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
+    return crc
+
+
+def cobs_encode(data: bytes) -> bytes:
+    out = bytearray()
+    i = 0
+    while True:
+        j = i
+        while j < len(data) and j - i < 254 and data[j] != 0:
+            j += 1
+        out.append(j - i + 1)
+        out += data[i:j]
+        if j - i == 254:  # full block, no zero consumed
+            i = j
+            if i == len(data):  # python `cobs`: a trailing empty block follows a full last block
+                out.append(1)
+                return bytes(out)
+            continue
+        if j == len(data):
+            return bytes(out)
+        i = j + 1
+        if i == len(data):
+            out.append(1)
+            return bytes(out)
+
+
+def cobs_decode(data: bytes) -> bytes:
+    out = bytearray()
+    i = 0
+    while i < len(data):
+        code = data[i]
+        if code == 0 or i + code > len(data):
+            raise ValueError("bad COBS")
+        out += data[i + 1 : i + code]
+        i += code
+        if code < 255 and i < len(data):
+            out.append(0)
+    return bytes(out)
+
+
+def stream_frame(net_frame: bytes) -> bytes:
+    dec = b"\x01" + net_frame
+    dec += struct.pack("<H", crc16(dec))
+    return cobs_encode(dec) + b"\x00"
+
+
+def net_data(src: int, dst: int, port: int, seq: int, payload: bytes, ttl: int = 3) -> bytes:
+    ctrl = (1 << 6) | (0 << 4) | (QOS.get(port, 3) << 2) | ((port in LATEST) << 1)
+    return bytes([ctrl, ttl, dst, src, port, seq & 0xFF]) + payload
+
+
+def net_heartbeat(src: int, role: int, schema_hash: int, uptime_ms: int, net_version: int = 1) -> bytes:
+    hdr = bytes([0x56, 3, 0xFF, src])
+    return hdr + struct.pack("<BBIIB", role, net_version, schema_hash, uptime_ms & 0xFFFFFFFF, 0)
+
+
+def parse_stream(decoded: bytes) -> dict | None:
+    """Decoded stream frame (CRC and SKIND checked) to a dict, or None if bad. DATA and HEARTBEAT."""
+    if len(decoded) < 7 or decoded[0] != 1:
+        return None
+    if struct.unpack_from("<H", decoded, len(decoded) - 2)[0] != crc16(decoded[:-2]):
+        return None
+    f = decoded[1:-2]
+    ctrl, ttl, dst, src = f[0], f[1], f[2], f[3]
+    kind = (ctrl >> 4) & 3
+    if kind == 0 and len(f) >= 6:
+        return {"type": "data", "src": src, "dst": dst, "ttl": ttl, "port": f[4], "seq": f[5], "payload": bytes(f[6:])}
+    if kind == 1:
+        return {"type": "heartbeat", "src": src, "payload": bytes(f[4:])}
+    return None
+
+
+# ---- payload packers (offsets and scalings from packet-reference.md). `f` dicts are Scenario fields.
+
+
+def _fx(v: float, scale: float, lo: int, hi: int, invalid: int) -> int:
+    if not math.isfinite(v):
+        return invalid
+    x = v / scale
+    r = math.floor(abs(x) + 0.5) * (1 if x >= 0 else -1)
+    return max(lo, min(hi, r))
+
+
+def i16(v: float, scale: float) -> int:
+    return _fx(v, scale, -32767, 32767, -32768)
+
+
+def pack_pose(t_us: int, a: dict, p: dict) -> bytes:
+    return struct.pack("<I3f4f3f3f", t_us, *a["omega"], *a["q"], *p["vel"], *p["pos"])
+
+
+def pack_air_pose(t_us: int, a: dict, p: dict) -> bytes:
+    q = [i16(x, 1 / 32767) for x in a["q"]]
+    pos = [i16(x, 0.1) for x in p["pos"]]
+    vel = [i16(x, 0.01) for x in p["vel"]]
+    return struct.pack("<I4h3h3h", t_us, *q, *pos, *vel)
+
+
+def pack_actuators(t_us: int, flaps: list[float], tvc: list[float], thrust: float, ground: float) -> bytes:
+    return struct.pack("<I4f2fff", t_us, *flaps, *tvc, thrust, ground)
+
+
+def pack_mission(t_us: int, m: dict) -> bytes:
+    ms = _fx(m["t_mission"] / 1e9, 0.001, -(2**31) + 1, 2**31 - 1, -(2**31))
+    return struct.pack("<I3f3fiBB", t_us, *m["sp_pos"], *m["sp_vel"], ms, m["mission_index"], int(m["mission_phase"]))
+
+
+def pack_gnss(t_us: int, g: dict, fix_type: int = 3) -> bytes:
+    return struct.pack(
+        "<Iddf3fBBfff",
+        t_us,
+        g["lat"],
+        g["lon"],
+        g["alt"],
+        *g["vel"],
+        g["num_sats"],
+        fix_type,
+        g["pos_acc"],
+        g["alt_acc"],
+        g["vel_acc"],
+    )
+
+
+def pack_vehicle_status(t_ns: int, vs: dict, mission_mode: int, mission_phase: int, flags_extra: int = 0) -> bytes:
+    flags = (1 if vs["armed"] else 0) | (2 if vs["sim"] else 0) | (4 if vs["armed"] else 0) | 8 | flags_extra
+    t_us = (t_ns // 1000) & 0xFFFFFFFF
+    return struct.pack(
+        "<IqBBBBBIHHBH", t_us, t_ns, int(vs["mode"]), int(mission_mode), int(mission_phase), 2, flags, 0, 0x3F, 7, 0, 40
+    )
+
+
+def pack_handset(vs: dict, g: dict, a: dict, mode_text: str) -> bytes:
+    flags = (1 if vs["armed"] else 0) | (4 if vs["sim"] else 0) | 8
+    roll, pitch, yaw = _euler(a["q"])
+    return struct.pack(
+        "<B8siiHHhBhhhhH",
+        flags,
+        mode_text.encode("ascii")[:8].ljust(8, b"\0"),
+        round(math.degrees(g["lat"]) * 1e7),
+        round(math.degrees(g["lon"]) * 1e7),
+        round(math.hypot(g["vel"][0], g["vel"][1]) * 100),
+        round(math.degrees(yaw) % 360 * 100),
+        round(g["alt"]),
+        g["num_sats"],
+        round(g["vel"][2] * 100),
+        round(pitch * 1e4),
+        round(roll * 1e4),
+        round(yaw * 1e4),
+        0,
+    )
+
+
+def _euler(q: list[float]) -> tuple[float, float, float]:
+    w, x, y, z = q
+    roll = math.atan2(2 * (w * x + y * z), 1 - 2 * (x * x + y * y))
+    pitch = math.asin(max(-1.0, min(1.0, 2 * (w * y - z * x))))
+    yaw = math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
+    return roll, pitch, yaw
+
+
+def pack_link_stats(uptime_ms: int, air_state: int, lq: int, rssi: int, snr: int, ants: int, ok: int) -> bytes:
+    return struct.pack("<IBBbbbBHHHHB", uptime_ms, air_state, lq, rssi, snr, 10, ants, ok & 0xFFFF, 2, 0, 1, 15)
+
+
+def pack_rc_state(flags: int, ch: list[int]) -> bytes:
+    return struct.pack("<BB16h", flags, 0, *ch)
+
+
+def pack_imu(t_us: int, t: float) -> bytes:
+    return struct.pack(
+        "<I3f3f3ff f", t_us, 0.01 * math.sin(t), 0.02, -0.01, 0.0, 0.1, 9.81, 2e-5, 0.0, 4e-5, 101325.0 - 10 * t, 293.15
+    )  # fmt: skip
+
+
+def pack_estimator(t_us: int) -> bytes:
+    return struct.pack("<I9f", t_us, 0.01, 0.01, 0.02, 0.1, 0.1, 0.1, 0.5, 0.5, 0.8)
+
+
+def pack_timing(t_us: int) -> bytes:
+    avg = [100 + 10 * i for i in range(3)] + [65535] * 5  # microseconds, 65535 = invalid
+    mx = [200 + 10 * i for i in range(3)] + [65535] * 5
+    return struct.pack("<IB8H8H", t_us, 3, *avg, *mx)
