@@ -1,10 +1,7 @@
 import pytest
 
-from exvectr_gs.core import Bus, History, StateStore
-from exvectr_gs.packets import REGISTRY
+from exvectr_gs.core import Bus
 from exvectr_gs.rc import RadioConfig, RcController
-from exvectr_gs.recording import LogLibrary
-from exvectr_gs.replay import Replayer
 from exvectr_gs.wire import Frame, ProfileNotFound, load_profile
 
 
@@ -22,18 +19,13 @@ def test_fake_profile_contract():
 def test_unknown_profile():
     with pytest.raises(ProfileNotFound):
         load_profile("does-not-exist")
-    with pytest.raises(ProfileNotFound):
-        load_profile("provisional-1")  # arrives with T5
+    assert load_profile("provisional-1").name == "provisional-1"
 
 
 def test_stubs_raise_not_implemented(tmp_path):
     bus = Bus()
-    lib = LogLibrary(tmp_path)
-    rp = Replayer(lib, bus, StateStore(REGISTRY, []), History(REGISTRY))
     rc = RcController(RadioConfig(), [], bus)
     calls = [
-        lambda: rp.close(), lambda: rp.play(), lambda: rp.pause(), lambda: rp.seek(0), lambda: rp.set_speed(1),
-        lambda: rp.status(),
         lambda: rc.acquire("me", "timed", 1.0), lambda: rc.release("x"), lambda: rc.heartbeat("x"),
         lambda: rc.set("x", {}), lambda: rc.status(),
     ]  # fmt: skip
@@ -44,8 +36,7 @@ def test_stubs_raise_not_implemented(tmp_path):
 
 async def test_async_stubs_raise_not_implemented(tmp_path):
     bus = Bus()
-    rp = Replayer(LogLibrary(tmp_path), bus, StateStore(REGISTRY, []), History(REGISTRY))
     rc = RcController(RadioConfig(), [], bus)
-    for coro in (rp.open("x"), rc.run()):
+    for coro in (rc.run(),):
         with pytest.raises(NotImplementedError):
             await coro

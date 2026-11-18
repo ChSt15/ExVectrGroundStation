@@ -23,8 +23,8 @@ FakeSource ---------------------------------------------> Packet -^
 | Source ABC, `FakeSource`, scripted scenario | `exvectr_gs.sources` | T1 |
 | Recorder, LogReader, LogIndex, LogLibrary | `exvectr_gs.recording` | implemented (T2) |
 | ApiServer, Hub, protocol helpers | `exvectr_gs.api` | implemented (T3), see [api.md](api.md) |
-| Replayer | `exvectr_gs.replay` | stub (T4) |
-| Serial source, `provisional-1` profile | `exvectr_gs.sources`, `exvectr_gs.wire` | T5 |
+| Replayer | `exvectr_gs.replay` | implemented (T4) |
+| `SerialSource`, `provisional-1` profile, `tools/fake_vehicle_pty.py` | `exvectr_gs.sources.serial_source`, `exvectr_gs.wire.provisional_1` | implemented (T5), see [wire-profiles.md](wire-profiles.md) |
 | RcController, radio config | `exvectr_gs.rc` | stub (T6) |
 
 ## Notes on the implementation
@@ -40,3 +40,4 @@ FakeSource ---------------------------------------------> Packet -^
 - `exgs log validate|stats|cat` live in `cli/cmd_log.py` (auto-discovered like the other `cmd_*.py` modules).
 - `CoreApp` falls back to the `fake` wire profile when `provisional-1` is not available and no non-fake source is enabled.
 - `FakeSource.step(sim_t)` is a pure, deterministic generator (no clock, no I/O). `run()` only paces it. Faults (`faults = [...]` in the source config): `dropout`, `rate`, `disconnect`, `nan`, `unknown_enum`, `failure_flag`.
+- Replay (`replay/replayer.py`): not a Source. `CoreApp` builds `replay_bus`, `replay_store`, `replay_history` and `replayer`; the Replayer is the only publisher on `replay_bus`, so replayed data never reaches the live bus or the recorder, and a recording continues during replay. `open()` builds the log index in a worker thread (`state = loading`), preloads the whole log's history series (`History.load`, no retention window) and seeks to `t_start`, paused. `seek(t)` decodes the keyframe's per-(type, src) latest lines, applies the lines up to `t` in file order and resets the replay store; it publishes nothing (the API then sends a `snapshot`). The state after a seek equals sequential replay, as far as the latest packet per (type, src) goes. `Entry.count` and `interval_s` are not reconstructed (they restart from the keyframe), so staleness uses the nominal rate until a few packets have been replayed. Playback: a task steps a replay clock every 10 ms of wall time (a stall of more than 0.5 s is not caught up) at `speed` and publishes every line with index time <= clock, updating the replay store first. After the last line the state is `ended`; `play` from `ended` restarts at `t_start`, a seek before the end pauses.

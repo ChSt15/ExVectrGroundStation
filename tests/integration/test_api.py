@@ -422,7 +422,9 @@ async def test_cross_origin_websocket_is_refused():
 
 
 async def test_replay_rc_are_not_implemented_without_modules():
-    async with running() as rig:
+    app = make_app()
+    del app.replayer  # a core without the module
+    async with running(app) as rig:
         c = await Client.connect(rig)
         for op, f in [
             ("replay.open", {"name": "x"}),
@@ -440,10 +442,18 @@ async def test_replay_rc_are_not_implemented_without_modules():
 
 
 async def test_stub_modules_that_raise_not_implemented_map_to_the_error_code():
-    from exvectr_gs.replay.replayer import Replayer
+    class Stub:
+        def open(self, name):
+            raise NotImplementedError("stub")
+
+        def play(self):
+            raise NotImplementedError("stub")
+
+        def status(self):
+            raise NotImplementedError("stub")
 
     app = make_app()
-    app.replayer = Replayer(app.library, app.bus, app.store, app.history)  # T1 stub until T4 lands
+    app.replayer = Stub()
     async with running(app) as rig:
         c = await Client.connect(rig)
         for op, f in [("replay.open", {"name": "x"}), ("replay.play", {})]:

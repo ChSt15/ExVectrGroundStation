@@ -22,7 +22,7 @@ id = "usb"
 kind = "vehicle_usb"
 match = { vid = "16c0", pid = "0483" }         # Teensy USB serial; or device = "/dev/serial/by-id/..."
 rc_role = "control"
-enabled = false                                # serial source arrives in task T5
+enabled = false                                # set true when the Teensy is on USB (or use tools/fake_vehicle_pty.py)
 
 [[source]]
 id = "link"
