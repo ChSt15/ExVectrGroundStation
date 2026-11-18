@@ -11,7 +11,7 @@ python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'     # Python 3.11+
 .venv/bin/pytest && .venv/bin/ruff check src tests tools
 ```
 
-The example config enables only the fake source, which runs a scripted flight (Startup, SensorInit, Ready, Running with Hover, Ascent, Descent, Landing, Completed). Serial sources are configured but disabled until task T5.
+The example config enables only the fake source, which runs a scripted flight (Startup, SensorInit, Ready, Running with Hover, Ascent, Descent, Landing, Completed). Serial sources (`vehicle_usb`, `link_module`) are configured but disabled in the example: enable them and set `match` for the real device, or point one at the pty fake vehicle (`tools/fake_vehicle_pty.py`, see [wire-profiles.md](wire-profiles.md)).
 
 ## Index
 
