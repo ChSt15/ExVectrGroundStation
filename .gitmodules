@@ -1,0 +1,6 @@
+[submodule "lib/ExVectrPackets"]
+	path = lib/ExVectrPackets
+	url = https://github.com/ExVeCtr/ExVectrPackets.git
+[submodule "lib/ExVectrNetwork"]
+	path = lib/ExVectrNetwork
+	url = https://github.com/ExVeCtr/ExVectrNetwork.git

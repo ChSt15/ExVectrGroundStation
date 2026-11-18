@@ -28,12 +28,14 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# exvectr_packets comes from the git submodule, never copied (docs/wire-profiles.md)
+pythonpath = ["lib/ExVectrPackets/python"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.ruff]
 line-length = 120
-extend-exclude = ["docs", ".venv"]
+extend-exclude = ["docs", ".venv", "lib"]
 target-version = "py311"
 src = ["src", "tests"]
 
