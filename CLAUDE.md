@@ -19,7 +19,7 @@ The ground station **never makes control, mission or safety decisions** for the 
 
 Keep the layers strict so each can be replaced later: source -> framer / wire profile -> packet registry -> codec -> bus / state store -> API -> panels. **Wire-format knowledge lives only in a wire profile plug-in.** Everything above it sees semantic `Packet` objects. Logs are semantic text and stay readable after the wire format changes.
 
-Status: T1 to T5 and T7 done (packet model and fake source; recorder, log reader/index/library and the offline `exgs log` tools; API server and read-side CLI; replayer; serial source with the temporary `provisional-1` wire profile and the pty fake vehicle; GUI shell and data panels, `docs/gui.md`). Unimplemented interfaces (RcController) are stubs that raise `NotImplementedError` until their task lands.
+Status: T1 to T7 done (packet model and fake source; recorder, log reader/index/library and the offline `exgs log` tools; API server and read-side CLI; replayer; serial source with the temporary `provisional-1` wire profile and the pty fake vehicle; GUI shell and data panels, `docs/gui.md`; RC controller with leases, 25 Hz sender, core-held momentary release and mirror/conflict detection, `docs/radio.md`). The RC controller is safety-relevant: read `docs/radio.md` before touching `rc/`.
 
 ## Setup and commands
 
