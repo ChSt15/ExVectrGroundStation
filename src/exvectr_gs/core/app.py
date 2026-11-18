@@ -14,6 +14,7 @@ from .. import __version__
 from ..packets import REGISTRY
 from ..packets.defs.vehicle import MissionState, VehicleState
 from ..recording import LogLibrary, Recorder
+from ..replay import Replayer
 from ..sources import Source, build_source
 from ..wire import ProfileNotFound, WireProfile, load_profile
 from .bus import Bus
@@ -32,7 +33,7 @@ class CoreApp:
         self.bus = Bus()
         self.store = StateStore(REGISTRY, cfg.core.source_priority, cfg.core.stale_min_s, self.clock.now)
         self.history = History(REGISTRY)
-        # replay view (T4 fills these; the API serves them as view "replay")
+        # replay view (filled by the Replayer; the API serves them as view "replay")
         self.replay_bus = Bus()
         self.replay_store = StateStore(REGISTRY, [], cfg.core.stale_min_s)
         self.replay_history = History(REGISTRY)
@@ -61,6 +62,9 @@ class CoreApp:
             fsync_interval_ms=cfg.recorder.fsync_interval_ms,
         )
         self.library = LogLibrary(Path(cfg.recorder.directory).expanduser())
+        # Replay is a separate view (design 6.4): it publishes on replay_bus only, never on the live bus,
+        # so replayed data is not recorded and live recording continues during replay.
+        self.replayer = Replayer(self.library, self.replay_bus, self.replay_store, self.replay_history)
 
     def _profile(self, needed: bool) -> WireProfile:
         try:

@@ -9,11 +9,13 @@ Strategy: design section 8.2. Run everything with `.venv/bin/pytest`; lint with 
 | Registry | `tests/unit/test_registry.py` | Declarations, field specs, schema. |
 | State store, history, bus, clock, config | `tests/unit/test_state.py`, `test_core_parts.py` | Freshness with a fake clock, EWMA, preferred source, downsampling. |
 | Fake source | `tests/unit/test_fake_source.py` | Rates per profile, determinism, scripted flight, fault injection. |
-| Wire, stubs | `tests/unit/test_wire_and_stubs.py` | `fake` profile, stubs raise `NotImplementedError`. |
+| Wire, stubs | `tests/unit/test_wire_and_stubs.py` | `fake` profile, the RcController stub raises `NotImplementedError`. |
 | API, hub, CLI client | `tests/unit/test_api_protocol.py`, `tests/integration/test_api.py`, `tests/integration/test_cli_client.py` | Real server and WebSocket clients on loopback, FakeSource data, `exgs` subprocesses against a core process. |
 | Recorder | `tests/unit/test_recorder.py` | Header/`#type`/`#end` lines, never overwrites (pre-created file, same-second starts), no auto-start, a restart leaves the old file untouched and starts a new one, flush interval, disk-full path (file wrapper raising ENOSPC), queue overflow, crash (a subprocess is killed with SIGKILL: readable, at most about 100 ms lost). |
 | Log reader, index, library | `tests/unit/test_logfile.py` | Truncated last line, bad lines, offsets, gzip, keyframes and seek, gaps, markers, history, index of a 1 h synthetic log (about 1 M lines) in under 10 s, `LogLibrary.list()` for complete, crashed and foreign files. |
 | `exgs log` | `tests/integration/test_log_cli.py` | validate (ok, incomplete, corrupt, miscount), stats (text, JSON), cat filters, `CoreApp.recorder` does not auto-record. |
+| Replayer | `tests/unit/test_replayer.py` | Open (paused at start, history preloaded, unknown log, supersede during load), state after seek equals sequential replay (60 random times in a dropout log plus a Hypothesis property), seek then play without gap or duplicate, pacing at 0.25/1/8x with a fake monotonic clock, `ended`, play from `ended`, seek keeps play/pause, close, truncated and empty logs, markers, seek in a 1 h synthetic log under 200 ms (worst of 30 random seeks). |
+| Replay through the core | `tests/integration/test_replay_api.py` | `logs.list`, `replay.*` ops with snapshots, stale values after a seek into a dropout, replay history and markers; replay stays off the live bus; a live recording continues during replay and holds no replayed packets. |
 | CLI | `tests/integration/test_cli.py` | `exgs core` against the fake source, `exgs schema`, `docs/packet-types.md` is current. |
 
 ## Fake source scenarios

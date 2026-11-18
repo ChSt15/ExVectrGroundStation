@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from bisect import bisect_left, bisect_right
 from collections import defaultdict, deque
+from collections.abc import Iterable, Mapping
 
 from ..packets import PacketRegistry
 from ..packets.base import Packet
@@ -29,6 +30,14 @@ class History:
         dq.append(pkt)
         while dq and pkt.t - dq[0].t > self._window_ns:
             dq.popleft()
+
+    def load(self, series: Mapping[tuple[str, str], Iterable[Packet]]) -> None:
+        """Replace all series with the given `(type, src) -> packets` (replay preload). The retention
+        window does not apply: a replay keeps the whole log and clients query a time range."""
+        self._series = defaultdict(deque, {k: deque(v) for k, v in series.items()})
+
+    def clear(self) -> None:
+        self._series = defaultdict(deque)
 
     def query(
         self, type_name: str, src: str | None, fields: list[str], t0: int, t1: int, max_points: int
