@@ -39,7 +39,7 @@ class CoreError(CliError):
     """The core answered `ok: false`."""
 
     def __init__(self, code: str, message: str):
-        exit_code = EXIT_DENIED if code in ("control_denied", "no_lease") else EXIT_ERROR
+        exit_code = EXIT_DENIED if code in ("control_denied", "no_lease", "control_locked") else EXIT_ERROR
         super().__init__(f"{code}: {message}", exit_code, code)
 
 

@@ -136,7 +136,7 @@ def test_unimplemented_modules_report_not_implemented(core, args):
 
 def test_rc_without_control_source_is_denied(core):
     """The shared core's only source has rc_role = none: no control source, so no lease (exit 3)."""
-    r = exgs(core, "rc", "acquire", "--duration", "5", "--json")
+    r = exgs(core, "rc", "acquire", "--idle", "5", "--json")
     assert r.returncode == 3
     assert jl(r)[0]["error"]["code"] == "control_denied"
     assert exgs(core, "rc", "set", "SA=1").returncode == 3  # no lease

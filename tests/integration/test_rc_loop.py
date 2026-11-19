@@ -87,12 +87,13 @@ async def test_round_trip_through_api_and_fake_echo():
 async def test_gs_rcstate_is_recorded_on_the_bus_not_replayed():
     async with rc_running() as rig:
         c = await Client.connect(rig)
-        await c.ok("rc.acquire", kind="timed", duration_s=5)
+        await c.ok("rc.acquire", kind="keepalive", idle_s=9)
+        await c.ok("rc.unlock", control="SD")
         await c.ok("rc.set", values={"SD": 1})
         await asyncio.sleep(0.3)
         st = rig.app.store.get("RcState", "gs")
         assert st is not None and st.packet.origin == RcOrigin.gs and st.packet.ch_us[7] == 2000
-        await c.close()  # timed lease: survives the CLI process
+        await c.close()  # keepalive lease: survives the CLI process
 
 
 async def test_client_disconnect_stops_sending_connection_lease():
@@ -124,13 +125,13 @@ async def test_heartbeat_loss_stops_sending_with_connection_still_open():
         await c.close()
 
 
-async def test_timed_lease_survives_clients_and_expires():
+async def test_keepalive_lease_survives_clients_expires_when_not_renewed():
     async with rc_running() as rig:
         c1 = await Client.connect(rig)
-        await c1.ok("rc.acquire", kind="timed", duration_s=0.8)
+        await c1.ok("rc.acquire", kind="keepalive", idle_s=0.8)
         await c1.close()  # short-lived CLI process
         c2 = await Client.connect(rig)
-        await c2.ok("rc.set", values={"SB": 2})  # a second process may use the current timed lease
+        await c2.ok("rc.set", values={"SB": 2})  # a second process may use the current keepalive lease
         await asyncio.sleep(0.3)
         assert received(rig) > 3
         await asyncio.sleep(0.8)
@@ -145,7 +146,7 @@ async def test_control_hosts_enforced_through_the_api():
         c = await Client.connect(rig)
         assert c.welcome["can_control"] is False
         assert await c.err("rc.acquire", kind="connection") == "control_denied"
-        assert await c.err("rc.acquire", kind="timed", duration_s=5) == "control_denied"
+        assert await c.err("rc.acquire", kind="keepalive", idle_s=9) == "control_denied"
         assert await c.err("rc.set", values={"SA": 1}) == "no_lease"
         await asyncio.sleep(0.2)
         assert received(rig) == 0 and rig.app.rc.status().lease is None
@@ -174,7 +175,7 @@ async def test_view_only_second_client_cannot_take_over():
 async def test_invalid_values_rejected_with_nothing_changed():
     async with rc_running() as rig:
         c = await Client.connect(rig)
-        await c.ok("rc.acquire", kind="timed", duration_s=5)
+        await c.ok("rc.acquire", kind="keepalive", idle_s=9)
         for values in ({"SA": 7}, {"NOPE": 1}, {"S1": 3.0}, {"SA": 1, "SB": 9}):
             assert await c.err("rc.set", values=values) == "invalid_value"
         assert await c.err("rc.set", values={"SA": 1}, hold_s=1) == "invalid_value"  # hold: momentary only
@@ -187,7 +188,7 @@ async def test_invalid_values_rejected_with_nothing_changed():
 async def test_momentary_hold_is_released_by_the_core_even_if_the_client_dies():
     async with rc_running() as rig:
         c = await Client.connect(rig)
-        await c.ok("rc.acquire", kind="timed", duration_s=5)
+        await c.ok("rc.acquire", kind="keepalive", idle_s=9)
         await c.ok("rc.set", values={"SE": 1}, hold_s=0.4)
         await wait_for(lambda: any(p.ch_us[8] == 2000 for p in rig.app.sources[0].received_rc), what="pressed")
         await c.close()  # killed before it could release
@@ -199,7 +200,7 @@ async def test_momentary_hold_is_released_by_the_core_even_if_the_client_dies():
 async def test_refused_send_skips_ticks_and_reports_not_sending():
     async with rc_running() as rig:
         c = await Client.connect(rig)
-        await c.ok("rc.acquire", kind="timed", duration_s=5)
+        await c.ok("rc.acquire", kind="keepalive", idle_s=9)
         await wait_for(lambda: received(rig) > 2, what="frames")
         src = rig.app.sources[0]
 
@@ -231,8 +232,8 @@ async def test_mirror_mode_through_the_api():
 async def test_core_restart_sends_nothing_and_starts_with_defaults():
     async with rc_running() as rig:
         c = await Client.connect(rig)
-        await c.ok("rc.acquire", kind="timed", duration_s=30)
-        await c.ok("rc.set", values={"SA": 1, "SD": 1})
+        await c.ok("rc.acquire", kind="keepalive", idle_s=9)
+        await c.ok("rc.set", values={"SA": 1, "SB": 2})
         await c.close()
     async with rc_running() as rig2:  # a "restart": a new core from the same config
         await asyncio.sleep(0.5)
@@ -297,7 +298,7 @@ async def test_pty_uplink_rate_stops_on_release_and_lease_expiry(tmp_path):
     async with pty_core(tmp_path) as (app, v):
         await asyncio.sleep(0.4)
         assert rc_frames(v) == []  # connected, no lease: nothing on the wire
-        lease = app.rc.acquire("t", "timed", 30, "127.0.0.1")
+        lease = app.rc.acquire("t", "keepalive", 9, "127.0.0.1")
         app.rc.set(lease.id, {"SA": 1, "SB": 2, "S1": 0.5})
         n0, t0 = len(rc_frames(v)), time.monotonic()
         await asyncio.sleep(3.0)
@@ -316,13 +317,13 @@ async def test_pty_uplink_rate_stops_on_release_and_lease_expiry(tmp_path):
         assert len(rc_frames(v)) == n, "frames after release"
         assert time.monotonic() - stop < 1.0
 
-        lease = app.rc.acquire("cli", "timed", 0.6, "127.0.0.1")  # expiry path
+        lease = app.rc.acquire("cli", "keepalive", 0.6, "127.0.0.1")  # expiry path
         await asyncio.sleep(0.9)
         n = len(rc_frames(v))
         await asyncio.sleep(0.4)
         assert len(rc_frames(v)) == n
         # a start from defaults: the first frame of the new lease carries no residue of the old state
-        lease = app.rc.acquire("cli", "timed", 5, "127.0.0.1")
+        lease = app.rc.acquire("cli", "keepalive", 9, "127.0.0.1")
         await wait_for(lambda: len(rc_frames(v)) > n, what="new lease frames")
         _, chans = decode_rc_state(rc_frames(v)[n].payload)
         assert chans == app.rc.cfg.channels_us(app.rc.cfg.default_state())
@@ -331,7 +332,8 @@ async def test_pty_uplink_rate_stops_on_release_and_lease_expiry(tmp_path):
 
 async def test_pty_unplug_stops_frames_and_replug_starts_from_defaults(tmp_path):
     async with pty_core(tmp_path) as (app, v):
-        lease = app.rc.acquire("cli", "timed", 30, "127.0.0.1")
+        lease = app.rc.acquire("cli", "keepalive", 9, "127.0.0.1")
+        app.rc.unlock(lease.id, "SD")
         app.rc.set(lease.id, {"SD": 1})
         await wait_for(lambda: len(rc_frames(v)) > 5, what="frames")
         v.stop()  # unplug
@@ -343,4 +345,89 @@ async def test_pty_unplug_stops_frames_and_replug_starts_from_defaults(tmp_path)
         await wait_for(lambda: len(rc_frames(v)) > 2, what="frames after replug")
         _, chans = decode_rc_state(rc_frames(v)[0].payload)
         assert chans[7] == 1000  # SD back at its default: the old state was not resumed
+        assert app.rc.status().locks["SD"]["locked"] is True  # and relocked
         app.rc.release(lease.id)
+
+
+# ---------------------------------------------------------------- locked control (SD) through the API
+
+
+async def test_locked_control_api_flow_and_push_state():
+    async with rc_running() as rig:
+        c = await Client.connect(rig)
+        await c.ok("rc.acquire", kind="connection")
+        assert await c.err("rc.set", values={"SD": 1}) == "control_locked"
+        assert await c.err("rc.set", values={"SA": 1, "SD": 1}) == "control_locked"
+        st = await c.ok("rc.set", values={"SD": 0})
+        assert st["controls"]["SA"] == 0 and st["locks"]["SD"] == {
+            "locked": True,
+            "remaining_s": None,
+            "timeout_s": 60.0,
+        }
+        assert await c.err("rc.unlock", control="SA") == "invalid_value"  # SA has no lock
+        assert await c.err("rc.unlock", control="NOPE") == "invalid_value"
+        st = await c.ok("rc.unlock", control="SD")
+        assert st["locks"]["SD"]["locked"] is False and 59 < st["locks"]["SD"]["remaining_s"] <= 60
+        await c.ok("rc.set", values={"SD": 1})
+        for _ in range(5):
+            await c.ok("rc.heartbeat")
+            await asyncio.sleep(0.05)
+        msg = [m for m in c.inbox if m["op"] == "rc"][-1]  # the push carries the lock state
+        assert msg["controls"]["SD"] == 1 and msg["locks"]["SD"]["locked"] is False and msg["channels_us"][7] == 2000
+        await applied_channel(rig, 8, 2000)
+        st = await c.ok("rc.lock", control="SD")  # relock: back to off
+        assert st["controls"]["SD"] == 0 and st["locks"]["SD"]["locked"] is True and st["channels_us"][7] == 1000
+        assert await c.err("rc.set", values={"SD": 1}) == "control_locked"
+        await c.close()
+
+
+async def applied_channel(rig, ch, us, timeout=2.0):
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if any(p.ch_us[ch - 1] == us for p in list(rig.app.sources[0].received_rc)[-3:]):
+            return
+        await asyncio.sleep(0.02)
+    raise AssertionError(f"channel {ch} never reached {us}")
+
+
+async def test_lease_end_by_connection_drop_returns_sd_to_off_and_relocks():
+    async with rc_running() as rig:
+        c = await Client.connect(rig)
+        await c.ok("rc.acquire", kind="connection")
+        await c.ok("rc.unlock", control="SD")
+        await c.ok("rc.set", values={"SD": 1})
+        await applied_channel(rig, 8, 2000)
+        await c.close()
+        await asyncio.sleep(0.3)
+        st = rig.app.rc.status()
+        assert st.lease is None and st.controls["SD"] == 0 and st.locks["SD"]["locked"] is True
+        n = received(rig)
+        await asyncio.sleep(0.2)
+        assert received(rig) == n  # silence
+        d = await Client.connect(rig)
+        await d.ok("rc.acquire", kind="connection")  # the next holder starts off and locked
+        assert await d.err("rc.set", values={"SD": 1}) == "control_locked"
+        await d.close()
+
+
+async def test_keepalive_lease_renewal_and_idle_expiry_through_the_api():
+    async with rc_running() as rig:
+        a = await Client.connect(rig)
+        await a.ok("rc.acquire", kind="keepalive", idle_s=0.6)
+        await a.close()
+        for _ in range(4):  # separate short-lived clients keep it alive, each op renews
+            await asyncio.sleep(0.3)
+            b = await Client.connect(rig)
+            await b.ok("rc.heartbeat")
+            await b.close()
+        assert rig.app.rc.status().lease is not None
+        n = received(rig)
+        await asyncio.sleep(0.9)
+        st = rig.app.rc.status()
+        assert st.lease is None and not st.sending
+        m = received(rig)
+        await asyncio.sleep(0.2)
+        assert received(rig) == m and m > n
+        c = await Client.connect(rig)
+        assert await c.err("rc.heartbeat") == "no_lease"  # a late renewal does not revive it
+        await c.close()

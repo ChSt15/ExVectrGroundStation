@@ -19,8 +19,8 @@ PROTOCOL_VERSION = 1
 VIEWS = ("live", "replay")
 REPLAY_SPEEDS = (0.25, 0.5, 1, 2, 4, 8)
 MAX_RC_HOLD_S = 10.0
-RC_KINDS = ("connection", "timed")
-MAX_TIMED_LEASE_S = 600.0
+RC_KINDS = ("connection", "keepalive")
+MAX_KEEPALIVE_IDLE_S = 9.0
 
 ERROR_CODES = (
     "bad_request",
@@ -28,6 +28,7 @@ ERROR_CODES = (
     "not_found",
     "busy",
     "control_denied",
+    "control_locked",
     "no_lease",
     "invalid_value",
     "io_error",
@@ -252,18 +253,23 @@ def rc_status_json(st: Any) -> dict:
         "mode": st.mode,
         "sending": st.sending,
         "target": st.target,
-        "lease": None
-        if lease is None
-        else {"id": lease.id, "holder": lease.holder, "kind": lease.kind, "expires": secs(lease.expires)},
+        "lease": None if lease is None else lease_json(lease),
         "controls": dict(st.controls),
         "channels_us": list(st.channels_us),
         "origin": st.origin,
         "t": secs(st.t),
+        "locks": {k: dict(v) for k, v in st.locks.items()},
     }
 
 
 def lease_json(lease: Any) -> dict:
-    return {"id": lease.id, "holder": lease.holder, "kind": lease.kind, "expires": secs(lease.expires)}
+    return {
+        "id": lease.id,
+        "holder": lease.holder,
+        "kind": lease.kind,
+        "expires": secs(lease.expires),
+        "idle_s": getattr(lease, "idle_s", None),
+    }
 
 
 # ---------------------------------------------------------------- request validation
@@ -359,16 +365,22 @@ def parse_history(msg: Mapping, registry: PacketRegistry = REGISTRY) -> tuple[st
 
 
 def parse_rc_acquire(msg: Mapping) -> tuple[str, float | None]:
+    """`kind`: connection (heartbeat at least every 1 s) or keepalive (renewed by every rc operation, ends
+    after `idle_s`, default 5, max 9). Returns (kind, idle_s); idle_s is None for connection leases."""
     kind = msg.get("kind", "connection")
     if kind not in RC_KINDS:
         raise ProtocolError("bad_request", f"kind must be one of {RC_KINDS}")
-    dur = _number(msg, "duration_s", optional=True)
-    if kind == "timed":
-        if dur is None or not 0 < dur <= MAX_TIMED_LEASE_S:
-            raise ProtocolError("invalid_value", f"timed lease needs duration_s within (0, {MAX_TIMED_LEASE_S:g}]")
+    idle = _number(msg, "idle_s", optional=True)
+    if kind == "keepalive":
+        if idle is not None and not 0 < idle <= MAX_KEEPALIVE_IDLE_S:
+            raise ProtocolError("invalid_value", f"idle_s must be within (0, {MAX_KEEPALIVE_IDLE_S:g}]")
     else:
-        dur = None
-    return kind, dur
+        idle = None
+    return kind, idle
+
+
+def parse_rc_control(msg: Mapping) -> str:
+    return _req(msg, "control", str, "a control id")
 
 
 def parse_rc_set(msg: Mapping) -> dict[str, float | int]:

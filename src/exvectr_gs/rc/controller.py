@@ -4,11 +4,16 @@ SAFETY-RELEVANT. Rules this module enforces:
 
 - Nothing is sent without an active control lease, and RC state goes only to the single source with
   `rc_role = "control"` (never to a mirror source).
-- A *connection* lease ends when its heartbeat is missing for 1 s, a *timed* lease at its expiry, and a
-  release is immediate. When a lease ends, sending stops entirely (silence is the vehicle's failsafe)
-  and the state returns to the configured defaults. The last state is never kept sending.
-- Defaults are the configured safe positions. They are applied on every start, on every acquire and
-  whenever the control source drops. Nothing is persisted and no previous state is ever resumed.
+- A *connection* lease (GUI, `exgs rc session`) ends when its heartbeat is missing for 1 s. A *keepalive*
+  lease (one-shot CLI commands) ends when it was not renewed for its idle timeout (default 5 s, max 9 s).
+  A release is immediate. There is no long timed lease (user decision 2026-11-19). When a lease ends,
+  sending stops entirely (silence is the vehicle's failsafe) and the state returns to the configured
+  defaults. The last state is never kept sending.
+- Defaults are the configured safe positions. They are applied on every start, on every acquire, on every
+  lease end and whenever the control source drops. Nothing is persisted and no previous state is resumed.
+- A control configured with `lock = true` (a deliberate-action guard, user decision 2026-11-19) is held at
+  its default until it is explicitly unlocked with a held lease. It relocks (back to its default) after its
+  `lock_timeout_s`, and every reset above relocks it. The controller does not know what the control means.
 - The complete channel state is sent on a fixed timer (`send_rate_hz`) independent of clicks.
 - A momentary control is held by the core: it returns to its default automatically (after `hold_s`, or
   300 ms after its last refresh), so a killed client cannot leave it pressed.
@@ -24,7 +29,7 @@ import logging
 import secrets
 import time
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from ..core.bus import Bus
@@ -41,7 +46,8 @@ log = logging.getLogger(__name__)
 HEARTBEAT_TIMEOUT_S = 1.0  # a connection lease needs a heartbeat at least this often
 MOMENTARY_REFRESH_S = 0.3  # a momentary press without hold_s lapses this long after its last refresh
 MAX_HOLD_S = 10.0
-MAX_TIMED_LEASE_S = 600.0
+KEEPALIVE_DEFAULT_S = 5.0  # a keepalive lease ends this long after its last renewal ...
+KEEPALIVE_MAX_S = 9.0  # ... which may be configured down, but never above this (single-digit seconds)
 HANDSET_FRESH_S = 1.0  # a handset RcState younger than this means "mirroring"
 RECORD_PERIOD_S = 1.0  # GS RcState is recorded on change and at least this often while sending
 SEQ_MASK = 0xFF  # provisional wire layout carries seq as uint8; the sequence is only a liveness counter
@@ -51,12 +57,17 @@ class ControlDenied(Exception):
     """Another holder, no control source, or remote address not allowed."""
 
 
+class ControlLocked(Exception):
+    """A locked control was set to a non-default value (it must be unlocked first)."""
+
+
 @dataclass
 class Lease:
     id: str
     holder: str
-    kind: Literal["connection", "timed"]
-    expires: int | None  # ns (host clock) for timed leases; None for connection leases
+    kind: Literal["connection", "keepalive"]
+    expires: int | None  # ns (host clock): the keepalive deadline, moved by every renewal; None for connection
+    idle_s: float | None = None  # keepalive idle timeout
 
 
 @dataclass
@@ -69,6 +80,7 @@ class RcStatus:
     channels_us: list[int]  # full channel vector of that state
     origin: Literal["gs", "handset"] | None
     t: int | None
+    locks: dict[str, dict] = field(default_factory=dict)  # lockable control id -> {locked, remaining_s, timeout_s}
 
 
 class RcController:
@@ -89,6 +101,7 @@ class RcController:
         self._hb_deadline = 0
         self._state: dict[str, float | int] = cfg.default_state()  # always the defaults at start
         self._mom_until: dict[str, int] = {}
+        self._unlock_until: dict[str, int] = {}  # lockable control id -> ns deadline; absent = locked
         self._seq = 0
         self._last_sent_t: int | None = None
         self._last_sent_ch: list[int] | None = None
@@ -120,8 +133,10 @@ class RcController:
         self._bus.publish(GsEvent(t=self._clock.now(), src="gs", kind=kind, detail=detail))
 
     def _reset_state(self) -> None:
+        """Every control back to its default and every lock closed."""
         self._state = self.cfg.default_state()
         self._mom_until.clear()
+        self._unlock_until.clear()
 
     def _end_lease(self, kind: GsEventKind, why: str) -> None:
         lease, self._lease = self._lease, None
@@ -132,43 +147,62 @@ class RcController:
             self._event(kind, f"{lease.kind} lease {lease.id} held by {lease.holder}: {why}")
 
     def _expire(self, now: int) -> None:
-        """Lease and momentary expiry. Run before every operation and every tick."""
+        """Lease, unlock and momentary expiry. Run before every operation and every tick."""
         lease = self._lease
         if lease is not None:
-            if lease.kind == "timed" and lease.expires is not None and now >= lease.expires:
-                self._end_lease(GsEventKind.lease_expired, "expired")
+            if lease.kind == "keepalive" and lease.expires is not None and now >= lease.expires:
+                self._end_lease(GsEventKind.lease_expired, "not renewed within its idle timeout")
             elif lease.kind == "connection" and now >= self._hb_deadline:
                 self._end_lease(GsEventKind.lease_expired, "heartbeat lost")
+        for cid, until in list(self._unlock_until.items()):
+            if now >= until:
+                self._relock(cid)
         for cid, until in list(self._mom_until.items()):
             if now >= until:
                 self._state[cid] = self.cfg.control(cid).default
                 del self._mom_until[cid]
 
+    def _relock(self, cid: str) -> None:
+        """Lock a control and return it to its default (off)."""
+        self._unlock_until.pop(cid, None)
+        self._mom_until.pop(cid, None)
+        self._state[cid] = self.cfg.control(cid).default
+
     def _check_lease(self, lease_id: str) -> Lease:
-        self._expire(self._clock.now())
-        if self._lease is None or self._lease.id != lease_id:
+        """Validate the lease; any operation on a keepalive lease renews it (never an expired one)."""
+        now = self._clock.now()
+        self._expire(now)
+        lease = self._lease
+        if lease is None or lease.id != lease_id:
             raise ControlDenied("no such control lease (it may have expired)")
-        return self._lease
+        if lease.kind == "keepalive" and lease.idle_s is not None:
+            lease.expires = now + int(lease.idle_s * 1e9)
+        return lease
 
     # ------------------------------------------------------------ lease API
 
-    def acquire(self, holder: str, kind: str, duration_s: float | None = None, remote_addr: str = "") -> Lease:
+    def acquire(self, holder: str, kind: str, idle_s: float | None = None, remote_addr: str = "") -> Lease:
+        """`connection`: needs a heartbeat at least every 1 s. `keepalive`: renewed by every operation and
+        by `heartbeat`, ends `idle_s` after the last one (default 5 s, max 9 s)."""
         now = self._clock.now()
         self._expire(now)
         if self._control_hosts is not None and not is_control_host(remote_addr, self._control_hosts):
             raise ControlDenied("this client is not on a control host (view only)")
-        if kind not in ("connection", "timed"):
-            raise ValueError("kind must be 'connection' or 'timed'")
-        if kind == "timed" and (duration_s is None or not 0 < duration_s <= MAX_TIMED_LEASE_S):
-            raise ValueError(f"timed lease needs duration_s within (0, {MAX_TIMED_LEASE_S:g}]")
+        if kind not in ("connection", "keepalive"):
+            raise ValueError("kind must be 'connection' or 'keepalive'")
+        idle = None
+        if kind == "keepalive":
+            idle = KEEPALIVE_DEFAULT_S if idle_s is None else idle_s
+            if not 0 < idle <= KEEPALIVE_MAX_S:
+                raise ValueError(f"keepalive idle_s must be within (0, {KEEPALIVE_MAX_S:g}]")
         if self._lease is not None:
             raise ControlDenied(f"control is held by {self._lease.holder}")
         if not self._source_ready(self._control_source()):
             raise ControlDenied("no control source is connected")
-        self._reset_state()  # always start from the safe defaults
+        self._reset_state()  # always start from the safe defaults, every control locked
         self._last_sent_ch = None
-        expires = now + int(duration_s * 1e9) if kind == "timed" and duration_s else None
-        self._lease = Lease(id=secrets.token_hex(4), holder=holder, kind=kind, expires=expires)  # type: ignore[arg-type]
+        expires = now + int(idle * 1e9) if idle is not None else None
+        self._lease = Lease(id=secrets.token_hex(4), holder=holder, kind=kind, expires=expires, idle_s=idle)  # type: ignore[arg-type]
         self._hb_deadline = now + int(HEARTBEAT_TIMEOUT_S * 1e9)
         self._event(GsEventKind.lease_acquired, f"{kind} lease {self._lease.id} held by {holder}")
         return self._lease
@@ -181,6 +215,7 @@ class RcController:
         self._end_lease(GsEventKind.lease_released, "released")
 
     def heartbeat(self, lease_id: str) -> None:
+        """Connection lease: the 1 s heartbeat. Keepalive lease: a renewal (done by the lease check)."""
         lease = self._check_lease(lease_id)
         if lease.kind == "connection":
             self._hb_deadline = self._clock.now() + int(HEARTBEAT_TIMEOUT_S * 1e9)
@@ -199,6 +234,10 @@ class RcController:
                 raise ValueError(f"hold_s applies to momentary controls only, not {cid}")
         if hold_s is not None and not 0 < hold_s <= MAX_HOLD_S:
             raise ValueError(f"hold_s must be within (0, {MAX_HOLD_S:g}]")
+        for cid, v in checked.items():
+            spec = self.cfg.control(cid)
+            if spec.lock and cid not in self._unlock_until and v != spec.default:
+                raise ControlLocked(f"control {cid} is locked: unlock it first")  # nothing of the request applied
         now = self._clock.now()
         for cid, v in checked.items():
             self._state[cid] = v
@@ -208,6 +247,35 @@ class RcController:
                 else:
                     self._mom_until[cid] = now + int((hold_s if hold_s is not None else MOMENTARY_REFRESH_S) * 1e9)
         return self.status()
+
+    def unlock(self, lease_id: str, control: str) -> RcStatus:
+        """Deliberate-action guard: the control may be set to non-default values for `lock_timeout_s`."""
+        self._check_lease(lease_id)
+        spec = self.cfg.control(control)
+        if not spec.lock:
+            raise ValueError(f"control {control} has no lock")
+        self._unlock_until[control] = self._clock.now() + int(spec.lock_timeout_s * 1e9)
+        return self.status()
+
+    def lock(self, lease_id: str, control: str) -> RcStatus:
+        """Relock at once; the control returns to its default (off)."""
+        self._check_lease(lease_id)
+        if not self.cfg.control(control).lock:
+            raise ValueError(f"control {control} has no lock")
+        self._relock(control)
+        return self.status()
+
+    def _locks(self, now: int) -> dict[str, dict]:
+        out: dict[str, dict] = {}
+        for c in self.cfg.controls:
+            if c.lock:
+                until = self._unlock_until.get(c.id)
+                out[c.id] = {
+                    "locked": until is None,
+                    "remaining_s": None if until is None else max(0.0, (until - now) / 1e9),
+                    "timeout_s": c.lock_timeout_s,
+                }
+        return out
 
     # ------------------------------------------------------------ status
 
@@ -227,7 +295,7 @@ class RcController:
             assert self._handset_ch is not None
             return RcStatus(
                 mode, False, None, self._lease, self.cfg.state_from_channels(self._handset_ch),
-                list(self._handset_ch), "handset", self._handset_t,
+                list(self._handset_ch), "handset", self._handset_t, self._locks(now),
             )  # fmt: skip
         return RcStatus(
             mode,
@@ -238,6 +306,7 @@ class RcController:
             self.cfg.channels_us(self._state),
             "gs" if self._lease is not None else None,
             self._last_sent_t,
+            self._locks(now),
         )
 
     # ------------------------------------------------------------ sender

@@ -27,7 +27,7 @@ from .. import __version__
 from ..core.hosts import is_control_host  # noqa: F401  (re-exported)
 from ..core.state import StateStore
 from ..packets import REGISTRY
-from ..rc.controller import ControlDenied
+from ..rc.controller import ControlDenied, ControlLocked
 from . import protocol as P
 from .hub import Client, Hub, View
 from .protocol import ProtocolError
@@ -93,6 +93,8 @@ class ApiServer:
             "rc.release": self._op_rc_release,
             "rc.heartbeat": self._op_rc_heartbeat,
             "rc.set": self._op_rc_set,
+            "rc.unlock": self._op_rc_unlock,
+            "rc.lock": self._op_rc_lock,
             "sources.list": self._op_sources_list,
             "sources.enable": self._op_sources_enable,
             "config.get": self._op_config_get,
@@ -177,6 +179,8 @@ class ApiServer:
             raise
         except ControlDenied as e:
             raise ProtocolError("control_denied", str(e) or "control denied") from None
+        except ControlLocked as e:
+            raise ProtocolError("control_locked", str(e)) from None
         except NotImplementedError as e:
             raise ProtocolError("not_implemented", str(e) or "not implemented") from None
         except FileNotFoundError as e:
@@ -423,8 +427,8 @@ class ApiServer:
     # ------------------------------------------------------------ ops: RC (safety-relevant, thin pass-through)
 
     def _rc_lease_id(self, client: Client) -> str:
-        """The lease this client may act on: its own, or (control hosts only) the current timed lease, so
-        that separate short-lived CLI processes can drive one timed lease (design 4.4)."""
+        """The lease this client may act on: its own, or (control hosts only) the current keepalive lease,
+        so that separate short-lived CLI processes can drive and renew one keepalive lease (design 4.4)."""
         if client.lease_id:
             return client.lease_id
         rc = self._need("rc", "RC control")
@@ -433,7 +437,7 @@ class ApiServer:
                 lease = rc.status().lease
             except NotImplementedError:
                 lease = None
-            if lease is not None and lease.kind == "timed":
+            if lease is not None and lease.kind == "keepalive":
                 return lease.id
         raise ProtocolError("no_lease", "no control lease held")
 
@@ -441,13 +445,13 @@ class ApiServer:
         rc = self._need("rc", "RC control")
         if not client.can_control:  # decision 10.1-4, enforced here as well as in the controller
             raise ProtocolError("control_denied", "this client is not on a control host (view only)")
-        kind, dur = P.parse_rc_acquire(msg)
+        kind, idle = P.parse_rc_acquire(msg)
         if client.lease_id:
             cur = rc.status().lease  # a lease that ended (expiry, heartbeat loss) is not "held" any more
             if cur is not None and cur.id == client.lease_id:
                 raise ProtocolError("busy", "this connection already holds a lease")
             client.lease_id = None
-        lease = await self._call(rc.acquire, client.name or client.id, kind, dur, client.addr)
+        lease = await self._call(rc.acquire, client.name or client.id, kind, idle, client.addr)
         client.lease_id = lease.id
         self._push_rc()
         return P.lease_json(lease)
@@ -471,11 +475,24 @@ class ApiServer:
         hold_s = P.parse_rc_hold(msg)
         args = (self._rc_lease_id(client), values) if hold_s is None else (self._rc_lease_id(client), values, hold_s)
         st = await self._call(rc.set, *args)
+        self._push_rc()
+        return P.rc_status_json(st)
+
+    async def _op_rc_unlock(self, client: Client, msg: dict) -> dict:
+        rc = self._need("rc", "RC control")
+        st = await self._call(rc.unlock, self._rc_lease_id(client), P.parse_rc_control(msg))
+        self._push_rc()
+        return P.rc_status_json(st)
+
+    async def _op_rc_lock(self, client: Client, msg: dict) -> dict:
+        rc = self._need("rc", "RC control")
+        st = await self._call(rc.lock, self._rc_lease_id(client), P.parse_rc_control(msg))
+        self._push_rc()
         return P.rc_status_json(st)
 
     def _client_gone(self, client: Client) -> None:
         """Decision 10.1-1: when the controlling client disappears, sending stops. A connection lease ends
-        with its connection. (Timed leases, used by short-lived CLI processes, end by expiry.)"""
+        with its connection. (Keepalive leases, used by short-lived CLI processes, end by idle expiry, at most 9 s.)"""
         rc = self._mod("rc")
         if rc is None or not client.lease_id:
             return

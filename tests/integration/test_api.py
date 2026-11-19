@@ -526,12 +526,13 @@ class FakeRc:
         self.calls: list[tuple] = []
         self.n = 0
 
-    def acquire(self, holder, kind, duration_s=None, remote_addr=""):
-        self.calls.append(("acquire", holder, kind, duration_s, remote_addr))
+    def acquire(self, holder, kind, idle_s=None, remote_addr=""):
+        self.calls.append(("acquire", holder, kind, idle_s, remote_addr))
         if self.lease:
             raise ControlDenied("held by " + self.lease.holder)
         self.n += 1
-        self.lease = Lease(f"L{self.n}", holder, kind, None if duration_s is None else int(duration_s * S))
+        idle = (5.0 if idle_s is None else idle_s) if kind == "keepalive" else None
+        self.lease = Lease(f"L{self.n}", holder, kind, None if idle is None else int(idle * S), idle)
         return self.lease
 
     def release(self, lease_id):
@@ -546,6 +547,16 @@ class FakeRc:
         self.calls.append(("set", lease_id, dict(values)))
         if "BAD" in values:
             raise ValueError("unknown control BAD")
+        return self.status()
+
+    def unlock(self, lease_id, control):
+        self.calls.append(("unlock", lease_id, control))
+        if control == "SA":
+            raise ValueError("control SA has no lock")
+        return self.status()
+
+    def lock(self, lease_id, control):
+        self.calls.append(("lock", lease_id, control))
         return self.status()
 
     def status(self):
@@ -606,30 +617,39 @@ async def test_rc_connection_lease_ends_when_the_client_disconnects():
         await other.close()
 
 
-async def test_rc_timed_lease_survives_its_connection_and_serves_other_cli_processes():
+async def test_rc_keepalive_lease_survives_its_connection_and_serves_other_cli_processes():
     app = rc_app()
     async with running(app) as rig:
         a = await Client.connect(rig)
-        lease = await a.ok("rc.acquire", kind="timed", duration_s=30)
-        assert lease["expires"] == 30.0
-        await a.close()  # a short-lived CLI process exits; the timed lease stays until it expires
+        lease = await a.ok("rc.acquire", kind="keepalive", idle_s=9)
+        assert lease["expires"] == 9.0 and lease["idle_s"] == 9.0
+        await a.close()  # a short-lived CLI process exits; the keepalive lease stays until its idle expiry
         await asyncio.sleep(0.2)
         assert app.rc.lease is not None and not any(c[0] == "release" for c in app.rc.calls)
         b = await Client.connect(rig)
-        await b.ok("rc.set", values={"SA": 1})  # a second process uses the timed lease
+        await b.ok("rc.set", values={"SA": 1})  # a second process uses (and renews) the keepalive lease
         assert app.rc.calls[-1] == ("set", lease["id"], {"SA": 1})
+        await b.ok("rc.heartbeat")
+        assert app.rc.calls[-1] == ("heartbeat", lease["id"])
+        await b.ok("rc.unlock", control="SD")
+        assert app.rc.calls[-1] == ("unlock", lease["id"], "SD")
+        await b.ok("rc.lock", control="SD")
+        assert app.rc.calls[-1] == ("lock", lease["id"], "SD")
+        assert await b.err("rc.unlock", control="SA") == "invalid_value"
+        assert await b.err("rc.unlock") == "bad_request"
         await b.ok("rc.release")
         assert app.rc.lease is None
         assert await b.err("rc.release") == "no_lease"
         await b.close()
 
 
-async def test_rc_timed_lease_needs_a_duration_within_limits():
+async def test_rc_keepalive_idle_within_limits_and_no_timed_lease():
     app = rc_app()
     async with running(app) as rig:
         c = await Client.connect(rig)
-        assert await c.err("rc.acquire", kind="timed") == "invalid_value"
-        assert await c.err("rc.acquire", kind="timed", duration_s=601) == "invalid_value"
+        assert await c.err("rc.acquire", kind="keepalive", idle_s=9.5) == "invalid_value"
+        assert await c.err("rc.acquire", kind="keepalive", idle_s=0) == "invalid_value"
+        assert await c.err("rc.acquire", kind="timed", duration_s=30) == "bad_request"
         assert await c.err("rc.acquire", kind="sticky") == "bad_request"
         assert app.rc.calls == []
         await c.close()
@@ -747,13 +767,13 @@ def _exgs(port, *args):
     )
 
 
-async def test_cli_rc_commands_use_a_timed_lease_across_processes():
+async def test_cli_rc_commands_use_a_keepalive_lease_across_processes():
     app = rc_app()
     async with running(app) as rig:
         run = lambda *a: asyncio.to_thread(_exgs, rig.api.port, *a)  # noqa: E731
-        r = await run("rc", "acquire", "--duration", "60")
+        r = await run("rc", "acquire", "--idle", "9")
         assert r.returncode == 0, r.stdout + r.stderr
-        assert app.rc.lease is not None and app.rc.lease.kind == "timed"  # the CLI process is gone, lease stays
+        assert app.rc.lease is not None and app.rc.lease.kind == "keepalive"  # the CLI process is gone, lease stays
         r = await run("rc", "set", "SA=1")
         assert r.returncode == 0 and app.rc.calls[-1] == ("set", "L1", {"SA": 1})
         r = await run("rc", "set", "SA=1", "--hold", "0.2")  # presses, then restores the previous value
@@ -762,14 +782,20 @@ async def test_cli_rc_commands_use_a_timed_lease_across_processes():
         assert sets[-2:] == [{"SA": 1}, {"SA": 0}]
         r = await run("rc", "show")
         assert json.loads(r.stdout)["mode"] == "controlling"
+        r = await run("rc", "keepalive")
+        assert r.returncode == 0 and app.rc.calls[-1][0] == "heartbeat"
         r = await run("rc", "release")
         assert r.returncode == 0 and app.rc.lease is None
-        r = await run("rc", "set", "SA=1")  # no lease: control error, exit 3
+        r = await run("rc", "keepalive")  # nothing to renew: control error, exit 3
         assert r.returncode == 3 and json.loads(r.stdout)["error"]["code"] == "no_lease"
+        r = await run("rc", "set", "SA=1", "--idle", "7")  # a one-shot set takes a keepalive lease itself
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert app.rc.lease.kind == "keepalive" and app.rc.lease.idle_s == 7.0
+        assert app.rc.calls[-1][0] == "set" and app.rc.calls[-1][2] == {"SA": 1}
 
 
 async def test_cli_rc_denied_exit_code_3():
     app = rc_app(control_hosts=("10.9.9.9",))
     async with running(app) as rig:
-        r = await asyncio.to_thread(_exgs, rig.api.port, "rc", "acquire", "--duration", "5")
+        r = await asyncio.to_thread(_exgs, rig.api.port, "rc", "acquire", "--idle", "5")
         assert r.returncode == 3 and json.loads(r.stdout)["error"]["code"] == "control_denied"

@@ -75,11 +75,16 @@ def test_validation_errors():
     assert e.value.code == "invalid_value"
     assert P.parse_subscribe({}).types is None and P.parse_subscribe({"types": ["Attitude"]}).types == {"Attitude"}
     with pytest.raises(P.ProtocolError):
-        P.parse_rc_acquire({"kind": "timed"})  # needs a duration
+        P.parse_rc_acquire({"kind": "timed", "duration_s": 30})  # the long timed lease is gone
+    for bad_idle in (0, -1, 9.5, 600):
+        with pytest.raises(P.ProtocolError):
+            P.parse_rc_acquire({"kind": "keepalive", "idle_s": bad_idle})
+    assert P.parse_rc_acquire({"kind": "keepalive"}) == ("keepalive", None)  # the core applies its 5 s default
+    assert P.parse_rc_acquire({"kind": "keepalive", "idle_s": 9}) == ("keepalive", 9.0)
+    assert P.parse_rc_acquire({"kind": "connection", "idle_s": 3}) == ("connection", None)
+    assert P.parse_rc_control({"control": "SD"}) == "SD"
     with pytest.raises(P.ProtocolError):
-        P.parse_rc_acquire({"kind": "timed", "duration_s": 601})
-    assert P.parse_rc_acquire({"kind": "timed", "duration_s": 30}) == ("timed", 30.0)
-    assert P.parse_rc_acquire({"kind": "connection", "duration_s": 30}) == ("connection", None)
+        P.parse_rc_control({})
     for bad in ({"values": {"SA": True}}, {"values": {"SA": "1"}}, {"values": {"SA": math.nan}}, {"values": {}}, {}):
         with pytest.raises(P.ProtocolError):
             P.parse_rc_set(bad)

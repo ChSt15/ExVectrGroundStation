@@ -10,7 +10,7 @@ from exvectr_gs.core import Bus
 from exvectr_gs.core.clock import FakeClock
 from exvectr_gs.packets.defs.host import GsEventKind
 from exvectr_gs.packets.defs.link import RcOrigin, RcState
-from exvectr_gs.rc import ControlDenied, RadioConfig, RadioConfigError, RcController, load_radio_config
+from exvectr_gs.rc import ControlDenied, ControlLocked, RadioConfig, RadioConfigError, RcController, load_radio_config
 from exvectr_gs.rc.radio_config import radio_config_from_dict
 from exvectr_gs.sources.base import SourceCaps, SourceKind, SourceStatus
 
@@ -67,6 +67,16 @@ class Rig:
 
 def run(coro):
     return asyncio.run(coro)
+
+
+def beat(r, lease, seconds, step=0.5):
+    """Advance the fake clock keeping the lease alive with heartbeats / renewals."""
+    left = seconds
+    while left > 1e-9:
+        d = min(step, left)
+        r.clock.advance(d)
+        r.rc.heartbeat(lease.id)
+        left -= d
 
 
 # ---------------------------------------------------------------- radio config
@@ -183,7 +193,7 @@ def test_one_holder_only():
     r = Rig()
     r.acquire(holder="gui")
     with pytest.raises(ControlDenied):
-        r.acquire(holder="cli", kind="timed", dur=5)
+        r.acquire(holder="cli", kind="keepalive", dur=5)
 
 
 def test_control_hosts_enforced_in_controller():
@@ -197,7 +207,7 @@ def test_control_hosts_enforced_in_controller():
 
 def test_acquire_argument_validation():
     r = Rig()
-    for kind, dur in [("timed", None), ("timed", 0), ("timed", 601), ("bogus", None)]:
+    for kind, dur in [("keepalive", 0), ("keepalive", 9.5), ("keepalive", -1), ("timed", 5), ("bogus", None)]:
         with pytest.raises(ValueError):
             r.rc.acquire("x", kind, dur, "127.0.0.1")
     assert r.rc.status().lease is None
@@ -206,7 +216,7 @@ def test_acquire_argument_validation():
 def test_release_stops_sending_at_once_and_resets_to_defaults():
     r = Rig()
     lease = r.acquire()
-    r.rc.set(lease.id, {"SA": 1, "SD": 1})
+    r.rc.set(lease.id, {"SA": 1, "SB": 2})
     run(r.tick())
     n = len(r.src.sent)
     r.rc.release(lease.id)
@@ -242,18 +252,214 @@ def test_connection_lease_ends_when_heartbeat_is_lost():
         r.rc.set(lease.id, {"SA": 1})
 
 
-def test_timed_lease_expires_and_ignores_heartbeats():
+def test_keepalive_lease_defaults_to_5_s_and_is_renewed_by_every_operation():
     r = Rig()
-    lease = r.acquire("timed", 2.0, holder="cli")
+    lease = r.acquire("keepalive", None, holder="cli")
+    assert lease.idle_s == 5.0 and lease.expires == 1005 * S
+    r.clock.advance(4.0)
+    r.rc.set(lease.id, {"SA": 1})  # a set renews: deadline = now + 5 s
+    assert lease.expires == 1009 * S
+    r.clock.advance(4.0)
+    r.rc.heartbeat(lease.id)  # so does keepalive/heartbeat
+    r.clock.advance(4.0)
+    r.rc.unlock(lease.id, "SD")  # and unlock
+    r.clock.advance(4.0)
+    r.rc.lock(lease.id, "SD")  # and lock
+    r.clock.advance(4.9)
+    assert r.rc.status().lease is not None and r.rc.status().controls["SA"] == 1  # status itself does not renew
+    r.clock.advance(0.2)  # 5.1 s idle
+    assert r.rc.status().lease is None and r.rc.status().controls == r.cfg.default_state()
+
+
+def test_keepalive_lease_expires_sending_stops_and_a_late_renewal_cannot_revive_it():
+    r = Rig()
+    lease = r.acquire("keepalive", 2.0, holder="cli")
     assert lease.expires == 1002 * S
-    for _ in range(40):  # 1.6 s
-        r.rc.heartbeat(lease.id)
+    r.rc.set(lease.id, {"SA": 1})
+    for _ in range(40):  # 1.6 s, no renewal
         assert run(r.tick()) is True
     run(r.tick(0.5))  # t = 2.1 s: expired, nothing sent at this tick
     assert r.rc.status().lease is None
     n = len(r.src.sent)
     assert run(r.tick()) is False and len(r.src.sent) == n
     assert GsEventKind.lease_expired in r.events()
+    for op in (
+        lambda: r.rc.heartbeat(lease.id),
+        lambda: r.rc.set(lease.id, {"SA": 0}),
+        lambda: r.rc.unlock(lease.id, "SD"),
+        lambda: r.rc.lock(lease.id, "SD"),
+    ):
+        with pytest.raises(ControlDenied):  # the renewal is checked after the expiry
+            op()
+    assert r.rc.status().lease is None and r.rc.status().controls == r.cfg.default_state()
+
+
+def test_keepalive_idle_is_bounded_to_single_digit_seconds_and_the_connection_lease_ignores_idle():
+    r = Rig()
+    for bad in (0, 9.01, 600):
+        with pytest.raises(ValueError):
+            r.rc.acquire("x", "keepalive", bad, "127.0.0.1")
+    assert r.rc.acquire("x", "keepalive", 9, "127.0.0.1").idle_s == 9
+    r.rc.release(r.rc.status().lease.id)
+    conn = r.rc.acquire("x", "connection", 3, "127.0.0.1")
+    assert conn.idle_s is None and conn.expires is None
+    r.clock.advance(0.8)
+    r.rc.set(conn.id, {"SA": 1})  # a set does NOT renew a connection lease: only the heartbeat does
+    r.clock.advance(0.3)
+    assert r.rc.status().lease is None
+
+
+# ---------------------------------------------------------------- locked controls (user decision 2026-11-19)
+
+
+def test_pocket_config_locks_sd_only():
+    cfg = load_radio_config(POCKET)
+    assert [c.id for c in cfg.controls if c.lock] == ["SD"] and cfg.control("SD").lock_timeout_s == 60
+
+
+def test_locked_control_rejects_non_default_and_applies_nothing():
+    r = Rig()
+    lease = r.acquire()
+    st = r.rc.status()
+    assert st.locks["SD"]["locked"] is True and st.locks["SD"]["remaining_s"] is None
+    assert set(st.locks) == {"SD"}
+    with pytest.raises(ControlLocked):
+        r.rc.set(lease.id, {"SA": 1, "SD": 1})  # one bad value: the whole request is rejected
+    assert r.rc.status().controls == r.cfg.default_state()
+    r.rc.set(lease.id, {"SD": 0, "SA": 1})  # the default is always allowed
+    assert r.rc.status().controls["SA"] == 1
+    run(r.tick())
+    assert r.src.sent[-1].ch_us[7] == 1000  # SD stays off on the wire
+
+
+def test_unlock_needs_a_lease_and_a_lockable_control():
+    r = Rig()
+    with pytest.raises(ControlDenied):
+        r.rc.unlock("nope", "SD")
+    lease = r.acquire()
+    with pytest.raises(ValueError):
+        r.rc.unlock(lease.id, "SA")  # no lock configured
+    with pytest.raises(ValueError):
+        r.rc.unlock(lease.id, "XX")
+    with pytest.raises(ValueError):
+        r.rc.lock(lease.id, "SA")
+
+
+def test_unlocked_control_can_be_set_and_relocks_after_the_timeout_to_off():
+    r = Rig()
+    lease = r.acquire()
+    st = r.rc.unlock(lease.id, "SD")
+    assert st.locks["SD"] == {"locked": False, "remaining_s": 60.0, "timeout_s": 60.0}
+    r.rc.set(lease.id, {"SD": 1})
+    run(r.tick())
+    assert r.src.sent[-1].ch_us[7] == 2000
+    beat(r, lease, 59.0)
+    assert r.rc.status().controls["SD"] == 1
+    assert r.rc.status().locks["SD"]["remaining_s"] == pytest.approx(0.96, abs=0.01)
+    beat(r, lease, 1.01)
+    assert r.rc.status().controls["SD"] == 0 and r.rc.status().locks["SD"]["locked"] is True  # reset to off
+    run(r.tick())
+    assert r.src.sent[-1].ch_us[7] == 1000  # the expiry is applied on the next tick, no operation needed
+    with pytest.raises(ControlLocked):
+        r.rc.set(lease.id, {"SD": 1})
+
+
+def test_unlock_expiry_is_applied_by_the_tick_alone():
+    r = Rig()
+    lease = r.acquire("keepalive", 9, holder="cli")
+    r.rc.unlock(lease.id, "SD")
+    r.rc.set(lease.id, {"SD": 1})
+    beat(r, lease, 56.0)  # lease kept alive by renewals, unlock not renewed
+    r.clock.advance(5.0)  # t = 61 s since the unlock, 5 s since the last renewal: lease alive, unlock lapsed
+    assert run(r.rc.tick()) is True  # the tick itself relocks, no operation in between
+    assert r.src.sent[-1].ch_us[7] == 1000 and r.rc._unlock_until == {} and r.rc.status().lease is not None
+
+
+def test_explicit_lock_resets_to_default_and_is_idempotent():
+    r = Rig()
+    lease = r.acquire()
+    r.rc.unlock(lease.id, "SD")
+    r.rc.set(lease.id, {"SD": 1})
+    st = r.rc.lock(lease.id, "SD")
+    assert st.controls["SD"] == 0 and st.locks["SD"]["locked"] is True
+    assert r.rc.lock(lease.id, "SD").controls["SD"] == 0
+    with pytest.raises(ControlLocked):
+        r.rc.set(lease.id, {"SD": 1})
+
+
+def _unlock_sd_on(r, lease):
+    r.rc.unlock(lease.id, "SD")
+    r.rc.set(lease.id, {"SD": 1, "SA": 1})
+    assert r.rc.status().controls["SD"] == 1
+
+
+def test_every_end_of_control_returns_defaults_and_relocks():
+    # release
+    r = Rig()
+    lease = r.acquire()
+    _unlock_sd_on(r, lease)
+    r.rc.release(lease.id)
+    assert r.rc._unlock_until == {} and r.rc.status().controls == r.cfg.default_state()
+    # heartbeat loss
+    r = Rig()
+    lease = r.acquire()
+    _unlock_sd_on(r, lease)
+    r.clock.advance(1.01)
+    assert r.rc.status().lease is None and r.rc._unlock_until == {} and r.rc.status().controls["SD"] == 0
+    # keepalive expiry
+    r = Rig()
+    lease = r.acquire("keepalive", 1.0, holder="cli")
+    _unlock_sd_on(r, lease)
+    r.clock.advance(1.01)
+    assert r.rc.status().lease is None and r.rc._unlock_until == {} and r.rc.status().controls["SD"] == 0
+    # control source drop (lease still valid): defaults and relock, and the state is not resumed on return
+    r = Rig()
+    lease = r.acquire()
+    _unlock_sd_on(r, lease)
+    r.src.state = "searching"
+    run(r.tick())
+    assert r.rc._unlock_until == {} and r.rc.status().controls["SD"] == 0 and r.rc.status().controls["SA"] == 0
+    r.src.state = "connected"
+    r.rc.heartbeat(lease.id)
+    run(r.tick())
+    assert r.src.sent[-1].ch_us == r.cfg.channels_us(r.cfg.default_state())
+    with pytest.raises(ControlLocked):
+        r.rc.set(lease.id, {"SD": 1})
+    # acquire after an unlock that was never closed (cannot normally happen: defence in depth)
+    r = Rig()
+    r.rc._unlock_until["SD"] = 10**18
+    r.rc._state["SD"] = 1
+    lease = r.acquire()
+    assert r.rc.status().controls["SD"] == 0 and r.rc.status().locks["SD"]["locked"] is True
+
+
+def test_fresh_controller_starts_locked_at_defaults():
+    r = Rig()
+    st = r.rc.status()
+    assert st.controls == r.cfg.default_state() and st.locks["SD"]["locked"] is True
+
+
+def test_mirror_status_reports_locks_as_locked():
+    r = Rig([StubSource("link", rc_role="mirror")])
+    handset(r)
+    st = r.rc.status()
+    assert st.mode == "mirroring" and st.locks["SD"]["locked"] is True
+
+
+def test_radio_config_lock_validation():
+    base = {"controls": [{"id": "A", "kind": "toggle2", "channel": 1, "values_us": [1000, 2000], "default": 0}]}
+
+    def with_(**kw):
+        d = {"controls": [{**base["controls"][0], **kw}]}
+        return radio_config_from_dict(d)
+
+    c = with_(lock=True).control("A")
+    assert c.lock is True and c.lock_timeout_s == 60.0
+    assert with_(lock=True, lock_timeout_s=5).control("A").lock_timeout_s == 5
+    for bad in ({"lock": "yes"}, {"lock": True, "lock_timeout_s": 0}, {"lock": True, "lock_timeout_s": 4000},
+                {"lock": True, "lock_timeout_s": "x"}):  # fmt: skip
+        with pytest.raises(RadioConfigError):
+            with_(**bad)
 
 
 def test_losing_the_lease_stops_sending_within_one_period():
@@ -263,7 +469,7 @@ def test_losing_the_lease_stops_sending_within_one_period():
         r = Rig()
         r.rc.cfg.send_rate_hz = 50
         r.rc._clock = type("C", (), {"now": staticmethod(lambda: time.monotonic_ns())})()
-        lease = r.rc.acquire("gui", "timed", 30, "127.0.0.1")
+        lease = r.rc.acquire("gui", "keepalive", 9, "127.0.0.1")
         task = asyncio.create_task(r.rc.run())
         await asyncio.sleep(0.2)
         assert len(r.src.sent) >= 5
@@ -296,7 +502,7 @@ def test_refused_send_skips_the_tick_and_keeps_the_lease():
 def test_control_source_drop_resets_controls_to_defaults():
     r = Rig()
     lease = r.acquire()
-    r.rc.set(lease.id, {"SA": 1, "SD": 1})
+    r.rc.set(lease.id, {"SA": 1, "SB": 2})
     run(r.tick())
     r.src.state = "searching"
     for _ in range(3):
@@ -381,7 +587,7 @@ def test_hold_s_only_for_momentary_and_bounded():
 
 def test_gs_rcstate_recorded_on_change_and_once_per_second():
     r = Rig()
-    lease = r.acquire("timed", 30, holder="cli")
+    lease = r.acquire("keepalive", 9, holder="cli")
 
     def recorded():
         return [p for p in r.published if p.TYPE == "RcState"]
@@ -426,7 +632,7 @@ def test_mirror_mode_reports_handset_and_sends_nothing():
 
 def test_conflict_when_controlling_and_handset_seen():
     r = Rig()
-    r.acquire("timed", 30, holder="cli")
+    r.acquire("keepalive", 9, holder="cli")
     run(r.tick())
     assert r.rc.status().mode == "controlling"
     handset(r)
@@ -450,11 +656,11 @@ def test_own_gs_state_is_not_mistaken_for_a_handset():
 
 
 def test_rate_is_fixed_at_send_rate_hz():
-    # a timed lease needs no heartbeat
+    # a keepalive lease needs no heartbeat
     async def go_timed():
         r = Rig()
         r.rc._clock = type("C", (), {"now": staticmethod(lambda: time.monotonic_ns())})()
-        r.rc.acquire("cli", "timed", 5.0, "127.0.0.1")
+        r.rc.acquire("cli", "keepalive", 5.0, "127.0.0.1")
         task = asyncio.create_task(r.rc.run())
         t0 = time.monotonic()
         await asyncio.sleep(2.0)

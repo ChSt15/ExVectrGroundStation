@@ -17,6 +17,8 @@ KINDS = ("toggle2", "switch3", "momentary", "slider")
 POSITIONS = {"toggle2": 2, "switch3": 3, "momentary": 2}
 US_MIN, US_MAX = 1000, 2000  # every configured pulse width must be inside this range
 MAX_CHANNELS = 16  # the RcState packet carries 16 channels
+DEFAULT_LOCK_TIMEOUT_S = 60.0
+MAX_LOCK_TIMEOUT_S = 3600.0
 
 
 class RadioConfigError(ValueError):
@@ -34,6 +36,8 @@ class ControlSpec:
     label: str = ""
     meaning: str = ""  # informational only
     svg: Mapping[str, float] = field(default_factory=dict)
+    lock: bool = False  # deliberate-action guard: held at the default until unlocked (generic, no meaning attached)
+    lock_timeout_s: float = DEFAULT_LOCK_TIMEOUT_S  # an unlock lapses (and the control returns to default) after this
 
     @property
     def discrete(self) -> bool:
@@ -116,6 +120,10 @@ class RadioConfig:
             lo, hi = c.range_us
             if not US_MIN <= lo < hi <= US_MAX:
                 raise RadioConfigError(f"control {c.id}: range_us must be ascending within {US_MIN}..{US_MAX}")
+        if not isinstance(c.lock, bool):
+            raise RadioConfigError(f"control {c.id}: lock must be true or false")
+        if not isinstance(c.lock_timeout_s, (int, float)) or not 0 < c.lock_timeout_s <= MAX_LOCK_TIMEOUT_S:
+            raise RadioConfigError(f"control {c.id}: lock_timeout_s must be within (0, {MAX_LOCK_TIMEOUT_S:g}]")
         try:
             c.check(c.default)
         except ValueError as e:
@@ -153,7 +161,19 @@ class RadioConfig:
 
 
 def _control(d: Mapping[str, Any]) -> ControlSpec:
-    known = {"id", "kind", "channel", "default", "values_us", "range_us", "label", "meaning", "svg"}
+    known = {
+        "id",
+        "kind",
+        "channel",
+        "default",
+        "values_us",
+        "range_us",
+        "label",
+        "meaning",
+        "svg",
+        "lock",
+        "lock_timeout_s",
+    }
     extra = set(d) - known
     if extra:
         raise RadioConfigError(f"control {d.get('id')!r}: unknown keys {sorted(extra)}")
@@ -170,6 +190,8 @@ def _control(d: Mapping[str, Any]) -> ControlSpec:
             label=str(d.get("label", d["id"])),
             meaning=str(d.get("meaning", "")),
             svg=dict(d.get("svg", {})),
+            lock=d.get("lock", False),
+            lock_timeout_s=d.get("lock_timeout_s", DEFAULT_LOCK_TIMEOUT_S),
         )
     except (KeyError, TypeError, ValueError) as e:
         raise RadioConfigError(f"control {d.get('id')!r}: bad or missing field ({e})") from None
