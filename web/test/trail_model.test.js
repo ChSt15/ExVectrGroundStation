@@ -1,0 +1,75 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { Trail } from "../app/view3d/trail.js";
+import {
+  DEFAULT_FLAP_DEG, validateModel, flapRotationRad, resolveFlapAngles, flapOutline, polygonArea, normalizeTransform,
+} from "../app/view3d/model_config.js";
+
+test("trail: live samples are added, thinned and pruned to the window", () => {
+  const tr = new Trail(10, { minDt: 0.1 });
+  assert.equal(tr.add(0, [0, 0, 0]), "added");
+  assert.equal(tr.add(0.05, [1, 0, 0]), "skipped");
+  for (let t = 0.2; t <= 20; t += 0.2) tr.add(t, [t, 0, 0]);
+  tr.prune(20);
+  assert.ok(tr.pts[0].t >= 10 - 1e-9);
+  const f = tr.fades(20);
+  assert.ok(f[f.length - 1] > 0.99 && f[0] < 0.05);
+});
+
+test("trail: a sample older than the last one (replay seek back) resets it", () => {
+  const tr = new Trail(60);
+  tr.add(100, [1, 1, 1]);
+  tr.add(101, [2, 2, 2]);
+  assert.equal(tr.add(50, [0, 0, 0]), "reset");
+  assert.equal(tr.pts.length, 1);
+});
+
+test("trail: load from history skips null entries and sorts by time", () => {
+  const tr = new Trail(60);
+  tr.load({ t: [3, 1, 2], pos: [[3, 0, 0], [1, 0, 0], null] });
+  assert.deepEqual(tr.pts.map((p) => p.t), [1, 3]);
+});
+
+const flap = (over = {}) => ({ id: "tl", index: 0, source: { primitive: "flap" }, pivot_body_m: [0, 0.065, 0.22], axis_body: [0, 0, 1], sign: -1, model_angle_deg: 0, ...over });
+
+test("flap rotation = sign * (angle - model angle)", () => {
+  assert.ok(Math.abs(flapRotationRad(flap(), Math.PI / 2) + Math.PI / 2) < 1e-12);
+  assert.ok(Math.abs(flapRotationRad(flap({ sign: 1, model_angle_deg: 90 }), Math.PI / 4) + Math.PI / 4) < 1e-12);
+  assert.equal(flapRotationRad(flap({ model_angle_deg: 30 }), (30 * Math.PI) / 180), -0);
+});
+
+test("flaps show 45 degrees without FlapState and follow it with it", () => {
+  const cfg = { default_flap_angle_deg: 45 };
+  const r = resolveFlapAngles(cfg, undefined);
+  assert.equal(r.source, "default");
+  assert.ok(r.angles.every((a) => Math.abs(a - Math.PI / 4) < 1e-12));
+  assert.equal(DEFAULT_FLAP_DEG, 45);
+  const d = resolveFlapAngles(cfg, { f: { angle: [0, 0.5, 1, 1.5] } });
+  assert.equal(d.source, "data");
+  assert.deepEqual(d.angles, [0, 0.5, 1, 1.5]);
+  // a packet without the field (reduced radio set) counts as no data
+  assert.equal(resolveFlapAngles(cfg, { f: {} }).source, "default");
+  // individual non-finite elements fall back to the default
+  assert.ok(Math.abs(resolveFlapAngles(cfg, { f: { angle: [0, null, 1, 1] } }).angles[1] - Math.PI / 4) < 1e-12);
+});
+
+test("validateModel reports problems and accepts a good config", () => {
+  assert.deepEqual(validateModel({ body: { source: { primitive: "x" } }, flaps: [flap()] }), []);
+  assert.ok(validateModel({}).length >= 2);
+  const bad = validateModel({ body: { source: { primitive: "x" } }, flaps: [flap({ sign: 2, axis_body: [0, 0, 0], index: 7 })] });
+  assert.equal(bad.length, 3);
+  assert.deepEqual(normalizeTransform(undefined), { rotation_deg_xyz: [0, 0, 0], translation_m: [0, 0, 0], scale: 1 });
+});
+
+test("flap outline: chamfered plate has the right extent and area", () => {
+  const top = flapOutline({ width_m: 0.07, height_m: 0.14, chamfer_m: 0.08, chamfer_corner: "out_top" });
+  const c = 0.08 / Math.SQRT2; // 5.66 cm legs, below both width and height
+  assert.ok(Math.abs(polygonArea(top) - (0.07 * 0.14 - (c * c) / 2)) < 1e-9);
+  assert.equal(Math.max(...top.map((p) => p[0])), 0.07);
+  assert.ok(Math.abs(Math.max(...top.map((p) => p[1])) - 0.07) < 1e-12);
+  const bot = flapOutline({ width_m: 0.08, height_m: 0.21, chamfer_m: 0.08, chamfer_corner: "out_bottom" });
+  assert.ok(Math.abs(polygonArea(bot) - (0.08 * 0.21 - (c * c) / 2)) < 1e-9);
+  // the cut is at the bottom outer corner: the outer edge starts above the lower edge
+  assert.ok(bot.some((p) => p[0] === 0.08 && p[1] > -0.105 && p[1] < -0.04));
+  assert.equal(flapOutline({ width_m: 1, height_m: 1 }).length, 4);
+});

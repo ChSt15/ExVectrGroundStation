@@ -1,0 +1,135 @@
+{
+ "asset": {
+  "version": "2.0",
+  "generator": "tools/make_test_gltf.py"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "nodes": [
+    0,
+    1
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "name": "hull",
+   "mesh": 0,
+   "translation": [
+    0.3,
+    0.1,
+    0.0
+   ]
+  },
+  {
+   "name": "flap",
+   "mesh": 1,
+   "translation": [
+    -0.2,
+    0.0,
+    0.5
+   ]
+  }
+ ],
+ "meshes": [
+  {
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0
+     },
+     "indices": 1
+    }
+   ]
+  },
+  {
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 2
+     },
+     "indices": 3
+    }
+   ]
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 8,
+   "type": "VEC3",
+   "min": [
+    -0.05,
+    -0.2,
+    -0.1
+   ],
+   "max": [
+    0.05,
+    0.2,
+    0.1
+   ]
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5123,
+   "count": 36,
+   "type": "SCALAR"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 8,
+   "type": "VEC3",
+   "min": [
+    0.0,
+    -0.06,
+    -0.002
+   ],
+   "max": [
+    0.06,
+    0.06,
+    0.002
+   ]
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5123,
+   "count": 36,
+   "type": "SCALAR"
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteOffset": 0,
+   "byteLength": 96,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 96,
+   "byteLength": 72,
+   "target": 34963
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 168,
+   "byteLength": 96,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 264,
+   "byteLength": 72,
+   "target": 34963
+  }
+ ],
+ "buffers": [
+  {
+   "byteLength": 336,
+   "uri": "data:application/octet-stream;base64,zcxMvc3MTL7NzMy9zcxMvc3MTL7NzMw9zcxMvc3MTD7NzMy9zcxMvc3MTD7NzMw9zcxMPc3MTL7NzMy9zcxMPc3MTL7NzMw9zcxMPc3MTD7NzMy9zcxMPc3MTD7NzMw9AAABAAMAAAADAAIABAAGAAcABAAHAAUAAAAEAAUAAAAFAAEAAgADAAcAAgAHAAYAAAACAAYAAAAGAAQAAQAFAAcAAQAHAAMAAAAAAI/Cdb1vEgO7AAAAAI/Cdb1vEgM7AAAAAI/CdT1vEgO7AAAAAI/CdT1vEgM7j8J1PY/Cdb1vEgO7j8J1PY/Cdb1vEgM7j8J1PY/CdT1vEgO7j8J1PY/CdT1vEgM7AAABAAMAAAADAAIABAAGAAcABAAHAAUAAAAEAAUAAAAFAAEAAgADAAcAAgAHAAYAAAACAAYAAAAGAAQAAQAFAAcAAQAHAAMA"
+  }
+ ]
+}

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -102,7 +103,16 @@ class FakeSource(Source):
         self.speed = float(opts.get("speed", 1.0))
         self.scenario = Scenario(int(opts.get("seed", 1)))
         self.faults = parse_faults(opts.get("faults", []))
-        self.caps = SourceCaps(rc_role=cfg.rc_role, can_send=False)  # type: ignore[arg-type]
+        self.caps = SourceCaps(rc_role=cfg.rc_role, can_send=cfg.rc_role == "control")  # type: ignore[arg-type]
+        # Test-only RC round trip (design 6.5). With `echo_rc = true`, the last received GS RcState value of
+        # channel `echo_channel` (1-based, default 5) is echoed as `MissionState.mission_index`
+        # (round((us - 1000) / 500): 0, 1, 2). It implements no vehicle logic.
+        self.echo_rc = bool(opts.get("echo_rc", False))
+        self.echo_channel = int(opts.get("echo_channel", 5))
+        if not 1 <= self.echo_channel <= 16:
+            raise ConfigError(f"fake source {cfg.id}: echo_channel must be within 1..16")
+        self.received_rc: deque[RcState] = deque(maxlen=1000)  # test observation of what reached this source
+        self._echo_idx: int | None = None
         self.enabled = cfg.enabled
         self._clock = clock or MonotonicClock()
         self._tick_s = 0.005
@@ -157,6 +167,8 @@ class FakeSource(Source):
                 if f.kind == "nan" and not f.fired and td >= f.at:
                     f.fired = True
                     fields["pos"] = [math.nan, *fields["pos"][1:]]
+        if type_name == "MissionState" and self.echo_rc and self._echo_idx is not None:
+            fields["mission_index"] = self._echo_idx
         if type_name == "VehicleState":
             if self._fault("unknown_enum", td):
                 fields["mode"] = 9  # not a VehicleMode member
@@ -234,7 +246,16 @@ class FakeSource(Source):
             self._state = "disabled"
 
     async def send(self, pkt: Packet) -> bool:
-        return False  # the optional test-only echo (echo_rc) arrives with the RC controller (T6)
+        """Accepts GS RcState while connected and rc_role is control (like a real control link); other
+        packets and mirror/none sources are refused. Used by the RC loop tests."""
+        if getattr(pkt, "TYPE", None) != "RcState" or self.caps.rc_role != "control" or self._state != "connected":
+            return False
+        ch = getattr(pkt, "ch_us", None)
+        if ch is None or len(ch) < self.echo_channel:
+            return False
+        self.received_rc.append(pkt)  # type: ignore[arg-type]
+        self._echo_idx = round((ch[self.echo_channel - 1] - 1000) / 500)
+        return True
 
     def status(self) -> SourceStatus:
         return SourceStatus(

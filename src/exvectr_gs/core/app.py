@@ -1,4 +1,4 @@
-"""Core wiring: sources -> LiveBus -> state store and history. Later tasks add recorder, API, RC."""
+"""Core wiring: sources -> LiveBus -> state store and history. Recorder, replayer, RC controller and API hang off it."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from pathlib import Path
 from .. import __version__
 from ..packets import REGISTRY
 from ..packets.defs.vehicle import MissionState, VehicleState
+from ..rc import RadioConfigError, RcController, load_radio_config
 from ..recording import LogLibrary, Recorder
 from ..replay import Replayer
 from ..sources import Source, build_source
@@ -63,6 +64,22 @@ class CoreApp:
             flush_interval_ms=cfg.recorder.flush_interval_ms,
             fsync_interval_ms=cfg.recorder.fsync_interval_ms,
         )
+        # RC controller, the only uplink. An invalid or missing radio config means no RC controller at all
+        # (`rc` is None, the API answers not_implemented); the rest of the core still runs. Nothing is sent
+        # until a client takes a control lease, and every control starts at its configured safe default.
+        self.rc: RcController | None = None
+        self.rc_error: str | None = None
+        try:
+            radio_path = Path(cfg.radio.config).expanduser()
+            if not radio_path.is_absolute() and not radio_path.exists():
+                radio_path = Path(__file__).resolve().parents[3] / radio_path
+            self.rc = RcController(
+                load_radio_config(radio_path), self.sources, self.bus,
+                clock=self.clock, control_hosts=cfg.server.control_hosts,
+            )  # fmt: skip
+        except RadioConfigError as e:
+            self.rc_error = str(e)
+            log.error("RC controller disabled, invalid radio config: %s", e)
         self.library = LogLibrary(Path(cfg.recorder.directory).expanduser())
         # Replay is a separate view (design 6.4): it publishes on replay_bus only, never on the live bus,
         # so replayed data is not recorded and live recording continues during replay.
@@ -128,6 +145,8 @@ class CoreApp:
         tasks = [asyncio.create_task(s.run(self.bus.publish), name=f"source-{s.id}") for s in self.sources]
         tasks.append(asyncio.create_task(self._heartbeat_loop(), name="gs-heartbeat"))
         api = None
+        if self.rc is not None:
+            tasks.append(asyncio.create_task(self.rc.run(), name="rc"))
         try:
             if serve:
                 from ..api import ApiServer

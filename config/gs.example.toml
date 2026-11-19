@@ -48,7 +48,8 @@ kind = "fake"
 profile = "usb"                                # "usb" (full set) or "radio" (reduced set)
 seed = 1
 speed = 1.0                                    # simulated seconds per wall second
-rc_role = "none"
+rc_role = "none"                              # "control" lets the RC controller send to it (accepts and keeps GS RcState)
+# echo_rc = true                               # test only: echo the SA channel value as MissionState.mission_index (docs/testing.md)
 # faults = [ { kind = "dropout", at = 10, duration = 2, types = ["Attitude"] } ]
 
 [radio]

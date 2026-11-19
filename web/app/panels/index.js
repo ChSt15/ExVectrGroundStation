@@ -12,3 +12,4 @@ import "./recording.js";
 import "./transport.js";
 import "./console.js";
 import "./inspector.js";
+import "./view3d.js";

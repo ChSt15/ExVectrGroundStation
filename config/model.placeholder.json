@@ -1,1 +1,183 @@
-{}
+{
+  "name": "placeholder",
+  "comment": "Placeholder procedural ship, dimensions from system-architecture.md (Vehicle geometry). Body frame: +Z nose, belly -X, TL/BL on +Y, TR/BR on -Y, origin at the centre of mass. Flap angle 0 = extended along +-Y, increasing angle folds toward +X, 90 deg = folded flat. Replace a `primitive` source by { \"gltf\": \"models/<file>\", \"node\": null } to use a real model.",
+  "body": {
+    "source": {
+      "primitive": "starship-placeholder",
+      "height_m": 0.74,
+      "radius_m": 0.065,
+      "nose_length_m": 0.08,
+      "origin_from_bottom_m": 0.37
+    },
+    "model_to_body": {
+      "rotation_deg_xyz": [
+        0,
+        0,
+        0
+      ],
+      "translation_m": [
+        0,
+        0,
+        0
+      ],
+      "scale": 1.0
+    }
+  },
+  "flaps": [
+    {
+      "id": "tl",
+      "index": 0,
+      "source": {
+        "primitive": "flap",
+        "width_m": 0.07,
+        "height_m": 0.14,
+        "thickness_m": 0.004,
+        "chamfer_m": 0.08,
+        "chamfer_corner": "out_top"
+      },
+      "model_to_body": {
+        "rotation_deg_xyz": [
+          0,
+          0,
+          90
+        ],
+        "translation_m": [
+          0,
+          0.065,
+          0.22
+        ]
+      },
+      "pivot_body_m": [
+        0,
+        0.065,
+        0.22
+      ],
+      "axis_body": [
+        0,
+        0,
+        1
+      ],
+      "sign": -1,
+      "model_angle_deg": 0
+    },
+    {
+      "id": "tr",
+      "index": 1,
+      "source": {
+        "primitive": "flap",
+        "width_m": 0.07,
+        "height_m": 0.14,
+        "thickness_m": 0.004,
+        "chamfer_m": 0.08,
+        "chamfer_corner": "out_top"
+      },
+      "model_to_body": {
+        "rotation_deg_xyz": [
+          0,
+          0,
+          -90
+        ],
+        "translation_m": [
+          0,
+          -0.065,
+          0.22
+        ]
+      },
+      "pivot_body_m": [
+        0,
+        -0.065,
+        0.22
+      ],
+      "axis_body": [
+        0,
+        0,
+        1
+      ],
+      "sign": 1,
+      "model_angle_deg": 0
+    },
+    {
+      "id": "bl",
+      "index": 2,
+      "source": {
+        "primitive": "flap",
+        "width_m": 0.08,
+        "height_m": 0.21,
+        "thickness_m": 0.004,
+        "chamfer_m": 0.08,
+        "chamfer_corner": "out_bottom"
+      },
+      "model_to_body": {
+        "rotation_deg_xyz": [
+          0,
+          0,
+          90
+        ],
+        "translation_m": [
+          0,
+          0.065,
+          -0.255
+        ]
+      },
+      "pivot_body_m": [
+        0,
+        0.065,
+        -0.255
+      ],
+      "axis_body": [
+        0,
+        0,
+        1
+      ],
+      "sign": -1,
+      "model_angle_deg": 0
+    },
+    {
+      "id": "br",
+      "index": 3,
+      "source": {
+        "primitive": "flap",
+        "width_m": 0.08,
+        "height_m": 0.21,
+        "thickness_m": 0.004,
+        "chamfer_m": 0.08,
+        "chamfer_corner": "out_bottom"
+      },
+      "model_to_body": {
+        "rotation_deg_xyz": [
+          0,
+          0,
+          -90
+        ],
+        "translation_m": [
+          0,
+          -0.065,
+          -0.255
+        ]
+      },
+      "pivot_body_m": [
+        0,
+        -0.065,
+        -0.255
+      ],
+      "axis_body": [
+        0,
+        0,
+        1
+      ],
+      "sign": 1,
+      "model_angle_deg": 0
+    }
+  ],
+  "default_flap_angle_deg": 45,
+  "thrust_arrow": {
+    "m_per_n": 0.02,
+    "max_m": 0.6,
+    "origin_body_m": [
+      0,
+      0,
+      -0.37
+    ]
+  },
+  "trail_window_s": 60
+}

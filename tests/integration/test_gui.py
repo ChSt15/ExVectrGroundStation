@@ -23,18 +23,18 @@ needs_browser = pytest.mark.skipif(browser_check.find_browser() is None, reason=
 def panel_ids() -> set[str]:
     ids = set()
     for p in (WEB / "panels").glob("*.js"):
-        ids.update(re.findall(r'registerPanel\(\{\s*id: "([a-z_]+)"', p.read_text()))
+        ids.update(re.findall(r'registerPanel\(\{\s*id: "([a-z0-9_]+)"', p.read_text()))
     return ids
 
 
 def test_every_panel_file_is_imported_and_ids_are_unique():
     index = (WEB / "panels" / "index.js").read_text()
     files = {p.stem for p in (WEB / "panels").glob("*.js")} - {"index", "registry"}
-    assert files == set(re.findall(r'import "\./([a-z]+)\.js"', index))
+    assert files == set(re.findall(r'import "\./([a-z0-9]+)\.js"', index))
     all_ids = [
         i
         for p in (WEB / "panels").glob("*.js")
-        for i in re.findall(r'registerPanel\(\{\s*id: "([a-z_]+)"', p.read_text())
+        for i in re.findall(r'registerPanel\(\{\s*id: "([a-z0-9_]+)"', p.read_text())
     ]
     assert len(all_ids) == len(set(all_ids)) == len(files)
 

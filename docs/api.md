@@ -33,15 +33,15 @@ As in design 4.2. Additions and differences:
 | `rec.*`, `logs.list` | Call `app.recorder` / `app.library` (T2). `rec.start` while recording is `busy`, `rec.stop` while idle is `busy`. |
 | `replay.*` | Call `app.replayer` (T4). After `open`, `seek`, `close` and `play` (which restarts from `ended`) the core sends a fresh `snapshot` for the replay view. `replay.play`, `pause` and `seek` with no log open (or still loading) answer `busy`; `open` of an unknown log is `not_found`; `replay.speed` may be set before a log is open. |
 | `replay.markers` | Extension (T4): returns `[{t, kind, src, label}]` (`kind` is `event`, `note` or `mode`; `t` in seconds) from the open log's index, for the scrubber markers. `[]` when nothing is open. |
-| `rc.*` | Thin pass-through to `app.rc` (T6), see "RC rules" below. |
+| `rc.*` | Thin pass-through to `app.rc` (T6), see "RC rules" below and `docs/radio.md`. `rc.set` takes an extension `hold_s` (momentary controls only, 0 < s <= 10): the core holds the press for that long and releases it. |
 
-The server only looks at these optional attributes of the core application object: `recorder`, `library`, `replayer`, `rc`, `replay_bus`, `replay_store`, `replay_history` (`CoreApp` has all of them except `rc`; the replay ones are filled by the Replayer). A missing attribute, or a module whose methods raise `NotImplementedError`, gives `not_implemented`.
+The server only looks at these optional attributes of the core application object: `recorder`, `library`, `replayer`, `rc`, `replay_bus`, `replay_store`, `replay_history` (`CoreApp` has all of them; `rc` is `None` when the radio config is invalid, the replay ones are filled by the Replayer). A missing attribute, or a module whose methods raise `NotImplementedError`, gives `not_implemented`.
 
 What the modules must provide (contract for T2, T4, T6):
 
 - `recorder.status()` returns T2's `RecorderStatus` (`active, info, last_error, free_bytes, dropped`, with `info.name, started, packets, bytes`); the API flattens it into `status.recorder` (`active, name, started, packets, bytes, free_bytes, error, dropped`). `start()` raises `RuntimeError` if already recording (mapped to `busy`), `OSError` (mapped to `io_error`), `ValueError` (`invalid_value`).
 - `replayer.status()` is the `ReplayStatus` of the design. `FileNotFoundError` or `KeyError` from `open` gives `not_found`.
-- `rc.acquire` raises `ControlDenied` (mapped to `control_denied`); `ValueError` or `KeyError` from `set` gives `invalid_value`.
+- `rc.acquire` raises `ControlDenied` (mapped to `control_denied`); `ValueError` from `acquire` or `set` (unknown control, bad value, bad `hold_s`) gives `invalid_value`. `set`, `heartbeat` with a lease id that no longer exists (expired, released) raise `ControlDenied` (`control_denied`). A connection whose lease ended can acquire again.
 
 ## Core to client
 
@@ -85,11 +85,11 @@ Exit codes: **0** ok, **1** error (including usage errors and "core not running"
 | `exgs logs` | List recordings. |
 | `exgs replay open NAME` / `play` / `pause` / `seek T` / `speed X` / `close` | `T` is seconds from the log start (the CLI adds the log's `t_start`). |
 | `exgs sources list` / `enable ID` / `disable ID` | Source status. |
-| `exgs rc acquire --duration S` / `rc release` / `rc show` / `rc set CTRL=V ... [--hold S]` | Timed lease and controls. `--hold S` sets, waits, then restores the values the core reported before (client side; if the CLI is killed meanwhile the value stays until the lease ends). |
+| `exgs rc acquire --duration S` / `rc release` / `rc show` / `rc set CTRL=V ... [--hold S]` | Timed lease and controls. `--hold S`: a momentary control (for example `SE=1 --hold 0.5`) is pressed with `hold_s`, so the **core** releases it (a killed CLI cannot leave it pressed); any other control is set, then restored by the CLI to the value the core reported before (if the CLI is killed meanwhile that value stays until the lease ends). The CLI reads the control kinds from `config.get radio`. |
 
 Each command group is its own module `cli/cmd_<name>.py` with a `register(subparsers)` function; modules are discovered automatically, so new groups (`exgs log ...` offline tools) are added without touching `cli/main.py`.
 
-Agent bench example (works as soon as T2 and T6 are merged; today `rec`, `rc` answer `not_implemented`):
+Agent bench example (needs a connected control source; with none, `rc acquire` exits 3):
 
 ```bash
 exgs status --json
