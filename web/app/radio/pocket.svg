@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 140" width="200" height="140">
+  <title>Radiomaster Pocket-like handset (decorative; controls are placed over it from the radio config)</title>
+  <rect x="4" y="4" width="192" height="132" rx="22" fill="#2b3037" stroke="#4a525d" stroke-width="2"/>
+  <rect x="14" y="12" width="172" height="14" rx="7" fill="#1d2126"/>
+  <circle cx="40" cy="104" r="22" fill="#1d2126" stroke="#4a525d" stroke-width="1.5"/>
+  <circle cx="40" cy="104" r="8" fill="#3a414b"/>
+  <circle cx="160" cy="104" r="22" fill="#1d2126" stroke="#4a525d" stroke-width="1.5"/>
+  <circle cx="160" cy="104" r="8" fill="#3a414b"/>
+  <rect x="72" y="92" width="56" height="34" rx="3" fill="#0f1a14" stroke="#4a525d"/>
+  <line x1="100" y1="26" x2="100" y2="36" stroke="#4a525d" stroke-width="1.5"/>
+</svg>

@@ -92,3 +92,44 @@ tr.incomplete td { color: var(--dim); }
 .v3d-canvas canvas { width: 100%; height: 100%; display: block; }
 .v3d-overlay { position: absolute; left: 6px; top: 4px; font-size: 11px; pointer-events: none; }
 .v3d-overlay .warn { color: var(--stale); } .v3d-overlay .bad { color: var(--bad); font-weight: 600; } .v3d-overlay .dim { color: var(--dim); }
+
+/* virtual radio (radio panel) */
+.rc-banner { padding: 5px 8px; border-radius: 4px; font-weight: 600; font-size: 12px; background: var(--line); color: var(--fg); margin-bottom: 6px; }
+.rc-banner[data-tone="controlling"] { background: #f0b429; color: #1b1f24; }
+.rc-banner[data-tone="mirror"] { background: var(--info); color: #fff; }
+.rc-banner[data-tone="bad"] { background: var(--bad); color: #fff; }
+.rc-banner[data-tone="warn"] { background: var(--warn); color: #fff; }
+.rc-banner[data-tone="replay"] { background: #8250df; color: #fff; }
+.rc-banner[data-tone="idle"], .rc-banner[data-tone="dim"] { background: var(--line); color: var(--fg); }
+.rc-stage { position: relative; width: 100%; max-width: 560px; margin: 0 auto; container-type: inline-size; user-select: none; touch-action: manipulation; }
+.rc-bg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.rc-screen { position: absolute; left: 36%; top: 65.7%; width: 28%; height: 24.3%; display: flex; align-items: center; justify-content: center; color: #6bd48a; font: 600 clamp(8px, 3.2cqw, 14px) ui-monospace, monospace; text-align: center; pointer-events: none; }
+.rc-ctl { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 1px; width: 15%; color: #e3e8ee; font-size: clamp(8px, 2.6cqw, 12px); }
+.rc-ctl[data-enabled="false"] > :not(.rc-label):not(.rc-us):not(.rc-meaning) { opacity: .55; }
+.rc-k-slider { width: 44%; }
+.rc-label { font-weight: 700; }
+.rc-us, .rc-meaning, .rc-lockinfo { font-size: .8em; color: #aab3bf; text-align: center; line-height: 1.15; }
+.rc-meaning { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-ctl button, .rc-ctl input { background: #3a414b; border-color: #5a636f; color: #e3e8ee; }
+.rc-switch { position: relative; width: 2em; height: 3.2em; padding: 0; border-radius: 1em; }
+.rc-switch .knob, .rc-switch3 .knob { position: absolute; left: 50%; width: 1.5em; height: 1.5em; margin-left: -.75em; border-radius: 50%; background: #e3e8ee; transition: top .08s; }
+.rc-switch .knob { top: .15em; }
+.rc-switch[data-pos="0"] .knob { top: calc(100% - 1.65em); }
+.rc-switch[data-pos="1"] .knob { background: #f0b429; }
+.rc-switch3 { position: relative; width: 2em; height: 4.2em; border-radius: 1em; background: #3a414b; border: 1px solid #5a636f; cursor: pointer; }
+.rc-switch3 .knob { top: .2em; }
+.rc-switch3[data-pos="1"] .knob { top: calc(50% - .75em); }
+.rc-switch3[data-pos="0"] .knob { top: calc(100% - 1.7em); }
+.rc-switch3[data-pos="2"] .knob, .rc-switch3[data-pos="1"] .knob { background: #f0b429; }
+.rc-switch3[data-disabled="true"] { cursor: default; }
+.rc-mom { width: 3em; height: 3em; padding: 0; border-radius: 50%; font-size: .85em; touch-action: none; }
+.rc-mom[data-pos="1"] { background: #f0b429; color: #1b1f24; }
+.rc-slider { width: 100%; min-height: 0; padding: 0; accent-color: #f0b429; }
+.rc-padlock { position: relative; width: 2.6em; height: 2.6em; padding: 0; overflow: hidden; border-radius: 6px; touch-action: none; display: inline-flex; align-items: center; justify-content: center; }
+.rc-padlock .bar { position: absolute; left: 0; bottom: 0; height: 4px; width: 0; background: #f0b429; }
+.rc-relock { font-size: .8em; min-height: 0; padding: 0 .5em; }
+.rc-ctl[hidden], .rc-padlock[hidden], .rc-relock[hidden], .rc-switch[hidden] { display: none; }
+.rc-modal { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, .55); }
+.rc-dialog { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; max-width: 26em; }
+.rc-dialog p { margin: 0 0 10px; }
+.rc-msg:empty { display: none; }

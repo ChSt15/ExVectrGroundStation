@@ -13,3 +13,4 @@ import "./transport.js";
 import "./console.js";
 import "./inspector.js";
 import "./view3d.js";
+import "./radio.js";

@@ -50,7 +50,7 @@ When the repository exists, this document becomes `ground-station/docs/architect
 | 1.8 Same data formats | One decoder path for live simulation, live flight and replay (§2.2). |
 | 2.1 Continuous state | The core's RC sender emits the complete channel state on a fixed timer (`send_rate_hz`, default 25 Hz), independent of clicks and GUI events. Clicks only change the core's state. |
 | 2.2 / 2.3 Safe direction immediate, unsafe needs a transition | Enforced by the vehicle. The GS must not work around it: it never synthesises transitions (no automatic toggling), starts from default positions, and never resumes a previous state after a reconnect or restart. Control defaults in the radio config must be the safe positions (validated: the config declares them). |
-| 2.4 Silence is the failsafe | Sending requires a **control lease**. If the controlling GUI disconnects (heartbeat lost) or a CLI lease expires, the core stops sending entirely (decision 10.1-1). Momentary controls auto-release if not refreshed. |
+| 2.4 Silence is the failsafe | Sending requires a **control lease**. If the controlling GUI disconnects (heartbeat lost), a CLI session ends, or a CLI keepalive lease is not renewed within its idle timeout (max 9 s), the core stops sending entirely (decisions 10.1-1 and 10.1-7). Momentary controls auto-release if not refreshed. A control configured with `lock` (SD) cannot leave its default until deliberately unlocked (decision 10.1-6). |
 | 2.5 One-shot actions | Not in v1. Hook: an `UP` packet type `OneShotRequest{request_id, action}` with retry until the vehicle reports the ID as executed. It will be added only after the vehicle side exists and only as a non-safety action. |
 | 2.6 Vehicle reports what it applied | Panels show applied arm state, mode, active control source and last one-shot ID as soon as telemetry carries them. Until then the radio panel shows "applied state: not reported by vehicle". |
 
@@ -321,7 +321,8 @@ class Replayer:
 
 ```python
 @dataclass
-class Lease: id: str; holder: str; kind: Literal["connection", "timed"]; expires: int | None
+class Lease: id: str; holder: str; kind: Literal["connection", "keepalive"]; expires: int | None; idle_s: float | None = None
+# keepalive: expires = last renewal + idle_s (default 5, max 9), renewed by every lease operation; connection: expires = None
 
 @dataclass
 class RcStatus:
@@ -330,14 +331,18 @@ class RcStatus:
     controls: dict[str, float | int]   # sent state (controlling) or mirrored handset state (mirroring), by control id
     channels_us: list[int]             # full channel vector of that state
     origin: Literal["gs", "handset"] | None; t: int | None
+    locks: dict[str, dict]             # lockable control id -> {locked, remaining_s, timeout_s}
 
 class RcController:
     def __init__(self, cfg: RadioConfig, sources: Sequence[Source], bus: Bus): ...
-    def acquire(self, holder: str, kind: str, duration_s: float | None = None, remote_addr: str = "") -> Lease: ...
+    def acquire(self, holder: str, kind: str, idle_s: float | None = None, remote_addr: str = "") -> Lease: ...
         # raises ControlDenied (another holder, no control source, remote not allowed)
     def release(self, lease_id: str) -> None: ...
-    def heartbeat(self, lease_id: str) -> None: ...  # connection leases: must arrive at least every 1 s
-    def set(self, lease_id: str, values: Mapping[str, float | int]) -> RcStatus: ...  # by control id; validated
+    def heartbeat(self, lease_id: str) -> None: ...  # connection leases: at least every 1 s; keepalive leases: a renewal
+    def set(self, lease_id: str, values: Mapping[str, float | int], hold_s: float | None = None) -> RcStatus: ...
+        # by control id; validated; raises ControlLocked for a non-default value on a locked control (nothing applied)
+    def unlock(self, lease_id: str, control: str) -> RcStatus: ...  # control has `lock`; relocks after lock_timeout_s
+    def lock(self, lease_id: str, control: str) -> RcStatus: ...    # relock at once, control back to its default
     def status(self) -> RcStatus: ...
     async def run(self) -> None: ...                 # sender timer + lease/momentary expiry + mirror detection
 ```
@@ -563,10 +568,11 @@ Recording runs only between an explicit Start and Stop by the user (decision 10.
 | `replay.close` / `replay.play` / `replay.pause` | | |
 | `replay.seek` | `t` (absolute seconds) | |
 | `replay.speed` | `x` ∈ {0.25, 0.5, 1, 2, 4, 8} | |
-| `rc.acquire` | `kind: "connection"\|"timed"`, `duration_s?` (timed only, ≤ 600) | Reply: `Lease`. Denied if another holder exists, no control source is connected, or the client's address is not in `control_hosts`. |
+| `rc.acquire` | `kind: "connection"\|"keepalive"`, `idle_s?` (keepalive only, default 5, max 9) | Reply: `Lease`. Denied if another holder exists, no control source is connected, or the client's address is not in `control_hosts`. (The 600 s `timed` lease was removed, decision 10.1-7.) |
 | `rc.release` | | Stops sending immediately. |
-| `rc.heartbeat` | | Connection leases: required at least every 1 s (GUI sends every 300 ms). |
-| `rc.set` | `values: {"SA": 1, "SB": 2, "S1": 0.42}` | Requires the lease. Values are control positions (index for switches, 0..1 for sliders). Reply: `RcStatus`. |
+| `rc.heartbeat` | | Connection leases: required at least every 1 s (GUI and CLI session send every 300 ms). Keepalive leases: a renewal (every lease operation renews). |
+| `rc.set` | `values: {"SA": 1, "SB": 2, "S1": 0.42}` | Requires the lease. Values are control positions (index for switches, 0..1 for sliders). A non-default value for a locked control is rejected with `control_locked` and nothing is applied. Reply: `RcStatus`. |
+| `rc.unlock` / `rc.lock` | `control` | Requires the lease. Unlock a control that has `lock` in the radio config (relocks after `lock_timeout_s`, default 60 s) or lock it again (the control returns to its default). Reply: `RcStatus` (decision 10.1-6). |
 | `sources.list` | | Reply: `[SourceStatus]`. |
 | `sources.enable` | `id`, `enabled` | |
 | `config.get` | `name: "radio"\|"layout"\|"model"` | Also available over HTTP GET. |
@@ -580,7 +586,7 @@ Recording runs only between an explicit Start and Stop by the user (decision 10.
 | `snapshot` | `view`, `clock`, `items: [{…packet…, "iv": interval_s, "stale_after": s}]` | After `subscribe`, after a replay seek or open, after a reconnect. Clients replace their store for that view. |
 | `packets` | `view`, `clock`, `items: [packet…]`, `dropped?` | Batched at `max_rate_hz`. `latest` mode: newest per (type, src) since the last batch, with `iv`/`stale_after`. `all` mode: every packet in order. |
 | `status` | `clock`, `sources: [SourceStatus]`, `recorder: {active, name, started, packets, bytes, free_bytes, error}`, `replay: ReplayStatus`, `clients: n` | 2 Hz and on change. |
-| `rc` | `RcStatus` (+ `holder_is_you`) | On change and at 5 Hz while sending or mirroring. |
+| `rc` | `RcStatus` (+ `holder_is_you`, `locks`) | On change and at 5 Hz while sending or mirroring. |
 | `event` | `level: "info"\|"warn"\|"error"`, `text`, `t` | Source connected/lost, recording failed, lease expired, control conflict. |
 
 **Clock for remote clients:** every `packets`/`status` message carries `clock` (the view's current time). The GUI keeps `serverOffset = clock − performance.now()/1000` per view and computes ages locally between messages. A remote device's wall clock is never used.
@@ -600,8 +606,10 @@ Same protocol. Default output is the log line format (readable for humans and Cl
 | `exgs rec start [--label L]` / `rec stop` / `rec note TEXT` | Recording. |
 | `exgs logs` | List recordings. |
 | `exgs replay open NAME` / `play` / `pause` / `seek T` / `speed X` / `close` | Replay control (`T` in seconds from the log start). |
-| `exgs rc acquire --duration S` / `rc release` / `rc show` | Timed control lease (CLI processes are short-lived, so they use timed leases). |
-| `exgs rc set SA=1 SB=2 S1=0.4 [--hold S]` | Set controls. `SE=1 --hold 0.5` presses the momentary control for 0.5 s. |
+| `exgs rc acquire [--idle S]` / `rc keepalive` / `rc release` / `rc show` | One-shot commands hold a **keepalive lease** (idle timeout 5 s, max 9 s), renewed by every rc command and by `rc keepalive`; expiry means silence and defaults. `rc release` ends it at once. |
+| `exgs rc set SA=1 SB=2 S1=0.4 [--hold S] [--unlock CTRL]` | Set controls (takes or renews the keepalive lease). `SE=1 --hold 0.5` presses the momentary control for 0.5 s. A non-default value for a locked control (SD) needs `--unlock SD` (the CLI calls `rc.unlock` first). |
+| `exgs rc unlock CTRL` / `rc lock CTRL` | Unlock a locked control or lock it again. |
+| `exgs rc session [--script FILE] [--keep-going]` | Long-running process holding a connection lease with a 300 ms heartbeat; commands (`set`, `unlock`, `lock`, `sleep`, `show`, `release`, `quit`) from stdin or a script file. A crash or exit ends the lease at once, heartbeat loss within 1 s. |
 | `exgs log validate FILE` / `log stats FILE` / `log cat FILE [--types]` / `log redecode` | Offline tools (no core needed). |
 
 Agent bench example:
@@ -609,9 +617,8 @@ Agent bench example:
 ```
 exgs status --json
 exgs rec start --label agent-bench
-exgs rc acquire --duration 120
-exgs rc set SA=0          # ensure the safe position is observed first (the vehicle requires a safe->unsafe transition)
-exgs rc set SA=1
+exgs rc set SA=0          # takes a keepalive lease (5 s idle) and sends the safe position first (the vehicle requires a safe->unsafe transition)
+exgs rc set SA=1          # every rc command renews the lease; stay under 5 s between commands, or use `exgs rc session`
 exgs wait 'VehicleState.armed == true' --timeout 5
 exgs rc release           # GS stops sending; the vehicle enters its link-loss failsafe
 exgs rec stop
@@ -746,6 +753,7 @@ registerPanel({
 **Look:** an SVG drawing of a Radiomaster Pocket-like handset (outline, two gimbals as decorative circles, the screen area as a status display). Switches are drawn at positions given by the radio config. Click to operate:
 - `toggle2` (SA, SD): click flips between 2 positions.
 - `switch3` (SB, SC): click on the top, middle or bottom zone, or click cycles. Position indicator.
+- A control with `lock = true` in the radio config (SD, decision 10.1-6) is shown as a **padlock**: hold it 1 s to unlock. It is operable only while unlocked, shows the remaining unlock time and has a Relock button; the core relocks it after `lock_timeout_s` and returns it to its default.
 - `momentary` (SE): pressed while the pointer is down. The GUI sends `rc.set SE=1` on pointerdown and repeats it every 100 ms while held, then `SE=0` on pointerup, pointercancel, blur or visibility change. The core releases it automatically if not refreshed for 300 ms (lost pointerup, GUI crash).
 - `slider` (S1): horizontal slider 0..1, throttled to 20 updates/s.
 
@@ -760,7 +768,7 @@ channel_defaults = { 3 = 1000 }      # 1-based channel -> µs for unmapped chann
 mapping_note = "Must match the flight-software compiled-in channel table (rev ...)"
 
 [[controls]]
-id = "SA"                # stable id used by API/CLI
+id = "SA"                # stable id used by API/CLI (`lock = true` and `lock_timeout_s = 60` make a control a padlock, see below)
 label = "SA · ARM"       # display only
 kind = "toggle2"         # toggle2 | switch3 | momentary | slider
 channel = 5              # 1-based
@@ -799,7 +807,7 @@ The core validates the config at start (unique ids and channels, channel ≤ `ch
 | `idle` | Neither. Nothing is sent. | Grey banner "NOT SENDING". "Take control" button (enabled if a control source is connected and this client is allowed). |
 | `conflict` | Controlling **and** handset state seen at the same time (vehicle on USB and radio). | Red banner "Two control sources active: vehicle authority rules decide". Display only; the GS does not change what it sends. |
 
-- "Take control" acquires a connection lease. "Release" or closing the tab stops sending (heartbeat loss after 1 s).
+- "Take control" acquires a connection lease. "Release" or closing the tab stops sending (the WebSocket closing ends the lease at once, a missing heartbeat after 1 s).
 - When control is first taken, the controls start at the core's current state, which after a core start is the configured defaults (safe positions).
 - **Replay view:** the widget shows the recorded `RcState` (handset or GS) read-only, with a "REPLAY" banner. If this client holds a control lease, switching to replay view first asks "Release control and switch to replay?". A client cannot hold control while it is viewing replay, so the operator never controls the live vehicle from a screen showing old data.
 
@@ -997,7 +1005,7 @@ T1 ──┬── T2 ──── T4 ──┐
 ### T6: RC controller
 - **Goal:** the virtual radio's core side, built to the safety rules.
 - **Inputs:** §1.4, §4.2 (`rc.*`), §5.6 (config, modes, momentary), §2.5 (`control_hosts`).
-- **Outputs:** `rc/radio_config.py` (TOML schema and validation), `rc/controller.py` (leases connection/timed, heartbeat, fixed-rate sender to the control source only, momentary auto-release, mirror/conflict detection, GS `RcState` recording on change + 1 Hz, no persistence); `rc.*` API ops and `exgs rc ...` CLI (after T3 lands; until then a core-level test harness); `config/radio.pocket.toml`; `docs/radio.md`.
+- **Outputs:** `rc/radio_config.py` (TOML schema and validation), `rc/controller.py` (leases connection/keepalive (the first version had a timed lease, replaced by decision 10.1-7), control locks (10.1-6), heartbeat, fixed-rate sender to the control source only, momentary auto-release, mirror/conflict detection, GS `RcState` recording on change + 1 Hz, no persistence); `rc.*` API ops and `exgs rc ...` CLI (after T3 lands; until then a core-level test harness); `config/radio.pocket.toml`; `docs/radio.md`.
 - **Acceptance:** all RC tests in §8.2 pass; with the pty fake vehicle the uplink frames arrive at `send_rate_hz` ±5 % and stop within one period after release or lease expiry; a core restart starts with defaults and sends nothing.
 - **Depends on:** T1 (core part); T3 (API/CLI wiring). **Safety-relevant: the main session reviews it against §1.4 and the user approves it before merge.**
 
@@ -1018,7 +1026,7 @@ T1 ──┬── T2 ──── T4 ──┐
 ### T9: Virtual radio widget
 - **Goal:** the Pocket-like widget for controlling, mirroring, idle, conflict and replay.
 - **Inputs:** §5.6, T6 API.
-- **Outputs:** `web/app/radio/pocket.svg`, `radio_widget.js`, the `radio` panel (config-driven controls, take/release control, heartbeat, momentary press-and-hold, slider throttling, mode banners, read-only states, replay behaviour with the release prompt).
+- **Outputs:** `web/app/radio/pocket.svg`, `radio_widget.js`, the `radio` panel (config-driven controls, take/release control, heartbeat, momentary press-and-hold, slider throttling, mode banners, read-only states, padlock for locked controls, replay behaviour with the release prompt).
 - **Acceptance:** e2e with FakeSource (`echo_rc`): take control, operate each control kind, the core-reported sent state is displayed; closing the tab stops sending within 1 s; mirroring with the fake `radio` profile shows the handset positions read-only; switching to replay while controlling prompts and releases.
 - **Depends on:** T6, T7. **Safety-adjacent: reviewed together with T6.**
 
@@ -1033,13 +1041,15 @@ T1 ──┬── T2 ──── T4 ──┐
 
 ## 10. Open questions and risks
 
-### 10.1 Decisions (user, 2026-11-18)
+### 10.1 Decisions (user, 2026-11-18 and 2026-11-19)
 
 1. **RC sending when the controlling client disappears:** the core **stops sending** (GUI heartbeat lost for 1 s, or a CLI lease expired). The vehicle sees silence and enters its link-loss failsafe (safety.md 2.4). It never keeps sending the last state.
 2. **Raw bytes in recordings:** only undecodable frames are kept (`RawFrame`). No option to record every frame's raw bytes (`raw_frames = "all"` is dropped).
 3. **Recording start:** manual Start/Stop only. There is no auto-start.
-4. **Who may take control:** only clients on the core host itself (`control_hosts = localhost`). Other LAN devices are view-only. A **CLI on the core host** can take a timed control lease so that an AI agent can drive simulation tests. The CLI follows the same lease and stop-on-expiry rules as the GUI.
+4. **Who may take control:** only clients on the core host itself (`control_hosts = localhost`). Other LAN devices are view-only. A **CLI on the core host** can take control so that an AI agent can drive simulation tests (a keepalive lease or `exgs rc session`, see 7). The CLI follows the same lease and stop-on-expiry rules as the GUI.
 5. **Interim USB format:** build against the provisional framer and the fake vehicle. Keep a strict abstraction layer between source, framer/wire profile, packet registry and everything above, so each can be replaced later without touching the rest. Real hardware comes after roadmap step 3.
+6. **Lock on guarded controls (user, 2026-11-19):** the ground station can send SD (motor enable) but it sits behind a deliberate lock so it cannot be set by accident. This is a deliberate-action guard, not a safety decision; the vehicle's own 1 s motor gate is unchanged. The ground station does not know what SD means, so the lock is a generic per-control option in the radio config (`lock = true`, `lock_timeout_s = 60`), set on SD. A locked control is held at its default; setting a non-default value while locked is rejected (`control_locked`) and applies nothing. `rc.unlock {control}` (needs a held lease) opens it for `lock_timeout_s`, then it relocks and returns to its default (off); `rc.lock` relocks at once. Any lease end, control-source drop, `acquire` and core start returns all controls to their defaults and relocks. GUI: padlock, hold 1 s, remaining time, relock button. CLI: a non-default value needs `--unlock SD`. The lock state is part of the RC status.
+7. **Lease rework (user, 2026-11-19):** the 600 s timed lease is removed. If nobody is actively in control, sending stops within single-digit seconds. The GUI/connection lease is unchanged (heartbeat at least every 1 s, WebSocket close ends it at once). The CLI has two ways: (1) `exgs rc session`, a long-running process holding a connection lease with a 300 ms heartbeat, reading commands from stdin or a script file (crash or exit ends it at once, heartbeat loss within 1 s); (2) one-shot `exgs rc ...` commands take or renew a **keepalive lease** with an idle timeout of 5 s (configurable, max 9 s), renewed by every rc command and by `exgs rc keepalive`; expiry means silence and defaults, `exgs rc release` ends it at once. Expiry is checked on every tick and before every operation, so a late renewal cannot revive an expired lease. Decision 10.1-1 and the "CLI can take a timed lease" part of 10.1-4 are superseded accordingly.
 
 ### 10.2 Risks and mitigations
 

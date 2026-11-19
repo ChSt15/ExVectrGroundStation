@@ -28,7 +28,7 @@ kind = "toggle2"
 channel = 5
 values_us = [1000, 2000]
 default = 0
-svg = { x = 40, y = 30 }
+svg = { x = 28, y = 40 }
 
 [[controls]]
 id = "SB"
@@ -38,7 +38,7 @@ kind = "switch3"
 channel = 6
 values_us = [1000, 1500, 2000]
 default = 0
-svg = { x = 70, y = 30 }
+svg = { x = 64, y = 40 }
 
 [[controls]]
 id = "SC"
@@ -48,7 +48,7 @@ kind = "switch3"
 channel = 7
 values_us = [1000, 1500, 2000]
 default = 0
-svg = { x = 100, y = 30 }
+svg = { x = 100, y = 40 }
 
 [[controls]]
 id = "SD"
@@ -60,7 +60,7 @@ values_us = [1000, 2000]
 default = 0
 lock = true               # deliberate-action guard: cannot leave its default until unlocked (hold the padlock 1 s)
 lock_timeout_s = 60       # an unlock lapses after this; the control then returns to its default (off)
-svg = { x = 130, y = 30 }
+svg = { x = 136, y = 40 }
 
 [[controls]]
 id = "SE"
@@ -70,7 +70,7 @@ kind = "momentary"
 channel = 9
 values_us = [1000, 2000]
 default = 0
-svg = { x = 160, y = 30 }
+svg = { x = 172, y = 40 }
 
 [[controls]]
 id = "S1"
@@ -80,4 +80,4 @@ kind = "slider"
 channel = 10
 range_us = [1000, 2000]
 default = 0.0
-svg = { x = 100, y = 70 }
+svg = { x = 100, y = 78 }

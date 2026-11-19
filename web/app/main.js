@@ -15,6 +15,8 @@ let status = null;
 let layout = null;
 let presetName = null;
 let mounted = []; // {def, entry, el, body, inst, titleEl, badgeEl}
+let rcState = null; // newest `rc` push from the core (what it actually sends / mirrors); null while disconnected
+const viewGuards = new Set(); // async (nextView) => boolean; a panel can veto or prepare a view switch (radio: release prompt)
 
 const lsGet = (k) => {
   try {
@@ -38,7 +40,13 @@ let allApi = null;
 const api = new Api({
   url: wsUrl,
   name: "gui",
-  onState: () => header && header.render(),
+  onState: (s) => {
+    if (s !== "open" && rcState !== null) {
+      rcState = null; // the core ended our lease with the connection; never show the old state as current
+      for (const m of mounted) m.inst.onRc?.(null);
+    }
+    if (header) header.render();
+  },
   onReady: () => {
     subscribe(api, "latest");
     for (const m of mounted) m.inst.onReady?.();
@@ -82,6 +90,10 @@ function onMainMessage(msg) {
     case "event":
       for (const m of mounted) m.inst.onEvent?.(msg);
       break;
+    case "rc":
+      rcState = msg;
+      for (const m of mounted) m.inst.onRc?.(msg);
+      break;
     default:
   }
 }
@@ -117,8 +129,13 @@ function makeCtx(entryEl) {
     h,
     view: () => view,
     status: () => status,
+    rc: () => rcState,
     now: () => store.now(view),
     switchView,
+    addViewGuard: (fn) => {
+      viewGuards.add(fn);
+      return () => viewGuards.delete(fn);
+    },
     Bindings,
     setTitle: (t) => {
       const m = mounted.find((x) => x.el === entryEl);
@@ -128,8 +145,17 @@ function makeCtx(entryEl) {
 }
 const ctxBase = () => makeCtx(null);
 
-function switchView(next) {
+async function switchView(next) {
   if (next === view || !["live", "replay"].includes(next)) return;
+  for (const guard of [...viewGuards]) {
+    try {
+      if (!(await guard(next))) return;
+    } catch (e) {
+      console.error("view guard", e);
+      return;
+    }
+  }
+  if (next === view) return;
   for (const a of [api, allApi]) a?.request("unsubscribe", { view }).catch(() => {});
   view = next;
   store.clear(view);

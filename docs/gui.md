@@ -18,10 +18,11 @@ Plain ES modules in `web/`, served by the core (`GET /`, `/static/...`). No buil
 | `web/app/header.js` | Header bar. |
 | `web/app/view3d/` | 3D view: `frames.js`, `model_config.js`, `trail.js` (pure, unit tested), `model.js` and `scene.js` (Three.js). Loaded lazily by the `view3d` panel. |
 | `web/vendor/three/` | Vendored Three.js 0.170.0 (`three.module.min.js`, OrbitControls, GLTFLoader, BufferGeometryUtils) and its MIT `LICENSE`. |
+| `web/app/radio/` | Virtual radio: `radio_logic.js` (pure: banners, positions, throttle, momentary, padlock hold; unit tested), `radio_widget.js` (DOM, requests, heartbeat), `pocket.svg` (the handset drawing). |
 | `web/app/panels/*.js` | One file per panel, `registry.js`, `index.js` (imports all panels). |
 | `web/app/style.css` | Light and dark theme (follows the system), responsive. |
 | `config/layout.default.json` | Presets `default`, `bench`, `flight`, `phone`. Served at `/config/layout.json`. |
-| `web/test/` | `node:test` unit tests (`fmt`, `store`, `layout`, backoff) and the browser shims. |
+| `web/test/` | `node:test` unit tests (`fmt`, `store`, `layout`, backoff, `radio_logic`) and the browser shims. |
 
 ## Behaviour
 
@@ -67,6 +68,7 @@ Plain ES modules in `web/`, served by the core (`GET /`, `/static/...`). No buil
 | `recording` | `status`, `logs.list` | Start (optional label), Stop, note entry, file, duration, size, free disk, recorder error, log list with Open (opens the log, switches to REPLAY). Recording is manual only. |
 | `transport` | `status` | Visible in the REPLAY view only: play/pause, scrubber (seeks throttled to 10/s while dragging), time `mm:ss / mm:ss`, speed 0.25 to 8, jump +-5 s, keyboard space and arrow keys. |
 | `view3d` | `Attitude`, `Position`, `MissionState`, `FlapState`, `VehicleState` | Ship, flaps, trail, setpoint, thrust arrow, ground grid, N/W/Up gizmo. See the 3D view section. |
+| `radio` | `RcState`, `rc` push | Virtual radio (T9), see "Virtual radio" below. Safety-relevant. |
 | `console` | `ConsoleText` (mode `all`), `event` | Vehicle text and GS events, filter, pause, clear, 500 lines. |
 | `inspector` | `*` | All (type, source) pairs with age and a field table from the schema. |
 
@@ -117,15 +119,29 @@ Panel `view3d` (first in the middle column of `default`, first in `phone`). It c
 
 **Debug hook** for end-to-end tests: `window.exgs.view3d.debug()` returns the ship pose and visibility, nose, belly and origin in Three.js coordinates, per-flap angle and outer-edge position in the body frame, flap source (`data`, `default`, `stale`), setpoint and thrust visibility, trail point count, overlay text and camera mode. `window.exgs.view3d.scene3d` gives the Scene3D object.
 
+## Virtual radio
+
+Panel `radio` (`web/app/radio/`; in every preset). **Safety-relevant**: it is the only GUI path that makes the core send RC state. Rules, all enforced in `radio_logic.js` / `radio_widget.js` and covered by the tests:
+
+- **Always the core's state.** Every control, the µs readout and the banner come from the `rc` push messages (the state the core is sending, labelled "sent"; the vehicle-applied state is "not reported"). A click sends a request (`rc.set`) and changes nothing locally; the control moves when the core reports it. The one exception is the slider thumb while it is being dragged: it follows the pointer and snaps to the core's report afterwards.
+- **Config driven.** The controls, their kinds, positions on the handset (`svg = {x, y}` in the 200 x 140 viewBox of `pocket.svg`), labels and `meaning` tooltips come from `config.get radio`. The widget does not know what a control means. The handset drawing is decorative; the controls are HTML elements placed over it.
+- **Banners** (from `rc.mode`, `holder_is_you`, connection and view): amber `CONTROLLING · sending to <source> · <rate> Hz`, grey `NOT SENDING`, blue `MIRRORING Pocket · read-only` (with the age of the handset packet), red `TWO CONTROL SOURCES ACTIVE` (display only; the holder can release), `CONTROLLED BY <holder>` for another client's lease, a warning when a lease is held but no control source is connected, red `DISCONNECTED`, and violet `REPLAY`.
+- **Operable only while this client holds the lease and the core reports `controlling`.** Otherwise all controls are read-only: idle, mirroring (handset positions mapped to the nearest configured position, sliders continuous), conflict, someone else controlling, disconnected, replay. "Take control" is enabled only when the core said this client may control (`welcome.can_control`), the view is live, nothing is held and no handset is being mirrored; a denial (`no control source is connected`, another holder) is shown as the core's message.
+- **Heartbeat** `rc.heartbeat` every 300 ms while this client holds the lease. Closing the tab or losing the connection ends the lease at once (WebSocket close), a stalled page within 1 s. After a reconnect the client does **not** take control again by itself. Changing the layout preset (the panel is destroyed) releases a held lease.
+- **Controls.** `toggle2`: click flips. `switch3`: click the top, middle or bottom zone, or arrow keys / space. `momentary` (SE): `SE=1` on pointerdown and every 100 ms while held, `SE=0` on pointerup, pointercancel, lost pointer capture, window blur and when the page is hidden (the core also releases it 300 ms after the last refresh). `slider` (S1): at most 20 updates per second, the newest value always follows.
+- **Padlock.** A control with `lock` in the radio config (SD) is shown as a padlock while the core reports it locked: hold it for 1 s (progress bar) to send `rc.unlock`; releasing early cancels. While unlocked the switch is operable and shows `unlocked · <seconds>` counted down from the core's `remaining_s`, with a Relock button (`rc.lock`). When the core relocks it (timeout, lease end) the padlock returns on the next push.
+- **Replay.** In the replay view the widget shows the recorded `RcState` (freshest of any source) read-only under the REPLAY banner. Switching to replay while this client holds control asks "Release control and switch to replay?" (in-page dialog, `Release and switch` / `Stay live`); the release is sent before the view changes, and if it fails the view stays live. As a second line of defence a client that finds itself holding the lease in the replay view releases it.
+- **Debug hook** `window.exgs.radio.debug()`: banner text and tone, button states, and per control the displayed position, enabled, lock state, padlock visibility and the µs text.
+
 ## Adding a panel
 
 1. Create `web/app/panels/<name>.js` and call `registerPanel` (`id` unique and matching `[a-z_]+`, `title`, `consumes`, optional `mode: "all"`, optional `views: ["replay"]`, `create(el, ctx)`).
 2. Add `import "./<name>.js";` to `web/app/panels/index.js`.
 3. Add `{ "panel": "<id>", "area": "<area>" }` to the presets in `config/layout.default.json` (or your own layout file).
 
-`ctx`: `store`, `schema`, `api` (`api.request(op, payload)` returns a promise of `data` or rejects with `{code, message}`), `fmt`, `h`, `Bindings`, `view()` (`"live"` or `"replay"`), `status()` (last `status` message), `now()` (view time), `switchView(v)`, `setTitle(text)`.
+`ctx`: `store`, `schema`, `api` (`api.request(op, payload)` returns a promise of `data` or rejects with `{code, message}`), `fmt`, `h`, `Bindings`, `view()` (`"live"` or `"replay"`), `status()` (last `status` message), `rc()` (last `rc` push, `null` while disconnected), `now()` (view time), `switchView(v)` (asynchronous: view guards run first), `addViewGuard(async (nextView) => bool)` (returns a remover; a guard can veto a view switch, the radio uses it for the release prompt), `setTitle(text)`.
 
-The object returned by `create` may have: `onPacket(pkt)` (per received packet of a consumed type in the current view; also called for the items of a snapshot), `onReset(view)` (snapshot replaced the store), `onTick(now)` (10 Hz), `onViewChange(view)`, `onStatus(status)`, `onEvent(evt)`, `onReady()` (after every connect), `freshness()` returning `{state, age}` for the header badge, `destroy()`.
+The object returned by `create` may have: `onPacket(pkt)` (per received packet of a consumed type in the current view; also called for the items of a snapshot), `onReset(view)` (snapshot replaced the store), `onTick(now)` (10 Hz), `onViewChange(view)`, `onStatus(status)`, `onEvent(evt)`, `onRc(rc)` (every `rc` push, `null` on disconnect), `onReady()` (after every connect), `freshness()` returning `{state, age}` for the header badge, `destroy()`.
 
 Most panels only need `Bindings`:
 
@@ -151,5 +167,4 @@ Value spec: `type` (or `types` for derived values), `field`, `index`, `src`, `un
 ## Known gaps
 
 - Replay: the controls are wired to `replay.*` and `status.replay`, but were exercised only against the "not available" answer because the Replayer (T4) is not merged in this branch. Scrubber markers for `GsEvent`, `Note` and mode changes (design 5.7) need index data the API does not expose yet.
-- Not built: virtual radio (T9).
 - 3D view: the placeholder's chamfer corner and 45 deg cut are assumptions (see above). The glTF path is tested with a generated box file only, not with a real ship model. Nothing is drawn for the vane angles.
