@@ -10,6 +10,7 @@ import time
 
 import pytest
 
+from exvectr_gs.api import protocol as P
 from exvectr_gs.core.app import CoreApp
 from exvectr_gs.core.config import parse_config
 from exvectr_gs.packets.defs.link import RcOrigin
@@ -66,7 +67,7 @@ async def test_round_trip_through_api_and_fake_echo():
         lease = await c.ok("rc.acquire", kind="connection")
         assert lease["kind"] == "connection" and lease["expires"] is None
         st = await c.ok("rc.set", values={"SA": 1, "S1": 0.5})
-        assert st["mode"] == "controlling" and st["controls"]["SA"] == 1 and st["channels_us"][9] == 1500
+        assert st["mode"] == "master" and st["controls"]["SA"] == 1 and st["channels_us"][9] == 1500
         for _ in range(5):  # a GUI heartbeats every 300 ms
             await c.ok("rc.heartbeat")
             await asyncio.sleep(0.1)
@@ -221,7 +222,7 @@ async def test_mirror_mode_through_the_api():
     app = make_rc_app(rc_role="mirror", profile="radio")
     async with rc_running(app) as rig:
         c = await Client.connect(rig)
-        await wait_for(lambda: app.rc.status().mode == "mirroring", what="mirroring")
+        await wait_for(lambda: app.rc.status().mode == "slave", what="slave")
         st = app.rc.status()
         assert st.origin == "handset" and not st.sending
         assert await c.err("rc.acquire", kind="connection") == "control_denied"  # mirror link: GS never sends
@@ -430,4 +431,72 @@ async def test_keepalive_lease_renewal_and_idle_expiry_through_the_api():
         assert received(rig) == m and m > n
         c = await Client.connect(rig)
         assert await c.err("rc.heartbeat") == "no_lease"  # a late renewal does not revive it
+        await c.close()
+
+
+# ---------------------------------------------------------------- master / slave (decision 10.1-8)
+
+
+def rc_json(rig):
+    return P.rc_status_json(rig.app.rc.status())
+
+
+def make_two_source_app(roles=("control", "control", "mirror"), **kw):
+    """A radio-profile fake (provides the Pocket's handset RcState) plus two more fakes."""
+    ids = ["pocket", "usb", "link"]
+    cfg = parse_config(
+        {
+            "core": {"source_priority": ids},
+            "server": {"bind": "127.0.0.1", "port": 1, "control_hosts": ["127.0.0.1", "::1"]},
+            "source": [
+                {
+                    "id": i,
+                    "kind": "fake",
+                    "rc_role": r,
+                    "echo_rc": True,
+                    "seed": n,
+                    "profile": "radio" if n == 1 else "usb",
+                }
+                for n, (i, r) in enumerate(zip(ids, roles, strict=True), 1)
+            ],
+            "recorder": {"directory": tempfile.mkdtemp(prefix="exgs-test-rec-")},
+        }
+    )
+    return CoreApp(cfg)
+
+
+async def test_slave_by_default_then_master_sends_to_every_rc_source_and_never_to_mirror():
+    app = make_two_source_app()
+    async with rc_running(app) as rig:
+        c = await Client.connect(rig)
+        await wait_for(lambda: app.rc.status().mode == "slave", what="slave")
+        await asyncio.sleep(0.4)
+        assert all(not s.received_rc for s in app.sources), "slave sends nothing"
+        st = rc_json(rig)
+        assert st["mode"] == "slave" and st["pocket_active"] is True and st["targets"] == [] and st["sending"] is False
+        # master is the user's choice, allowed while the Pocket is active
+        await c.ok("rc.acquire", kind="connection")
+        await c.ok("rc.set", values={"SA": 1})
+        await wait_for(lambda: app.sources[0].received_rc and app.sources[1].received_rc, what="sent to both")
+        st = rc_json(rig)
+        assert st["mode"] == "master" and st["pocket_active"] is True and st["targets"] == ["pocket", "usb"]
+        assert st["target"] == "pocket, usb" and st["origin"] == "gs" and st["controls"]["SA"] == 1
+        assert not app.sources[2].received_rc, "a mirror-only source is never sent to"
+        # release: back to slave, silence, defaults
+        await c.ok("rc.release")
+        await asyncio.sleep(0.1)
+        n = [len(s.received_rc) for s in app.sources]
+        await asyncio.sleep(0.3)
+        assert [len(s.received_rc) for s in app.sources] == n
+        st = rc_json(rig)
+        assert st["mode"] == "slave" and not st["sending"] and app.rc.cfg.default_state() == app.rc._state
+        await c.close()
+
+
+async def test_mirror_only_everywhere_cannot_become_master():
+    app = make_two_source_app(roles=("mirror", "mirror", "none"))
+    async with rc_running(app) as rig:
+        c = await Client.connect(rig)
+        await wait_for(lambda: app.rc.status().mode == "slave", what="slave")
+        assert await c.err("rc.acquire", kind="connection") == "control_denied"
         await c.close()

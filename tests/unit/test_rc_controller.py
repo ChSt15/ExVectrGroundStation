@@ -443,7 +443,7 @@ def test_mirror_status_reports_locks_as_locked():
     r = Rig([StubSource("link", rc_role="mirror")])
     handset(r)
     st = r.rc.status()
-    assert st.mode == "mirroring" and st.locks["SD"]["locked"] is True
+    assert st.mode == "slave" and st.locks["SD"]["locked"] is True
 
 
 def test_radio_config_lock_validation():
@@ -605,7 +605,7 @@ def test_gs_rcstate_recorded_on_change_and_once_per_second():
     assert len(r.src.sent) == 27  # every tick was still sent
 
 
-# ---------------------------------------------------------------- mirror, conflict
+# ---------------------------------------------------------------- master / slave (decision 10.1-8)
 
 
 def handset(r, v=1500, sid="link"):
@@ -614,11 +614,11 @@ def handset(r, v=1500, sid="link"):
     r.bus.publish(RcState(t=r.clock.now(), src=sid, origin=RcOrigin.handset, ch_us=ch, seq=1))
 
 
-def test_mirror_mode_reports_handset_and_sends_nothing():
+def test_slave_reports_handset_and_sends_nothing():
     r = Rig([StubSource("link", rc_role="mirror"), StubSource("usb", rc_role="none")])
     handset(r, 1250)
     st = r.rc.status()
-    assert st.mode == "mirroring" and st.origin == "handset" and not st.sending and st.target is None
+    assert st.mode == "slave" and st.origin == "handset" and not st.sending and st.target is None
     assert st.controls["SA"] == 1 and st.controls["SB"] == 1 and st.controls["S1"] == pytest.approx(0.25)
     assert st.channels_us[4] == 2000
     with pytest.raises(ControlDenied):
@@ -630,19 +630,21 @@ def test_mirror_mode_reports_handset_and_sends_nothing():
     assert r.rc.status().mode == "idle"
 
 
-def test_conflict_when_controlling_and_handset_seen():
+def test_master_while_pocket_active_sets_warning_flag_and_keeps_sending():
     r = Rig()
     r.acquire("keepalive", 9, holder="cli")
     run(r.tick())
-    assert r.rc.status().mode == "controlling"
+    assert r.rc.status().mode == "master"
     handset(r)
     st = r.rc.status()
-    assert st.mode == "conflict" and st.sending and st.origin == "gs"  # display only: still sending the same
+    assert st.mode == "master" and st.sending and st.origin == "gs"  # the user's choice: still sending
+    assert st.pocket_active is True  # drives the GUI warning banner (display only)
     n = len(r.src.sent)
     run(r.tick())
     assert len(r.src.sent) == n + 1
     r.clock.advance(1.01)
-    assert r.rc.status().mode == "controlling"
+    st = r.rc.status()
+    assert st.mode == "master" and st.pocket_active is False
 
 
 def test_own_gs_state_is_not_mistaken_for_a_handset():
@@ -650,7 +652,7 @@ def test_own_gs_state_is_not_mistaken_for_a_handset():
     r.acquire()
     run(r.tick())  # published to the bus with origin gs, src gs
     r.bus.publish(RcState(t=1, src="gs", origin=RcOrigin.gs, ch_us=[1500] * 16, seq=9))
-    assert r.rc.status().mode == "controlling"
+    assert r.rc.status().mode == "master"
     r.rc.release(r.rc.status().lease.id)
     assert r.rc.status().mode == "idle"
 
@@ -676,3 +678,93 @@ def test_rate_is_fixed_at_send_rate_hz():
 def test_default_radio_config_object_is_valid():
     cfg = RadioConfig()
     assert cfg.controls == [] and cfg.channels_us({}) == [1500] * 16
+
+
+def test_idle_without_handset_and_slave_follows_freshness():
+    r = Rig()
+    assert r.rc.status().mode == "idle" and r.rc.status().pocket_active is False
+    handset(r)
+    assert r.rc.status().mode == "slave" and r.rc.status().pocket_active is True
+    r.clock.advance(0.99)
+    assert r.rc.status().mode == "slave"
+    r.clock.advance(0.02)
+    assert r.rc.status().mode == "idle"
+
+
+def test_slave_never_becomes_master_by_itself():
+    r = Rig()
+    for _ in range(30):
+        handset(r)
+        assert run(r.tick()) is False
+        r.clock.advance(0.04)
+    assert r.rc.status().mode == "slave" and r.rc.status().lease is None and not r.src.sent
+
+
+def test_master_allowed_while_pocket_active_and_starts_from_defaults():
+    r = Rig()
+    handset(r, 1250)
+    assert r.rc.status().mode == "slave"
+    lease = r.acquire()
+    st = r.rc.status()
+    assert st.mode == "master" and st.sending and st.pocket_active
+    assert st.controls == r.cfg.default_state()  # not the Pocket's positions
+    run(r.tick())
+    assert r.src.sent[-1].ch_us == r.cfg.channels_us(r.cfg.default_state())
+    r.rc.set(lease.id, {"SA": 1})
+    r.rc.unlock(lease.id, "SD")
+    r.rc.set(lease.id, {"SD": 1})
+    r.rc.release(lease.id)  # master -> slave resets controls, closes locks
+    st = r.rc.status()
+    assert st.mode == "slave" and st.controls["SA"] == 1  # slave shows the Pocket (SA at 2000 us), not ours
+    assert r.rc._state == r.cfg.default_state() and r.rc.status().locks["SD"]["locked"] is True
+    n = len(r.src.sent)
+    run(r.tick())
+    assert len(r.src.sent) == n
+
+
+def test_master_sends_to_every_connected_rc_source_and_not_to_mirror_or_none():
+    a, b = StubSource("usb"), StubSource("link")
+    m, n = StubSource("rx", rc_role="mirror"), StubSource("x", rc_role="none")
+    off = StubSource("off", state="searching")
+    r = Rig([a, b, m, n, off])
+    handset(r)
+    r.acquire()
+    assert run(r.tick()) is True
+    assert len(a.sent) == len(b.sent) == 1 and a.sent[0] is b.sent[0]
+    assert not m.sent and not n.sent and not off.sent
+    st = r.rc.status()
+    assert st.targets == ["usb", "link"] and st.target == "usb, link"
+
+
+def test_one_source_refusing_does_not_stop_the_others():
+    a, b = StubSource("usb"), StubSource("link")
+    r = Rig([a, b])
+    r.acquire()
+    b.accept = False
+    assert run(r.tick()) is True
+    assert len(a.sent) == 1 and not b.sent and r.rc.skipped_count == 1
+
+
+def test_source_that_reappears_gets_the_safe_state_first():
+    a, b = StubSource("usb"), StubSource("link")
+    r = Rig([a, b])
+    lease = r.acquire()
+    run(r.tick())
+    r.rc.set(lease.id, {"SA": 1})
+    b.state = "searching"
+    run(r.tick())
+    assert a.sent[-1].ch_us[4] == 2000  # still master through the other source
+    r.rc.set(lease.id, {"SB": 2})
+    b.state = "connected"
+    run(r.tick())
+    assert a.sent[-1].ch_us == b.sent[-1].ch_us == r.cfg.channels_us(r.cfg.default_state())
+
+
+def test_lease_end_is_silence_on_all_sources():
+    a, b = StubSource("usb"), StubSource("link")
+    r = Rig([a, b])
+    r.acquire("keepalive", 5)
+    run(r.tick())
+    r.clock.advance(5.1)
+    na, nb = len(a.sent), len(b.sent)
+    assert run(r.tick()) is False and len(a.sent) == na and len(b.sent) == nb

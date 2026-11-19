@@ -1,9 +1,14 @@
-"""RC controller: the only uplink of the ground station (design 1.4, 5.6, decision 10.1-1/-4).
+"""RC controller: the only uplink of the ground station (design 1.4, 5.6, decision 10.1-1/-4/-8).
 
 SAFETY-RELEVANT. Rules this module enforces:
 
-- Nothing is sent without an active control lease, and RC state goes only to the single source with
-  `rc_role = "control"` (never to a mirror source).
+- Master / slave (user decision 2026-11-19, 10.1-8). Slave (a fresh handset `RcState` is arriving, nobody
+  holds a lease) and idle (nothing arriving) send nothing. Master is the explicit user choice: the control
+  lease (`acquire`) is the master switch, allowed even while handset data arrives. The controller never
+  switches to master by itself, and it does not reject or filter anything: the Pocket's TX module (and later
+  the vehicle) reject ground-station RC state, the ground station adds no refusal of its own.
+- Nothing is sent without an active control lease. In master the RC state goes to every connected source
+  with `rc_role = "control"` (several are allowed) and never to a `mirror` or `none` source.
 - A *connection* lease (GUI, `exgs rc session`) ends when its heartbeat is missing for 1 s. A *keepalive*
   lease (one-shot CLI commands) ends when it was not renewed for its idle timeout (default 5 s, max 9 s).
   A release is immediate. There is no long timed lease (user decision 2026-11-19). When a lease ends,
@@ -72,15 +77,17 @@ class Lease:
 
 @dataclass
 class RcStatus:
-    mode: Literal["controlling", "mirroring", "idle", "conflict"]
+    mode: Literal["master", "slave", "idle"]
     sending: bool
-    target: str | None
+    target: str | None  # ids of the sources being sent to, comma separated
     lease: Lease | None
     controls: dict[str, float | int]  # sent state (controlling) or mirrored handset state (mirroring)
     channels_us: list[int]  # full channel vector of that state
     origin: Literal["gs", "handset"] | None
     t: int | None
     locks: dict[str, dict] = field(default_factory=dict)  # lockable control id -> {locked, remaining_s, timeout_s}
+    targets: list[str] = field(default_factory=list)  # ids of the sources being sent to (master)
+    pocket_active: bool = False  # a fresh handset RcState is arriving (display only; master shows a warning)
 
 
 class RcController:
@@ -108,17 +115,16 @@ class RcController:
         self._last_recorded = 0
         self._handset_ch: list[int] | None = None
         self._handset_t: int | None = None
+        self._ready_prev: set[str] = set()
         self.sent_count = 0
         self.skipped_count = 0
         bus.subscribe(self._on_packet, {"RcState"})
 
     # ------------------------------------------------------------ helpers
 
-    def _control_source(self) -> Source | None:
-        for s in self._sources:
-            if s.caps.rc_role == "control":
-                return s
-        return None
+    def _ready_sources(self) -> list[Source]:
+        """Every connected source that may be sent to (`rc_role = "control"`)."""
+        return [s for s in self._sources if s.caps.rc_role == "control" and self._source_ready(s)]
 
     def _source_ready(self, src: Source | None) -> bool:
         return src is not None and src.caps.can_send and src.status().state == "connected"
@@ -197,8 +203,10 @@ class RcController:
                 raise ValueError(f"keepalive idle_s must be within (0, {KEEPALIVE_MAX_S:g}]")
         if self._lease is not None:
             raise ControlDenied(f"control is held by {self._lease.holder}")
-        if not self._source_ready(self._control_source()):
-            raise ControlDenied("no control source is connected")
+        ready = self._ready_sources()
+        if not ready:
+            raise ControlDenied("no RC-capable source is connected")
+        self._ready_prev = {s.id for s in ready}
         self._reset_state()  # always start from the safe defaults, every control locked
         self._last_sent_ch = None
         expires = now + int(idle * 1e9) if idle is not None else None
@@ -279,34 +287,36 @@ class RcController:
 
     # ------------------------------------------------------------ status
 
+    def _pocket_active(self, now: int) -> bool:
+        if self._handset_ch is None or self._handset_t is None:
+            return False
+        return now - self._handset_t < HANDSET_FRESH_S * 1e9
+
     def status(self) -> RcStatus:
         now = self._clock.now()
         self._expire(now)
-        src = self._control_source()
-        controlling = self._lease is not None and self._source_ready(src)
-        handset = (
-            self._handset_ch is not None
-            and self._handset_t is not None
-            and now - self._handset_t < HANDSET_FRESH_S * 1e9
-        )
-        mode: Literal["controlling", "mirroring", "idle", "conflict"]
-        mode = ("conflict" if handset else "controlling") if controlling else ("mirroring" if handset else "idle")
-        if mode == "mirroring":
+        ready = self._ready_sources()
+        master = self._lease is not None and bool(ready)
+        pocket = self._pocket_active(now)
+        if not master and pocket:
             assert self._handset_ch is not None
             return RcStatus(
-                mode, False, None, self._lease, self.cfg.state_from_channels(self._handset_ch),
-                list(self._handset_ch), "handset", self._handset_t, self._locks(now),
+                "slave", False, None, self._lease, self.cfg.state_from_channels(self._handset_ch),
+                list(self._handset_ch), "handset", self._handset_t, self._locks(now), [], True,
             )  # fmt: skip
+        ids = [s.id for s in ready] if master else []
         return RcStatus(
-            mode,
-            controlling,
-            src.id if controlling and src else None,
+            "master" if master else "idle",
+            master,
+            ", ".join(ids) if ids else None,
             self._lease,
             dict(self._state),
             self.cfg.channels_us(self._state),
             "gs" if self._lease is not None else None,
             self._last_sent_t,
             self._locks(now),
+            ids,
+            pocket,
         )
 
     # ------------------------------------------------------------ sender
@@ -317,24 +327,35 @@ class RcController:
         self._expire(now)
         if self._lease is None:
             return False
-        src = self._control_source()
-        if not self._source_ready(src):
+        ready = self._ready_sources()
+        ids = {x.id for x in ready}
+        if not ready:
             self._reset_state()  # never resume an old state after the control source returns
             self._last_sent_ch = None
+            self._ready_prev = set()
             self.skipped_count += 1
             return False
-        assert src is not None
+        if ids - self._ready_prev:
+            # a source (re)appeared: it must see the safe state first, not whatever was set meanwhile
+            self._reset_state()
+            self._last_sent_ch = None
+        self._ready_prev = ids
         ch = self.cfg.channels_us(self._state)
         self._seq = (self._seq + 1) & SEQ_MASK
         pkt = RcState(t=now, src="gs", origin=RcOrigin.gs, ch_us=ch, seq=self._seq)
         lease_id = self._lease.id
-        try:
-            ok = await src.send(pkt)
-        except Exception:
-            log.exception("RC send failed")
-            ok = False
-        if not ok:
-            self.skipped_count += 1  # refused or not connected: skip this tick
+        accepted = 0
+        for src in ready:
+            try:
+                ok = await src.send(pkt)
+            except Exception:
+                log.exception("RC send to %s failed", src.id)
+                ok = False
+            if ok:
+                accepted += 1
+            else:
+                self.skipped_count += 1  # refused or not connected: skip this tick for this source
+        if not accepted:
             return False
         self.sent_count += 1
         if self._lease is not None and self._lease.id == lease_id:

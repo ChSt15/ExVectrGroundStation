@@ -48,7 +48,7 @@ What the modules must provide (contract for T2, T4, T6):
 `welcome`, `schema`, `snapshot`, `packets`, `status`, `rc`, `event` as in design 4.3. The core sends `welcome`, `schema`, `status` (and `rc` if present) straight after `hello`. `subscribe` is answered by the result, then a `snapshot`.
 
 - `status` is pushed at 2 Hz. Its `rc` key (extension) is the RC status or `null`. Each of `recorder` and `replay` has `available: false` when the module is not present.
-- `rc` is pushed on change and at 5 Hz while sending or mirroring, with `holder_is_you`. The RC status has `mode`, `sending`, `target`, `lease` (`id`, `holder`, `kind`, `expires`, `idle_s`), `controls`, `channels_us`, `origin`, `t` and `locks`: `{"SD": {"locked": true, "remaining_s": null, "timeout_s": 60}}` for every lockable control (`remaining_s` is the time until the core relocks it while unlocked).
+- `rc` is pushed on change and at 5 Hz while sending or in slave, with `holder_is_you`. The RC status has `mode` (`master`, `slave` or `idle`, user decision 2026-11-19; the old `controlling`, `mirroring` and `conflict` are gone), `sending`, `target` (ids of the sources sent to, comma separated), `targets` (the same as a list; empty unless master), `pocket_active` (a fresh handset `RcState` is arriving: in master it drives the GUI warning "Pocket also active", display only), `lease` (`id`, `holder`, `kind`, `expires`, `idle_s`), `controls`, `channels_us`, `origin`, `t` and `locks`: `{"SD": {"locked": true, "remaining_s": null, "timeout_s": 60}}` for every lockable control (`remaining_s` is the time until the core relocks it while unlocked).
 - `event` is sent when a source changes state (and via `ApiServer.event(level, text)` for other modules).
 
 ### Backpressure (design 2.3)

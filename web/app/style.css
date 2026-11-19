@@ -100,6 +100,11 @@ tr.incomplete td { color: var(--dim); }
 .rc-banner[data-tone="bad"] { background: var(--bad); color: #fff; }
 .rc-banner[data-tone="warn"] { background: var(--warn); color: #fff; }
 .rc-banner[data-tone="replay"] { background: #8250df; color: #fff; }
+.rc-role { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em; padding: 1px 8px; border-radius: 10px; margin-bottom: 4px; background: var(--line); color: var(--fg); }
+.rc-role:empty { display: none; }
+.rc-role[data-role="master"] { background: #f0b429; color: #1b1f24; } .rc-role[data-role="slave"] { background: var(--info); color: #fff; }
+.rc-warning { padding: 5px 8px; border-radius: 4px; font-weight: 600; font-size: 12px; background: var(--bad); color: #fff; margin-bottom: 6px; }
+.rc-warning[hidden] { display: none; }
 .rc-banner[data-tone="idle"], .rc-banner[data-tone="dim"] { background: var(--line); color: var(--fg); }
 .rc-stage { position: relative; width: 100%; max-width: 560px; margin: 0 auto; container-type: inline-size; user-select: none; touch-action: manipulation; }
 .rc-bg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }

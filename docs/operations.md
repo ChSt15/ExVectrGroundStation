@@ -37,8 +37,10 @@ id = "link"
 kind = "link_module"
 match = { device = "/dev/serial/by-id/usb-Silicon_Labs_CP2102_XXXX-if00-port0" }
 baud = 921600
-rc_role = "mirror"
+rc_role = "control"        # master sends RC here too (the TX module rejects it); "mirror" = receive-only
 ```
+
+In slave (the Pocket's state arriving) the ground station sends nothing; it sends RC state only after the user switches to master, then to every connected `rc_role = "control"` source ([radio.md](radio.md)).
 
 When two Teensys are attached, a VID/PID match picks the first; add `serial = "..."` or use the by-id path. When the vehicle is on USB and the radio chain is also connected, the default `source_priority = ["usb", "link", "fake"]` shows the vehicle's USB telemetry in the panels; both streams are recorded.
 

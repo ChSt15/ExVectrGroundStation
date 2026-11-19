@@ -94,7 +94,7 @@ def test_agent_bench_sequence_and_hold(core):
         assert exgs(core, "rc", "set", "SA=0").returncode == 0  # the safe position first (renews the lease)
         assert exgs(core, "rc", "set", "SA=1", "S1=0.5").returncode == 0
         st = show(core)
-        assert st["mode"] == "controlling" and st["sending"] and st["controls"]["SA"] == 1
+        assert st["mode"] == "master" and st["sending"] and st["controls"]["SA"] == 1
         assert st["channels_us"][4] == 2000 and st["channels_us"][9] == 1500
         assert st["lease"]["kind"] == "keepalive" and st["lease"]["idle_s"] == 9.0
         r = exgs(core, "wait", "MissionState.mission_index == 2", "--timeout", "5")  # the test echo
@@ -276,7 +276,7 @@ def test_session_stops_on_a_failing_command_unless_keep_going(core, tmp_path):
     assert r.returncode == 3 and "control_locked" in r.stdout
     assert '"mode"' not in r.stdout  # stopped before `show`
     r = subprocess.run(base + ["--keep-going"], cwd=ROOT, capture_output=True, text=True, timeout=30)
-    assert r.returncode == 0 and "control_locked" in r.stderr and "rc: controlling" in r.stdout
+    assert r.returncode == 0 and "control_locked" in r.stderr and "rc: master" in r.stdout
     assert show(core)["lease"] is None
 
 

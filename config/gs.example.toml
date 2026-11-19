@@ -21,9 +21,15 @@ raw_frames = "unknown"                         # only undecodable frames are kep
 flush_interval_ms = 100
 fsync_interval_ms = 1000
 
+# RC sending (docs/radio.md): the ground station is a SLAVE while the Pocket's RC_STATE arrives (it only shows
+# the Pocket's positions) and sends nothing until the user switches it to MASTER (GUI "Switch to master",
+# `exgs rc acquire`). In master the RC state goes to EVERY connected source with rc_role = "control".
+# rc_role = "mirror" makes a source receive-only (never sent to), "none" the same for sources that carry no RC.
+# The rejection of ground-station RC_STATE is done by the receiving side (TX module, later the vehicle), never here.
+
 # Peer 1: the vehicle on USB (ExVectrNetwork node 1, direct). Telemetry at the USB rates including the debug
-# set (ports 0x90 and up). The only source that may carry the GS's own RC_STATE (rc_role = "control"); the
-# vehicle accepts it as the bench control source (node 0 over USB).
+# set (ports 0x90 and up). In master it receives the GS RC_STATE; the vehicle accepts it as the bench control
+# source (node 0 over USB).
 [[source]]
 id = "usb"
 kind = "vehicle_usb"
@@ -32,14 +38,15 @@ rc_role = "control"
 enabled = false                                # set true when the Teensy is on USB (or use tools/fake_vehicle_pty.py)
 
 # Peer 2: the ExVectrLink TX module on USB (node 2). It also forwards the vehicle's radio set (node 1), the
-# vehicle RX module (node 3) and the Pocket's RC_STATE (handset origin), plus its own LINK_STATS. The GS never
-# sends RC state through it: the vehicle rejects node 0 on the radio path anyway (rc_role = "mirror").
+# vehicle RX module (node 3) and the Pocket's RC_STATE (handset origin), plus its own LINK_STATS. In master the
+# GS sends RC_STATE to it too; the TX module always rejects it (it drops RC_STATE arriving from USB towards the
+# air). Set rc_role = "mirror" for a receive-only link module (nothing is ever sent to it).
 [[source]]
 id = "link"
 kind = "link_module"
 match = { device = "/dev/serial/by-id/usb-Silicon_Labs_CP2102_XXXX-if00-port0" }
 baud = 921600
-rc_role = "mirror"
+rc_role = "control"
 enabled = false
 
 [[source]]

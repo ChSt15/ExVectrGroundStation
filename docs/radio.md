@@ -1,8 +1,19 @@
 # Virtual radio, leases, safety notes
 
-Spec: [ground-station-design.md](ground-station-design.md) sections 1.4, 5.6, 4.2 and decisions 10.1-1, 10.1-4, 10.1-6 and 10.1-7. Implemented in task T6: `src/exvectr_gs/rc/` (`radio_config.py`, `controller.py`), wired in `core/app.py` (`CoreApp.rc`), exposed by the `rc.*` API operations and `exgs rc ...` (see [api.md](api.md)). The radio widget (T9, `web/app/radio/`, [gui.md](gui.md)) is the GUI side. The lock on guarded controls and the keepalive lease that replaced the timed lease are user decisions of 2026-11-19.
+Spec: [ground-station-design.md](ground-station-design.md) sections 1.4, 5.6, 4.2 and decisions 10.1-1, 10.1-4, 10.1-6 and 10.1-7. Implemented in task T6: `src/exvectr_gs/rc/` (`radio_config.py`, `controller.py`), wired in `core/app.py` (`CoreApp.rc`), exposed by the `rc.*` API operations and `exgs rc ...` (see [api.md](api.md)). The radio widget (T9, `web/app/radio/`, [gui.md](gui.md)) is the GUI side. The lock on guarded controls, the keepalive lease that replaced the timed lease, and master/slave mode (below) are user decisions of 2026-11-19.
 
 **Safety-relevant.** The RC state is the only thing the ground station ever sends to the vehicle. The ground station makes no control, mission or safety decision: it maps control positions to channel values from a config and sends them while somebody holds a lease. It does not know what any switch means (the Starship's motor enable, mission go, and so on); the vehicle firmware interprets the channels with its own fixed mapping (workspace `docs/safety.md`, `docs/system-architecture.md` "Switch mapping").
+
+## Master and slave (user decision 2026-11-19, design 10.1-8)
+
+The user's words: "If the ground station receives an RC packet (from the Pocket), then it goes into slave mode and simply shows the current settings of the Pocket. I can set it to master and then it starts sending the controls to the serial port. The Pocket should always reject them."
+
+- **Slave** is automatic: a handset `RcState` (origin `handset`) arrived within 1 s and nobody holds the lease. The radio widget shows the Pocket's positions read-only and **the core sends nothing**. Nobody needs to do anything.
+- **Idle** is the existing state when no handset data arrives and nobody holds the lease: nothing is sent.
+- **Master** is the explicit user choice, never automatic. The control lease **is** the master switch: GUI "Switch to master", `exgs rc acquire`, `exgs rc session`, the keepalive lease of a one-shot `exgs rc` command. It is allowed while handset data arrives (the user decides). The rules of master are the old control rules, unchanged: 25 Hz sender, safe defaults on every start and every switch, SD lock, connection / keepalive lease timing, silence when the lease ends. "Release (back to slave)" ends the lease, resets every control to its default and closes every lock.
+- **Warning.** In master while the Pocket's state also arrives, `pocket_active` is true and the GUI shows "Pocket also active: the radio rejects ground-station controls". This is display only; the sender does not change. It replaces the old `conflict` mode.
+- **Where master sends.** To **every connected source with `rc_role = "control"`** (several are allowed), including the TX-module USB source. A source with `rc_role = "mirror"` (or `none`) is receive-only: `SerialSource.send()` refuses RC state for it and the controller never offers it. The shipped `config/gs.example.toml` sets `control` on both the vehicle USB and the TX-module sources; set `rc_role = "mirror"` on a source to make it receive-only. A source that is not connected is skipped; one source refusing a packet does not stop the others; a source that (re)appears while master is first sent the safe defaults.
+- **Who rejects.** The rejection of ground-station `RC_STATE` is done by the **TX module** (it already drops `RC_STATE` arriving from USB towards the air) and later by the vehicle's authority rules. It is **never** done by the ground station: the GS neither filters nor refuses on that ground. Consequence, by user decision: the ground station's old own refusal (never send through the TX module) is no longer a defence layer, so a TX-module bug that failed to drop GS `RC_STATE` would reach the air, where the vehicle's own rules are then the protection.
 
 ## Radio config (`config/radio.pocket.toml`)
 
@@ -30,7 +41,7 @@ A control with `lock = true` in the radio config is a **deliberate-action guard*
 - `rc.unlock {control}` needs a held lease. The control is then operable for `lock_timeout_s` (default 60 s), after which it **relocks and returns to its default (off)**. Unlocking again restarts the timer.
 - `rc.lock {control}` relocks at once and resets the control to its default.
 - **Every end of control relocks and resets:** a lease end (release, heartbeat loss, keepalive expiry, connection drop), a control-source drop, an `acquire`, and a core start all return every control to its defaults and close every lock. Nothing about a lock is persisted.
-- The lock state is part of the RC status: `locks: {"SD": {"locked": true, "remaining_s": null, "timeout_s": 60}}` for every lockable control (also while idle, mirroring and in `status.rc`). Expiry is applied by the sender tick and before every operation, like lease expiry.
+- The lock state is part of the RC status: `locks: {"SD": {"locked": true, "remaining_s": null, "timeout_s": 60}}` for every lockable control (also while idle, in slave and in `status.rc`). Expiry is applied by the sender tick and before every operation, like lease expiry.
 - GUI: shown as a padlock, hold it 1 s to unlock, remaining time and a Relock button ([gui.md](gui.md)). CLI: `exgs rc set SD=1 --unlock SD` (the CLI calls `rc.unlock` first), `exgs rc unlock SD`, `exgs rc lock SD`.
 
 ## Safe defaults, no persistence
@@ -49,7 +60,7 @@ Every control starts at its configured default (lowest/off, sticks neutral, thro
 
   A keepalive lease is renewed by operations only, never by reading the status. An `exgs rc set` with no lease held takes a keepalive lease itself (and says so: a new lease starts from the defaults with every lock closed, so a script that pauses longer than the idle time starts over from the safe state). A control-host client without a lease of its own can use and renew the current keepalive lease, so separate `exgs` processes drive one lease. `exgs rc session` is the way to hold control for longer: one process, one connection lease.
 - **Source and expiry.** Expiry is checked on every tick **and before every operation**, so a late heartbeat or renewal cannot revive an expired lease (the operation is refused with `no_lease`, the check comes before the renewal).
-- **Control source:** the single `[[source]]` with `rc_role = "control"`. RC state is sent only to it. A source with `rc_role = "mirror"` (TX module) never receives GS RC state: `SerialSource.send()` refuses it and the controller never offers it. With no control source, `acquire` is denied.
+- **Targets:** every connected `[[source]]` with `rc_role = "control"` (see "Master and slave"). A `mirror` or `none` source never receives GS RC state. With no connected `control` source, `acquire` is denied.
 - **Fixed rate.** One timer at `send_rate_hz` sends the complete channel vector (origin `gs`, 16 channels, `seq` counter modulo 256) while a lease is active, independent of clicks. Clicks only change the core's state. The timer never bursts to catch up.
 - **Lease end means silence.** When a lease ends the core stops sending entirely (the vehicle sees silence and enters its link-loss failsafe) and returns all controls to their defaults, with every lock closed. The last state is never kept sending (decision 10.1-1). Sending stops within one period (40 ms at 25 Hz); a release stops it before the next tick.
 - **Refused send = skip.** If `Source.send()` returns `False` (not connected, not encodable) or raises, that tick is skipped, nothing is queued up, and the lease stays. While the control source is not connected the controls are reset to defaults (and relocked) every tick, so the vehicle sees the safe state first when the link returns.
@@ -60,14 +71,15 @@ Every control starts at its configured default (lowest/off, sticks neutral, thro
 
 | Mode | Condition |
 |---|---|
-| `controlling` | A lease is held and the control source is connected: sending. `controls` and `channels_us` are the state being sent, `origin = gs`. |
-| `mirroring` | A handset `RcState` (origin `handset`, from any source, never our own `gs` packets) arrived within 1 s and we are not controlling. Nothing is sent. `controls` are the handset channels mapped to the nearest configured position (sliders continuous), `origin = handset`. This is the flight-test setup: the Pocket's TX module on USB with `rc_role = "mirror"`; the GS only displays what the Pocket sends. |
+| `master` | A lease is held and at least one `control` source is connected: sending to all of them (`targets`, `target` is the comma-joined ids). `controls` and `channels_us` are the state being sent, `origin = gs`. `pocket_active` is true while handset state also arrives (warning only). |
+| `slave` | A handset `RcState` (origin `handset`, from any source, never our own `gs` packets) arrived within 1 s and we are not master. Nothing is sent. `controls` are the handset channels mapped to the nearest configured position (sliders continuous), `origin = handset`, `pocket_active = true`. This is the flight-test default: the Pocket's TX module on USB; the GS only displays what the Pocket sends. |
 | `idle` | Neither. Nothing is sent; `controls` shows the defaults. |
-| `conflict` | Controlling and a handset state seen within 1 s (vehicle on USB and radio together). Display only: the GS does not change what it sends; the vehicle's authority rules decide. |
+
+The old modes `controlling`, `mirroring` and `conflict` are gone (renamed or replaced by `pocket_active`).
 
 ## What reaches the vehicle, and what happens on each disconnect path
 
-Only `RcState` (origin `gs`) packets, produced by the controller from the configured mapping, to the one control source, and only while a lease is active and the source is connected. No other packet type can be sent (the serial source refuses non-`UP` types and the provisional profile encodes only `RcState`); there is no raw-send API.
+Only `RcState` (origin `gs`) packets, produced by the controller from the configured mapping, to the connected `control` sources, and only while a lease is active (master). No other packet type can be sent (the serial source refuses non-`UP` types and the provisional profile encodes only `RcState`); there is no raw-send API.
 
 | Event | Result |
 |---|---|
@@ -77,12 +89,13 @@ Only `RcState` (origin `gs`) packets, produced by the controller from the config
 | One-shot `exgs rc ...` process exits | The keepalive lease continues until its idle timeout (default 5 s, at most 9 s) unless the next command renews it. `exgs rc release` ends it at once. Its core-held momentary press still releases on its own. |
 | Nobody renews a keepalive lease (script paused, agent crashed) | Silence and defaults after the idle timeout, at most 9 s. |
 | Core process killed or crashed | No process, no frames: silence. A restart sends nothing and starts at defaults, every lock closed. |
-| Control source unplugged | `send` fails, ticks are skipped, controls reset to defaults and relock; sending resumes with defaults if the lease is still valid when the device returns. |
-| Mirror-only setup | No lease can be taken: nothing is ever sent. |
+| Control source unplugged | `send` fails, ticks are skipped, controls reset to defaults and relock; sending resumes with defaults if the lease is still valid when the device returns (with several sources: while any other stays connected they keep receiving, and the returning one is sent the defaults first). |
+| Mirror-only setup (every source `mirror` or `none`) | No lease can be taken: nothing is ever sent. |
+| One of several `control` sources unplugged | The others keep receiving; when it returns it is first sent the safe defaults. |
 | Client on another host | `control_denied`; view only. |
 
 The vehicle's own failsafes (link timeout, motor interlock, transition-based enabling) are the real protection; the GS only guarantees it does not keep a stale state alive and does not synthesise transitions.
 
 ## GUI behaviour (T9)
 
-Details in [gui.md](gui.md) ("Virtual radio"). The rules that matter here: the widget shows the state the core reports in its `rc` pushes (labelled "sent"), never an optimistic local state; a client holds control only through `rc.acquire {"kind": "connection"}` and heartbeats every 300 ms; `rc.set {"SE": 1}` repeats every 100 ms while the momentary control is pressed and the widget sends `SE=0` on pointerup, pointercancel, blur and when the page is hidden; a locked control is a padlock that needs a 1 s hold; switching to the replay view while holding control asks for the release first, and a client never holds control while it shows replay data.
+Details in [gui.md](gui.md) ("Virtual radio"). The rules that matter here: the widget shows the state the core reports in its `rc` pushes (labelled "sent"), never an optimistic local state, with a MASTER / SLAVE / IDLE indicator; a client holds control only through `rc.acquire {"kind": "connection"}` and heartbeats every 300 ms; `rc.set {"SE": 1}` repeats every 100 ms while the momentary control is pressed and the widget sends `SE=0` on pointerup, pointercancel, blur and when the page is hidden; a locked control is a padlock that needs a 1 s hold; switching to the replay view while holding control asks for the release first, and a client never holds control while it shows replay data.

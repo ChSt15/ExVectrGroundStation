@@ -561,7 +561,7 @@ class FakeRc:
 
     def status(self):
         return RcStatus(
-            mode="controlling" if self.lease else "idle",
+            mode="master" if self.lease else "idle",
             sending=bool(self.lease),
             target="fake",
             lease=self.lease,
@@ -598,7 +598,7 @@ async def test_rc_connection_lease_ends_when_the_client_disconnects():
         assert app.rc.calls[0][:4] == ("acquire", "test", "connection", None) and app.rc.calls[0][4] == "127.0.0.1"
         assert await c.err("rc.acquire", kind="connection") == "busy"  # this connection already holds one
         await c.ok("rc.heartbeat")
-        assert (await c.ok("rc.set", values={"SA": 1}))["mode"] == "controlling"
+        assert (await c.ok("rc.set", values={"SA": 1}))["mode"] == "master"
         assert await c.err("rc.set", values={"BAD": 1}) == "invalid_value"
         assert await c.err("rc.set", values={"SA": "x"}) == "invalid_value"
         msg = await c.expect("rc")
@@ -781,7 +781,7 @@ async def test_cli_rc_commands_use_a_keepalive_lease_across_processes():
         sets = [c[2] for c in app.rc.calls if c[0] == "set"]
         assert sets[-2:] == [{"SA": 1}, {"SA": 0}]
         r = await run("rc", "show")
-        assert json.loads(r.stdout)["mode"] == "controlling"
+        assert json.loads(r.stdout)["mode"] == "master"
         r = await run("rc", "keepalive")
         assert r.returncode == 0 and app.rc.calls[-1][0] == "heartbeat"
         r = await run("rc", "release")

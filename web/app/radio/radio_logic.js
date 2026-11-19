@@ -58,12 +58,14 @@ export function sliderFromPointer(left, width, x) {
 
 // ------------------------------------------------------------------ modes and banners
 
+export const POCKET_WARNING = "Pocket also active: the radio rejects ground-station controls";
+
 /**
  * Banner and capabilities from what the core reports. `rc` is the last `rc` message (or null).
  * `can_control`: the core said this client may take control (control host). `view`: "live" or "replay".
  */
 export function describeRadio({ apiState, view, rc, canControl, cfg }) {
-  const none = { tone: "dim", text: "", interactive: false, canTake: false, canRelease: false, holder: false };
+  const none = { tone: "dim", role: "none", roleText: "", warning: null, text: "", interactive: false, canTake: false, canRelease: false, holder: false };
   if (apiState !== "open") return { ...none, tone: "bad", text: "DISCONNECTED · nothing is sent (the core stops sending within 1 s)" };
   if (view === "replay") return { ...none, tone: "replay", text: "REPLAY · recorded RC state, read-only" };
   if (!rc) return { ...none, text: "RC not available in this core" };
@@ -71,21 +73,23 @@ export function describeRadio({ apiState, view, rc, canControl, cfg }) {
   const lease = rc.lease;
   const rate = cfg && cfg.send_rate_hz ? ` · ${cfg.send_rate_hz} Hz` : "";
   switch (rc.mode) {
-    case "controlling":
+    case "master": {
+      const warning = rc.pocket_active ? POCKET_WARNING : null;
+      const m = { ...none, role: "master", roleText: "MASTER", warning };
       if (holder) {
-        return { ...none, tone: "controlling", text: `CONTROLLING · sending to ${rc.target || "?"}${rate}`, interactive: true, canRelease: true, holder };
+        return { ...m, tone: "controlling", text: `MASTER · sending to ${rc.target || "?"}${rate}`, interactive: true, canRelease: true, holder };
       }
-      return { ...none, tone: "dim", text: `CONTROLLED BY ${lease ? lease.holder : "another client"} · read-only` };
-    case "conflict":
-      return { ...none, tone: "bad", text: "TWO CONTROL SOURCES ACTIVE · vehicle authority rules decide · display only", canRelease: holder, holder };
-    case "mirroring":
-      return { ...none, tone: "mirror", text: "MIRRORING Pocket · read-only" };
+      return { ...m, tone: "dim", text: `MASTER (${lease ? lease.holder : "another client"}) · read-only` };
+    }
+    case "slave":
+      // The Pocket's positions, read-only; nothing is sent. Switching to master is the user's choice.
+      return { ...none, role: "slave", roleText: "SLAVE", tone: "mirror", text: "SLAVE · showing the Pocket · read-only", canTake: !!canControl && !lease };
     default:
       if (lease && holder) {
-        return { ...none, tone: "warn", text: "CONTROL TAKEN · no control source connected · NOT SENDING", canRelease: true, holder };
+        return { ...none, role: "idle", roleText: "IDLE", tone: "warn", text: "MASTER REQUESTED · no RC-capable source connected · NOT SENDING", canRelease: true, holder };
       }
-      if (lease) return { ...none, tone: "dim", text: `NOT SENDING · lease held by ${lease.holder}` };
-      return { ...none, tone: "idle", text: "NOT SENDING", canTake: !!canControl };
+      if (lease) return { ...none, role: "idle", roleText: "IDLE", tone: "dim", text: `NOT SENDING · lease held by ${lease.holder}` };
+      return { ...none, role: "idle", roleText: "IDLE", tone: "idle", text: "NOT SENDING", canTake: !!canControl };
   }
 }
 

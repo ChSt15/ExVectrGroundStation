@@ -594,7 +594,7 @@ class ApiServer:
         key = json.dumps({k: v for k, v in body.items() if k != "t"}, sort_keys=True)
         changed = key != self._last_rc
         self._last_rc = key
-        if changed or body["sending"] or body["mode"] == "mirroring":
+        if changed or body["sending"] or body["mode"] == "slave":
             for c in list(self.hub.clients.values()):
                 if c.hello_done:
                     m = self._rc_msg(c, body)

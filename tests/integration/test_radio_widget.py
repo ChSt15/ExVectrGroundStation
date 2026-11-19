@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from .test_rc_loop import make_rc_app, rc_running
+from .test_rc_loop import make_rc_app, make_two_source_app, rc_running
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -84,14 +84,14 @@ async def test_take_control_operate_every_control_kind_and_see_the_core_reported
         await b.goto(rig.url() + "/")
         await b.sleep(1.2)
         d = await b.eval(DEBUG)
-        assert d["banner"] == "NOT SENDING" and d["tone"] == "idle"
+        assert d["banner"] == "NOT SENDING" and d["tone"] == "idle" and d["role"] == "IDLE"
         assert d["take"]["disabled"] is False and set(d["controls"]) == {"SA", "SB", "SC", "SD", "SE", "S1"}
         assert not any(c["enabled"] for c in d["controls"].values())  # read-only until control is taken
 
         await take_control(b, rig)
         d = await b.eval(DEBUG)
-        assert d["banner"].startswith("CONTROLLING · sending to fake · 25 Hz"), d["banner"]
-        assert d["release"]["hidden"] is False
+        assert d["banner"].startswith("MASTER · sending to fake · 25 Hz"), d["banner"]
+        assert d["release"]["hidden"] is False and d["role"] == "MASTER" and d["warning"] == ""
 
         # toggle2: displayed position is the one the core reports
         await click(b, ctl("SA", "button.rc-switch"))
@@ -198,14 +198,15 @@ async def test_closing_the_tab_stops_sending_within_one_second():
 
 
 @needs_browser
-async def test_mirroring_shows_handset_positions_read_only():
+async def test_slave_shows_handset_positions_read_only():
     app = make_rc_app(rc_role="mirror", profile="radio")
     async with rc_running(app) as rig, browser_check.Browser(1500, 1000, 9354) as b:
         await b.goto(rig.url() + "/")
         await b.sleep(2.0)
         d = await b.eval(DEBUG)
-        assert d["banner"].startswith("MIRRORING Pocket · read-only"), d["banner"]
-        assert d["tone"] == "mirror" and d["take"]["disabled"] is True
+        assert d["banner"].startswith("SLAVE · showing the Pocket · read-only"), d["banner"]
+        assert d["tone"] == "mirror" and d["role"] == "SLAVE" and d["warning"] == ""
+        assert d["take"]["disabled"] is False  # master is the user's choice (denied below: mirror-only)
         assert not any(c["enabled"] for c in d["controls"].values())
         # the fake handset sends 1500 us on the switch channels: the middle position / half slider
         assert d["controls"]["SB"]["pos"] == 1 and d["controls"]["S1"]["pos"] == 0.5
@@ -215,6 +216,39 @@ async def test_mirroring_shows_handset_positions_read_only():
         await b.sleep(0.3)
         assert (await b.eval(DEBUG))["controls"]["SB"]["pos"] == 1
         assert rig.app.rc.status().lease is None and not rig.app.sources[0].received_rc
+        await b.eval("document.querySelector('[data-panel=radio] .rc-take').click()")
+        await b.sleep(0.5)
+        assert rig.app.rc.status().lease is None and not rig.app.sources[0].received_rc, "no RC-capable source: denied"
+        assert (await b.eval(DEBUG))["role"] == "SLAVE"
+        assert not [m for m in b.console if "EXCEPTION" in m], b.console
+
+
+@needs_browser
+async def test_slave_to_master_with_pocket_warning_and_back():
+    app = make_two_source_app()  # a radio-profile source provides the Pocket's RC_STATE
+    async with rc_running(app) as rig, browser_check.Browser(1500, 1000, 9358) as b:
+        await b.goto(rig.url() + "/")
+        await until(lambda: app.rc.status().mode == "slave", what="slave")
+        await b.sleep(1.0)
+        d = await b.eval(DEBUG)
+        assert d["role"] == "SLAVE" and d["warning"] == "" and d["take"]["disabled"] is False
+        assert not any(c["enabled"] for c in d["controls"].values())
+        assert await b.eval("document.querySelector('[data-panel=radio] .rc-take').textContent") == "Switch to master"
+        assert all(not s.received_rc for s in app.sources)
+        await take_control(b, rig)
+        await b.sleep(0.5)
+        d = await b.eval(DEBUG)
+        assert d["role"] == "MASTER" and d["banner"].startswith("MASTER · sending to pocket, usb")
+        assert d["warning"] == "Pocket also active: the radio rejects ground-station controls"
+        assert any(c["enabled"] for c in d["controls"].values())
+        assert app.sources[0].received_rc and app.sources[1].received_rc and not app.sources[2].received_rc
+        rel = "document.querySelector('[data-panel=radio] .rc-release').textContent"
+        assert await b.eval(rel) == "Release (back to slave)"
+        await b.eval("document.querySelector('[data-panel=radio] .rc-release').click()")
+        await until(lambda: app.rc.status().mode == "slave", what="back to slave")
+        await b.sleep(0.5)
+        d = await b.eval(DEBUG)
+        assert d["role"] == "SLAVE" and d["warning"] == ""
         assert not [m for m in b.console if "EXCEPTION" in m], b.console
 
 

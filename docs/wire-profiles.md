@@ -78,7 +78,7 @@ Only `RC_STATE` with `origin = gs` and 16 channels. `ch = clamp((us - 1500) * 2,
 | Source | Peer | Role |
 |---|---|---|
 | `kind = "vehicle_usb"` | vehicle, node 1, direct | full USB rates and debug set; `rc_role = "control"` |
-| `kind = "link_module"` | TX module, node 2 | forwards the vehicle radio set (node 1), RX module (node 3), the Pocket's `RC_STATE` and its own `LINK_STATS`; `rc_role = "mirror"` |
+| `kind = "link_module"` | TX module, node 2 | forwards the vehicle radio set (node 1), RX module (node 3), the Pocket's `RC_STATE` and its own `LINK_STATS`; `rc_role = "control"` in the example config (master sends RC to it, the TX module rejects it), `"mirror"` for receive-only |
 
 `source_priority = ["usb", "link", "fake"]` prefers the vehicle USB per type when both are fresh.
 
@@ -150,7 +150,7 @@ Behaviour:
 
 - States: `searching` (device not present), `connected`, `error` (device present but cannot be opened, for example permissions; `last_error` says why), `disabled` (not running). `source_up` and `source_down` `GsEvent`s mark transitions. On loss the framer is reset, a `LinkStats connected=false` is emitted and the source goes back to `searching` with no backoff. `reconnects` counts re-connections after the first one.
 - One reader thread and one writer thread per connection. The reader hands bytes to the event loop (`call_soon_threadsafe`); framing, decoding and the sink run on the loop. The port is opened exclusively. Writes go through a queue of 8 frames; when full the oldest is dropped (latest wins).
-- `send()` returns `False` when not connected, when the packet is not an `UP` type, when the profile cannot encode it, and for `RcState` unless this source has `rc_role = "control"`. A mirror or `none` source never carries GS RC state, whatever a caller asks (design 6.2).
+- `send()` returns `False` when not connected, when the packet is not an `UP` type, when the profile cannot encode it, and for `RcState` unless this source has `rc_role = "control"`. A mirror or `none` source never carries GS RC state (several sources may be `control`; master sends to all), whatever a caller asks (design 6.2).
 - `LinkStats` at `stats_period_s` per source: `connected`, `rx_bytes_s`, `rx_frames_s`, `tx_frames_s` (frames queued for the port), cumulative `crc_errors` (framer), `decode_errors` (frames that became a `RawFrame`) and `reconnects`.
 - Several sources run side by side. Each has its own framer and `src` id and publishes to the one bus; the `StateStore` picks the preferred fresh source per type from `core.source_priority`. The default `["usb", "link", "fake"]` prefers the vehicle's USB link for telemetry when the radio chain is connected as well.
 

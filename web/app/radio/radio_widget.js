@@ -2,7 +2,7 @@
 // RC state. Rules kept here:
 //  - Clicks only send requests. Every control shows the state the core reports in its `rc` push messages
 //    (labelled "sent"), never an optimistic local state.
-//  - Controls are operable only while this client holds the lease and the core reports "controlling".
+//  - Controls are operable only while this client holds the lease and the core reports "master".
 //  - Heartbeat every 300 ms while holding; closing the tab ends the lease at once (WebSocket close).
 //  - A momentary control sends 1 every 100 ms while pressed and 0 on release, cancel, blur or hiding.
 //  - A control with `lock` in the radio config is a padlock until held for 1 s, then operable until the
@@ -59,16 +59,18 @@ export function createRadioWidget(el, ctx) {
   const ctl = new Map(); // control id -> { spec, root, update(state, enabled, lock, us) }
   const disposers = [];
 
+  const role = h("span", { class: "rc-role", "data-role": "none" });
   const banner = h("div", { class: "rc-banner", role: "status" });
+  const warn = h("div", { class: "rc-warning", role: "alert", hidden: "" });
   const stage = h("div", { class: "rc-stage", style: `aspect-ratio: ${VIEW_W} / ${VIEW_H}` });
   const img = h("img", { class: "rc-bg", src: "/static/app/radio/pocket.svg", alt: "", draggable: "false" });
   const screen = h("div", { class: "rc-screen" });
   stage.append(img, screen);
-  const take = h("button", { class: "rc-take danger", text: "Take control", onclick: () => act("rc.acquire", { kind: "connection" }) });
-  const release = h("button", { class: "rc-release", text: "Release", onclick: () => act("rc.release") });
+  const take = h("button", { class: "rc-take danger", text: "Switch to master", onclick: () => act("rc.acquire", { kind: "connection" }) });
+  const release = h("button", { class: "rc-release", text: "Release (back to slave)", onclick: () => act("rc.release") });
   const msg = h("div", { class: "msg rc-msg" });
   const foot = h("div", { class: "hint", text: "Controls show the state the core reports as sent. Applied state: not reported by the vehicle." });
-  el.append(banner, stage, h("div", { class: "toolbar" }, take, release), msg, foot);
+  el.append(role, banner, warn, stage, h("div", { class: "toolbar" }, take, release), msg, foot);
 
   // ------------------------------------------------------------ requests (never change what is displayed)
 
@@ -305,7 +307,7 @@ export function createRadioWidget(el, ctx) {
       state = r.controls || {};
       ch = r.channels_us || [];
       locks = r.locks || {};
-      if (r.mode === "mirroring") {
+      if (r.mode === "slave") {
         const now = ctx.store.now("live");
         sub = now != null && r.t != null ? ` · ${Math.max(0, now - r.t).toFixed(1)} s ago` : "";
         screenText = "HANDSET";
@@ -316,6 +318,10 @@ export function createRadioWidget(el, ctx) {
       }
     }
     banner.textContent = b.text + sub;
+    role.textContent = b.roleText;
+    role.dataset.role = b.role;
+    warn.textContent = b.warning || "";
+    warn.hidden = !b.warning;
     screen.textContent = screenText;
     shown = { ...state };
     const nowMs = performance.now();
@@ -396,7 +402,7 @@ export function createRadioWidget(el, ctx) {
     },
     /** Debug hook for end-to-end tests. */
     debug() {
-      const out = { banner: banner.textContent, tone: banner.dataset.tone, take: { hidden: take.hidden, disabled: take.disabled }, release: { hidden: release.hidden }, controls: {} };
+      const out = { role: role.textContent, warning: warn.hidden ? "" : warn.textContent, banner: banner.textContent, tone: banner.dataset.tone, take: { hidden: take.hidden, disabled: take.disabled }, release: { hidden: release.hidden }, controls: {} };
       for (const [id, c] of ctl) {
         const padlock = c.root.querySelector(".rc-padlock");
         out.controls[id] = { pos: shown[id], enabled: c.root.dataset.enabled === "true", lock: c.root.dataset.lock || null, padlock: !!padlock && !padlock.hidden, us: c.root.querySelector(".rc-us").textContent };

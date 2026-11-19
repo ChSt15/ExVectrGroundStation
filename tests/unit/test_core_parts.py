@@ -66,7 +66,7 @@ def test_example_config_loads():
     cfg = load_config("config/gs.example.toml")
     assert [s.id for s in cfg.sources] == ["usb", "link", "fake"]
     assert cfg.sources[2].options["profile"] == "usb" and cfg.sources[0].match["vid"] == "16c0"
-    assert sum(s.rc_role == "control" for s in cfg.sources) == 1
+    assert [s.rc_role for s in cfg.sources] == ["control", "control", "none"]  # master sends to every serial source
 
 
 def _bad(**over):
@@ -82,8 +82,8 @@ def test_config_validation():
     _bad(source=[{"id": "gs", "kind": "fake"}], core={"source_priority": []})
     _bad(source=[{"id": "a", "kind": "usb2"}])
     _bad(source=[{"id": "a", "kind": "fake", "rc_role": "boss"}])
-    _bad(source=[{"id": "a", "kind": "fake", "rc_role": "control"}, {"id": "b", "kind": "fake", "rc_role": "control"}],
-         core={"source_priority": []})  # fmt: skip
+    two = [{"id": "a", "kind": "fake", "rc_role": "control"}, {"id": "b", "kind": "fake", "rc_role": "control"}]
+    parse_config({"source": two, "core": {"source_priority": ["a", "b"]}})  # several RC-capable sources are allowed
     _bad(core={"source_priority": ["ghost"]})
     _bad(recorder={"raw_frames": "all"})
     _bad(recorder={"auto_start": True})

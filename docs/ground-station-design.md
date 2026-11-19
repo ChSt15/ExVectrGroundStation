@@ -34,7 +34,7 @@ When the repository exists, this document becomes `ground-station/docs/architect
 | system-architecture.md says | This design | Why |
 |---|---|---|
 | Core records "all raw frames with host timestamps"; replay goes through the same decoder. | Logs hold **decoded packets as text** (user decision). Undecodable frames are kept as `RawFrame` lines (hex), so nothing is lost. An option records the raw bytes of every frame as well (decision 10.1-2). | Text logs are in the *semantic* model, so they stay readable after the wire format changes. Replay still goes through one decode path: text codec → the same `Packet` objects → the same bus and state store as live data. |
-| GS sends RC state over its USB port "whatever is on the other end"; the TX module ignores it. | GS sends RC state **only to a source configured as the control source** (`rc_role = "control"`, default for a direct Teensy USB connection). Towards the TX module (`rc_role = "mirror"`) it sends nothing. | The TX module ignores it anyway, so vehicle behaviour is identical. Sending a state the user cannot see (the widget shows the Pocket) would be confusing, and not sending protects against a TX-module bug that fails to ignore it. |
+| GS sends RC state over its USB port "whatever is on the other end"; the TX module ignores it. | **Master/slave (decision 10.1-8, 2026-11-19, supersedes the earlier "control source only" rule).** GS RC state is sent **only in master**, which is an explicit user choice, to **every connected source with `rc_role = "control"`** (several allowed, shipped config: the vehicle USB and the TX module). `rc_role = "mirror"` (or `none`) remains an option for a receive-only source. While the Pocket's `RC_STATE` arrives and nobody is master, the GS is a slave: it shows the Pocket and sends nothing. | The rejection of GS RC state is the receiver's job: the TX module drops `RC_STATE` arriving from USB towards the air, the vehicle applies its own authority rules. The GS adds **no refusal of its own** any more (the old "never send to the TX module" layer is gone, by user decision), so a TX-module bug that failed to drop it would no longer be caught on the GS side. The GS still never switches to master by itself. |
 
 ### 1.4 How the design follows safety.md
 
@@ -75,7 +75,7 @@ When the repository exists, this document becomes `ground-station/docs/architect
                      │ host-generated: LinkStats, GsEvent, Note, sent RcState ──────────────────────► └────┬─────┘   (writer thread)
                      │                                                                                     │                     │
                      │                                     ┌────────────────┐                              ├──► StateStore(live) + History(live)
-                     │  RcController ── RcState (UP) ────► │ RC sender timer│──► WireProfile.encode ──► control source only     │
+                     │  RcController ── RcState (UP) ────► │ RC sender timer│──► WireProfile.encode ──► every control source      │
                      │   (leases, radio config)            └────────────────┘                              │                     │
                      │                                                                                     │                     │
                      │  Replayer ── reads *.exlog via TextCodec ──► ReplayBus ──► StateStore(replay) + History(replay)           │
@@ -91,7 +91,7 @@ When the repository exists, this document becomes `ground-station/docs/architect
 
 - **Live:** source bytes → `Framer.feed()` → `Frame` → `WireProfile.decode()` → `Packet` (with `t` = host receive time, `src` = source id) → `LiveBus.publish()` → fan-out to Recorder, live StateStore, live History and the API Hub.
 - **Replay:** `.exlog` line → `TextCodec.decode()` → the same `Packet` class → `ReplayBus` → replay StateStore, History and Hub. The GUI receives the same message types with `view = "replay"`.
-- **Uplink:** GUI/CLI `rc.set` → `RcController` state → timer → `RcState` packet (`src = "gs"`) → `WireProfile.encode()` → `Framer.encode()` → control source. Each sent state is also published on the LiveBus (recorded on change plus at 1 Hz, §3.5).
+- **Uplink:** GUI/CLI `rc.set` → `RcController` state → timer → `RcState` packet (`src = "gs"`) → `WireProfile.encode()` → `Framer.encode()` → every connected `rc_role = "control"` source (master only). Each sent state is also published on the LiveBus (recorded on change plus at 1 Hz, §3.5).
 - **Host-generated packets** (link statistics, GS events, operator notes) are ordinary packet types on the LiveBus, so they are recorded and displayed like vehicle data.
 
 Live and replay run side by side. Recording always follows the **live** bus, so a recording continues while someone browses a replay.
@@ -210,7 +210,7 @@ class SourceKind(Enum): VEHICLE_USB = "vehicle_usb"; LINK_MODULE = "link_module"
 
 @dataclass(frozen=True)
 class SourceCaps:
-    rc_role: Literal["control", "mirror", "none"]   # control: GS RC state goes here. mirror: handset state arrives here.
+    rc_role: Literal["control", "mirror", "none"]   # control: RC-capable, master sends GS RC state here (several allowed). mirror/none: never sent to.
     can_send: bool
 
 @dataclass
@@ -326,9 +326,11 @@ class Lease: id: str; holder: str; kind: Literal["connection", "keepalive"]; exp
 
 @dataclass
 class RcStatus:
-    mode: Literal["controlling", "mirroring", "idle", "conflict"]
-    sending: bool; target: str | None; lease: Lease | None
-    controls: dict[str, float | int]   # sent state (controlling) or mirrored handset state (mirroring), by control id
+    mode: Literal["master", "slave", "idle"]
+    sending: bool; target: str | None; lease: Lease | None   # target: ids of the sources sent to, comma separated
+    controls: dict[str, float | int]   # sent state (master) or the Pocket's state (slave), by control id
+    targets: list[str]                 # ids of the sources sent to (master)
+    pocket_active: bool                # a fresh handset RcState is arriving (master: warning banner)
     channels_us: list[int]             # full channel vector of that state
     origin: Literal["gs", "handset"] | None; t: int | None
     locks: dict[str, dict]             # lockable control id -> {locked, remaining_s, timeout_s}
@@ -336,7 +338,7 @@ class RcStatus:
 class RcController:
     def __init__(self, cfg: RadioConfig, sources: Sequence[Source], bus: Bus): ...
     def acquire(self, holder: str, kind: str, idle_s: float | None = None, remote_addr: str = "") -> Lease: ...
-        # raises ControlDenied (another holder, no control source, remote not allowed)
+        # raises ControlDenied (another holder, no RC-capable source, remote not allowed)
     def release(self, lease_id: str) -> None: ...
     def heartbeat(self, lease_id: str) -> None: ...  # connection leases: at least every 1 s; keepalive leases: a renewal
     def set(self, lease_id: str, values: Mapping[str, float | int], hold_s: float | None = None) -> RcStatus: ...
@@ -386,7 +388,7 @@ id = "link"
 kind = "link_module"
 match = { device = "/dev/serial/by-id/usb-Silicon_Labs_CP2102_XXXX-if00-port0" }
 baud = 921600
-rc_role = "mirror"
+rc_role = "control"                            # master sends here too; the TX module rejects it. "mirror" = receive-only
 enabled = false
 
 [radio]
@@ -397,7 +399,7 @@ layout = "config/layout.default.json"
 model = "config/model.placeholder.json"
 ```
 
-Validation at start: at most one source with `rc_role = "control"` (one control source per path, system-architecture.md "Authority"). Source ids are unique and do not equal `gs`.
+Validation at start: any number of sources may have `rc_role = "control"` (master sends to all of them, decision 10.1-8). Source ids are unique and do not equal `gs`.
 
 ---
 
@@ -568,7 +570,7 @@ Recording runs only between an explicit Start and Stop by the user (decision 10.
 | `replay.close` / `replay.play` / `replay.pause` | | |
 | `replay.seek` | `t` (absolute seconds) | |
 | `replay.speed` | `x` ∈ {0.25, 0.5, 1, 2, 4, 8} | |
-| `rc.acquire` | `kind: "connection"\|"keepalive"`, `idle_s?` (keepalive only, default 5, max 9) | Reply: `Lease`. Denied if another holder exists, no control source is connected, or the client's address is not in `control_hosts`. (The 600 s `timed` lease was removed, decision 10.1-7.) |
+| `rc.acquire` | `kind: "connection"\|"keepalive"`, `idle_s?` (keepalive only, default 5, max 9) | Reply: `Lease`. Denied if another holder exists, no RC-capable (`rc_role = "control"`) source is connected, or the client's address is not in `control_hosts`. (The 600 s `timed` lease was removed, decision 10.1-7.) |
 | `rc.release` | | Stops sending immediately. |
 | `rc.heartbeat` | | Connection leases: required at least every 1 s (GUI and CLI session send every 300 ms). Keepalive leases: a renewal (every lease operation renews). |
 | `rc.set` | `values: {"SA": 1, "SB": 2, "S1": 0.42}` | Requires the lease. Values are control positions (index for switches, 0..1 for sliders). A non-default value for a locked control is rejected with `control_locked` and nothing is applied. Reply: `RcStatus`. |
@@ -586,7 +588,7 @@ Recording runs only between an explicit Start and Stop by the user (decision 10.
 | `snapshot` | `view`, `clock`, `items: [{…packet…, "iv": interval_s, "stale_after": s}]` | After `subscribe`, after a replay seek or open, after a reconnect. Clients replace their store for that view. |
 | `packets` | `view`, `clock`, `items: [packet…]`, `dropped?` | Batched at `max_rate_hz`. `latest` mode: newest per (type, src) since the last batch, with `iv`/`stale_after`. `all` mode: every packet in order. |
 | `status` | `clock`, `sources: [SourceStatus]`, `recorder: {active, name, started, packets, bytes, free_bytes, error}`, `replay: ReplayStatus`, `clients: n` | 2 Hz and on change. |
-| `rc` | `RcStatus` (+ `holder_is_you`, `locks`) | On change and at 5 Hz while sending or mirroring. |
+| `rc` | `RcStatus` (+ `holder_is_you`, `locks`, `targets`, `pocket_active`) | On change and at 5 Hz while sending or in slave. |
 | `event` | `level: "info"\|"warn"\|"error"`, `text`, `t` | Source connected/lost, recording failed, lease expired, control conflict. |
 
 **Clock for remote clients:** every `packets`/`status` message carries `clock` (the view's current time). The GUI keeps `serverOffset = clock − performance.now()/1000` per view and computes ages locally between messages. A remote device's wall clock is never used.
@@ -802,12 +804,11 @@ The core validates the config at start (unique ids and channels, channel ≤ `ch
 
 | Mode | Condition | Widget |
 |---|---|---|
-| `controlling` | A lease is held and the control source is connected. The core sends at `send_rate_hz`. | Amber banner "CONTROLLING · sending to usb · 25 Hz", controls enabled for the lease holder (other clients see them read-only with "controlled by <holder>"). Shows the **sent** state as reported by the core, and the vehicle-applied state when available. |
-| `mirroring` | Handset `RcState` received within the last 1 s (any source). The GS sends nothing. | Blue banner "MIRRORING Pocket · read-only", controls disabled and set to the handset's positions (channel µs mapped back to the nearest configured position; sliders continuous; unmapped value shown as raw µs). Age badge. |
-| `idle` | Neither. Nothing is sent. | Grey banner "NOT SENDING". "Take control" button (enabled if a control source is connected and this client is allowed). |
-| `conflict` | Controlling **and** handset state seen at the same time (vehicle on USB and radio). | Red banner "Two control sources active: vehicle authority rules decide". Display only; the GS does not change what it sends. |
+| `master` | A lease is held (the user switched to master) and at least one source with `rc_role = "control"` is connected. The core sends at `send_rate_hz` to every such source. Allowed while the Pocket's state also arrives. | Amber banner "MASTER · sending to usb, link · 25 Hz" and a MASTER indicator, controls enabled for the lease holder (other clients see them read-only with "MASTER (<holder>)"). Shows the **sent** state as reported by the core, and the vehicle-applied state when available. If `pocket_active`, an extra red warning banner "Pocket also active: the radio rejects ground-station controls" (display only). |
+| `slave` | Handset `RcState` received within the last 1 s (any source) and not master. The GS sends nothing, automatically, with no action needed. | Blue banner "SLAVE · showing the Pocket · read-only" and a SLAVE indicator, controls disabled and set to the handset's positions (channel µs mapped back to the nearest configured position; sliders continuous; unmapped value shown as raw µs). Age badge. "Switch to master" button. |
+| `idle` | Neither. Nothing is sent (the existing idle state). | Grey banner "NOT SENDING". "Switch to master" button (enabled if this client is allowed). |
 
-- "Take control" acquires a connection lease. "Release" or closing the tab stops sending (the WebSocket closing ends the lease at once, a missing heartbeat after 1 s).
+- "Switch to master" acquires a connection lease (the control lease is the master switch); "Release (back to slave)" ends it, resets every control to its default and closes every lock. The GS never becomes master by itself and never rejects or filters anything: rejection of GS RC state is done by the TX module and (later) the vehicle (decision 10.1-8). "Release" or closing the tab stops sending (the WebSocket closing ends the lease at once, a missing heartbeat after 1 s).
 - When control is first taken, the controls start at the core's current state, which after a core start is the configured defaults (safe positions).
 - **Replay view:** the widget shows the recorded `RcState` (handset or GS) read-only, with a "REPLAY" banner. If this client holds a control lease, switching to replay view first asks "Release control and switch to replay?". A client cannot hold control while it is viewing replay, so the operator never controls the live vehicle from a screen showing old data.
 
@@ -835,8 +836,8 @@ The core validates the config at start (unique ids and channels, channel ≤ `ch
 
 - Each source has its own reader thread, framer and `src` id. All packets go onto the one LiveBus, tagged with `src`. The recorder records both streams completely (duplicates via USB and radio are both kept, so links can be compared later).
 - Panels show the preferred fresh source per type (`source_priority`), with a source tag. The Inspector can show any specific source.
-- RC state goes **only** to the single `rc_role = "control"` source. Mirrored handset state may arrive on any source.
-- If both the vehicle USB and the radio link are live while the GS is controlling, the radio panel shows `conflict` (§5.6). How the vehicle arbitrates is a vehicle decision (system-architecture.md open point).
+- In master, RC state goes to **every connected** `rc_role = "control"` source (decision 10.1-8) and never to a `mirror` or `none` source. Handset state may arrive on any source. A source that (re)appears while master is sent the safe defaults first.
+- If the Pocket's state also arrives while the GS is master, the radio panel shows the warning "Pocket also active: the radio rejects ground-station controls" (§5.6). How the receiving side arbitrates is its decision (system-architecture.md open point).
 
 ### 6.3 Link-quality declaration
 
@@ -931,7 +932,7 @@ ground-station/
 - **State store:** freshness transitions with a fake clock, EWMA interval, preferred-source fallback.
 - **Recorder:** never overwrites (pre-created files, same-second collisions), header/type/end lines, a crash simulation (kill a subprocess mid-write → the file is readable up to the last complete line, at most 100 ms lost), a restart never auto-records or touches the old file (a new start creates a new file), disk-full error path (a small tmpfs or a mocked write).
 - **Replayer:** seek correctness (the state after a seek equals the state after a full sequential replay to the same t), speed, end-of-log, incomplete logs.
-- **RC controller:** no sending without a lease; lease expiry stops sending within one period; heartbeat loss; momentary auto-release; defaults after start; send rate ±5 %; only the control source receives; mirror/conflict detection; `control_hosts` denial.
+- **RC controller:** no sending without a lease; lease expiry stops sending within one period; heartbeat loss; momentary auto-release; defaults after start; send rate ±5 %; every `control` source receives and mirror/none never (several sources, one refusing does not stop the rest); master/slave derivation from handset freshness; master allowed while the Pocket is active, with the `pocket_active` warning flag; `control_hosts` denial.
 - **Integration:** core with `FakeSource` + a WebSocket client: subscribe/snapshot/packets, `latest` coalescing at a high rate, slow-client dropping without core stalls. Serial via `fake_vehicle_pty.py`, including reconnect.
 - **GUI unit (`node --test`):** `frames.js` conversions (§5.5 test cases), staleness formatting, radio µs ↔ position mapping.
 - **GUI e2e (Playwright, replay-based):** start the core on a generated sample log, open the GUI, open the log, seek to known times, and assert panel values, stale styling after a dropout in the log, the default 45° flaps in a log without `FlapState`, and the flap rotation and ship orientation via a debug hook `window.__gs.debug()` that returns scene object transforms. Live-mode e2e with `FakeSource` for the radio widget (take control, click SA, the core reports the sent state).
@@ -1005,7 +1006,7 @@ T1 ──┬── T2 ──── T4 ──┐
 ### T6: RC controller
 - **Goal:** the virtual radio's core side, built to the safety rules.
 - **Inputs:** §1.4, §4.2 (`rc.*`), §5.6 (config, modes, momentary), §2.5 (`control_hosts`).
-- **Outputs:** `rc/radio_config.py` (TOML schema and validation), `rc/controller.py` (leases connection/keepalive (the first version had a timed lease, replaced by decision 10.1-7), control locks (10.1-6), heartbeat, fixed-rate sender to the control source only, momentary auto-release, mirror/conflict detection, GS `RcState` recording on change + 1 Hz, no persistence); `rc.*` API ops and `exgs rc ...` CLI (after T3 lands; until then a core-level test harness); `config/radio.pocket.toml`; `docs/radio.md`.
+- **Outputs:** `rc/radio_config.py` (TOML schema and validation), `rc/controller.py` (leases connection/keepalive (the first version had a timed lease, replaced by decision 10.1-7), control locks (10.1-6), heartbeat, fixed-rate sender to the control source only, momentary auto-release, slave detection (handset freshness), master/slave status, GS `RcState` recording on change + 1 Hz, no persistence); `rc.*` API ops and `exgs rc ...` CLI (after T3 lands; until then a core-level test harness); `config/radio.pocket.toml`; `docs/radio.md`.
 - **Acceptance:** all RC tests in §8.2 pass; with the pty fake vehicle the uplink frames arrive at `send_rate_hz` ±5 % and stop within one period after release or lease expiry; a core restart starts with defaults and sends nothing.
 - **Depends on:** T1 (core part); T3 (API/CLI wiring). **Safety-relevant: the main session reviews it against §1.4 and the user approves it before merge.**
 
@@ -1024,7 +1025,7 @@ T1 ──┬── T2 ──── T4 ──┐
 - **Depends on:** T3 (protocol), T7's panel registry (fixed in §5.3, so it can start in parallel against that interface and integrate after T7).
 
 ### T9: Virtual radio widget
-- **Goal:** the Pocket-like widget for controlling, mirroring, idle, conflict and replay.
+- **Goal:** the Pocket-like widget for master, slave, idle and replay.
 - **Inputs:** §5.6, T6 API.
 - **Outputs:** `web/app/radio/pocket.svg`, `radio_widget.js`, the `radio` panel (config-driven controls, take/release control, heartbeat, momentary press-and-hold, slider throttling, mode banners, read-only states, padlock for locked controls, replay behaviour with the release prompt).
 - **Acceptance:** e2e with FakeSource (`echo_rc`): take control, operate each control kind, the core-reported sent state is displayed; closing the tab stops sending within 1 s; mirroring with the fake `radio` profile shows the handset positions read-only; switching to replay while controlling prompts and releases.
@@ -1050,6 +1051,7 @@ T1 ──┬── T2 ──── T4 ──┐
 5. **Interim USB format:** build against the provisional framer and the fake vehicle. Keep a strict abstraction layer between source, framer/wire profile, packet registry and everything above, so each can be replaced later without touching the rest. Real hardware comes after roadmap step 3.
 6. **Lock on guarded controls (user, 2026-11-19):** the ground station can send SD (motor enable) but it sits behind a deliberate lock so it cannot be set by accident. This is a deliberate-action guard, not a safety decision; the vehicle's own 1 s motor gate is unchanged. The ground station does not know what SD means, so the lock is a generic per-control option in the radio config (`lock = true`, `lock_timeout_s = 60`), set on SD. A locked control is held at its default; setting a non-default value while locked is rejected (`control_locked`) and applies nothing. `rc.unlock {control}` (needs a held lease) opens it for `lock_timeout_s`, then it relocks and returns to its default (off); `rc.lock` relocks at once. Any lease end, control-source drop, `acquire` and core start returns all controls to their defaults and relocks. GUI: padlock, hold 1 s, remaining time, relock button. CLI: a non-default value needs `--unlock SD`. The lock state is part of the RC status.
 7. **Lease rework (user, 2026-11-19):** the 600 s timed lease is removed. If nobody is actively in control, sending stops within single-digit seconds. The GUI/connection lease is unchanged (heartbeat at least every 1 s, WebSocket close ends it at once). The CLI has two ways: (1) `exgs rc session`, a long-running process holding a connection lease with a 300 ms heartbeat, reading commands from stdin or a script file (crash or exit ends it at once, heartbeat loss within 1 s); (2) one-shot `exgs rc ...` commands take or renew a **keepalive lease** with an idle timeout of 5 s (configurable, max 9 s), renewed by every rc command and by `exgs rc keepalive`; expiry means silence and defaults, `exgs rc release` ends it at once. Expiry is checked on every tick and before every operation, so a late renewal cannot revive an expired lease. Decision 10.1-1 and the "CLI can take a timed lease" part of 10.1-4 are superseded accordingly.
+8. **RC master/slave (user, 2026-11-19):** "If the ground station receives an RC packet (from the Pocket), then it goes into slave mode and simply shows the current settings of the Pocket. I can set it to master and then it starts sending the controls to the serial port. The Pocket should always reject them." Implemented: **slave** is the automatic state while a fresh handset `RcState` arrives and nobody is master (read-only display, nothing sent); **master** is the explicit user switch (the control lease: GUI "Switch to master", `exgs rc acquire` / `session` / keepalive), allowed while the Pocket is active, with a "Pocket also active: the radio rejects ground-station controls" warning (display only). Master sends to every connected `rc_role = "control"` source, including the TX-module USB link (shipped config: usb and link are both `control`; `mirror` stays as a per-source receive-only option). Everything else is unchanged (25 Hz sender, defaults on every start, SD lock, lease timing, silence when the lease ends, replay never sends, nothing persisted). The rejection happens in the TX module (it drops `RC_STATE` from USB towards the air) and later the vehicle, never in the GS; this removes the GS's own refusal to send through the TX module as a defence layer. `RcStatus.mode` is now `master`/`slave`/`idle` (the old `controlling`/`mirroring`/`conflict` are gone) with `targets` and `pocket_active`. Supersedes the "control source only" rule in 1.3 and the single-control-source constraint.
 
 ### 10.2 Risks and mitigations
 

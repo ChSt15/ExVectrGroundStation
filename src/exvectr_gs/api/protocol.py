@@ -253,6 +253,8 @@ def rc_status_json(st: Any) -> dict:
         "mode": st.mode,
         "sending": st.sending,
         "target": st.target,
+        "targets": list(st.targets),
+        "pocket_active": st.pocket_active,
         "lease": None if lease is None else lease_json(lease),
         "controls": dict(st.controls),
         "channels_us": list(st.channels_us),

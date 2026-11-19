@@ -112,8 +112,6 @@ def validate(cfg: GsConfig) -> None:
             raise ConfigError(f"source {s.id}: kind must be one of {SOURCE_KINDS}")
         if s.rc_role not in RC_ROLES:
             raise ConfigError(f"source {s.id}: rc_role must be one of {RC_ROLES}")
-    if sum(1 for s in cfg.sources if s.rc_role == "control") > 1:
-        raise ConfigError('at most one source may have rc_role = "control"')
     unknown = [i for i in cfg.core.source_priority if i not in ids]
     if unknown:
         raise ConfigError(f"core.source_priority names unknown source(s) {unknown}")

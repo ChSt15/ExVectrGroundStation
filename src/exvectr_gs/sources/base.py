@@ -21,7 +21,7 @@ class SourceKind(Enum):
 
 @dataclass(frozen=True)
 class SourceCaps:
-    rc_role: Literal["control", "mirror", "none"]  # control: GS RC state goes here. mirror: handset state arrives.
+    rc_role: Literal["control", "mirror", "none"]  # control: master sends GS RC state here. mirror, none: never
     can_send: bool
 
 
