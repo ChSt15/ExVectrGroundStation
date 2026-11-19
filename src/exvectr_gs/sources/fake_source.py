@@ -16,7 +16,7 @@ from ..core.clock import Clock, MonotonicClock
 from ..core.config import ConfigError, SourceConfig
 from ..packets import REGISTRY, Packet
 from ..packets.defs.host import ConsoleText, GsEvent, GsEventKind, LinkStats
-from ..packets.defs.link import RcOrigin, RcState
+from ..packets.defs.link import RcOrigin, RcState, RequestAck
 from .base import PacketSink, Source, SourceCaps, SourceKind, SourceStatus
 from .scenario import Scenario
 
@@ -103,7 +103,24 @@ class FakeSource(Source):
         self.speed = float(opts.get("speed", 1.0))
         self.scenario = Scenario(int(opts.get("seed", 1)))
         self.faults = parse_faults(opts.get("faults", []))
-        self.caps = SourceCaps(rc_role=cfg.rc_role, can_send=cfg.rc_role == "control")  # type: ignore[arg-type]
+        # Test double of a vehicle answering REQUESTs (no vehicle logic). `answer_requests = true` makes this
+        # source accept GS Request packets and answer each with a RequestAck of `request_status` (0 DONE,
+        # 2 REJECTED_STATE, ...), idempotent per req_id like the vehicle. `request_drop_first = N` swallows the
+        # first N attempts of every req_id (to test retries; a large N never answers: timeout).
+        self.answer_requests = bool(opts.get("answer_requests", False))
+        self.request_status = int(opts.get("request_status", 0))
+        self.request_detail = int(opts.get("request_detail", 0))
+        self.request_drop_first = int(opts.get("request_drop_first", 0))
+        targets = tuple(int(x) for x in opts.get("request_targets", (1, 2, 3)))
+        self.received_requests: deque[Packet] = deque(maxlen=1000)  # every attempt that reached this source
+        self.executed_requests: list[tuple[int, int, int]] = []  # (req_id, action, target), once per req_id
+        self._attempts: dict[int, int] = {}
+        self._sink: PacketSink | None = None
+        self.caps = SourceCaps(
+            rc_role=cfg.rc_role,  # type: ignore[arg-type]
+            can_send=cfg.rc_role == "control" or self.answer_requests,
+            request_targets=targets if self.answer_requests else (),
+        )
         # Test-only RC round trip (design 6.5). With `echo_rc = true`, the last received GS RcState value of
         # channel `echo_channel` (1-based, default 5) is echoed as `MissionState.mission_index`
         # (round((us - 1000) / 500): 0, 1, 2). It implements no vehicle logic.
@@ -235,6 +252,7 @@ class FakeSource(Source):
     # ---- Source interface
 
     async def run(self, sink: PacketSink) -> None:
+        self._sink = sink
         self.reset(self._clock.now())
         try:
             while True:
@@ -246,8 +264,11 @@ class FakeSource(Source):
             self._state = "disabled"
 
     async def send(self, pkt: Packet) -> bool:
-        """Accepts GS RcState while connected and rc_role is control (like a real control link); other
-        packets and mirror/none sources are refused. Used by the RC loop tests."""
+        """Accepts GS RcState while connected and rc_role is control (like a real control link), and (with
+        `answer_requests`) Request packets for a reachable target; everything else is refused. Used by the RC
+        loop and request tests."""
+        if getattr(pkt, "TYPE", None) == "Request":
+            return self._on_request(pkt)
         if getattr(pkt, "TYPE", None) != "RcState" or self.caps.rc_role != "control" or self._state != "connected":
             return False
         ch = getattr(pkt, "ch_us", None)
@@ -255,6 +276,22 @@ class FakeSource(Source):
             return False
         self.received_rc.append(pkt)  # type: ignore[arg-type]
         self._echo_idx = round((ch[self.echo_channel - 1] - 1000) / 500)
+        return True
+
+    def _on_request(self, pkt: Packet) -> bool:
+        if not self.answer_requests or self._state != "connected" or pkt.target not in self.caps.request_targets:  # type: ignore[attr-defined]
+            return False
+        rid = int(pkt.req_id)  # type: ignore[attr-defined]
+        self.received_requests.append(pkt)
+        n = self._attempts[rid] = self._attempts.get(rid, 0) + 1
+        if rid not in {r[0] for r in self.executed_requests}:
+            self.executed_requests.append((rid, int(pkt.action), int(pkt.target)))  # type: ignore[attr-defined]
+        if n <= self.request_drop_first or self._sink is None:
+            return True  # accepted onto the link, the "vehicle" does not answer
+        ack = RequestAck(
+            t=self._clock.now(), src=self.id, req_id=rid, status=self.request_status, detail=self.request_detail
+        )
+        asyncio.get_running_loop().call_soon(self._sink, ack)
         return True
 
     def status(self) -> SourceStatus:

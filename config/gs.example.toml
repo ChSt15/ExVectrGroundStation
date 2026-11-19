@@ -56,8 +56,92 @@ profile = "usb"                                # "usb" (full set) or "radio" (re
 seed = 1
 speed = 1.0                                    # simulated seconds per wall second
 rc_role = "none"                              # "control" lets the RC controller send to it (accepts and keeps GS RcState)
+answer_requests = true                         # test double: answers REQUESTs with REQUEST_ACK (docs/requests.md)
+# request_status = 2                           # ACK status to answer with (0 DONE ... 4 FAILED); request_drop_first = 2 to test retries
 # echo_rc = true                               # test only: echo the SA channel value as MissionState.mission_index (docs/testing.md)
 # faults = [ { kind = "dropout", at = 10, duration = 2, types = ["Attitude"] } ]
+
+# REQUESTS (docs/requests.md): the ONLY things the ground station sends besides RC state. A whitelist of one-shot
+# actions the GUI "Requests" panel and `exgs request send` may send, each only after a deliberate confirmation (hold
+# 1 s in the GUI; `--confirm ACTION` in the CLI). The ground station does not interpret an action: whether the
+# vehicle accepts it (disarmed and on the ground) is the vehicle's decision, and the GUI shows the REQUEST_ACK
+# status exactly as reported. target = ExVectrNetwork node id: 1 vehicle, 2 TX module, 3 RX module.
+# confirm = "hold" (default) or "danger" (a stronger confirmation: a modal in the GUI, an extra CLI flag).
+[requests]
+# Sources tried in this order, the first one that is connected and can reach the target is used (the vehicle's USB
+# reaches node 1 only, a TX module reaches 1 over the air, 2 and 3). Not set: vehicle_usb sources, then link_module
+# sources, then fake sources, each in config order. No suitable connected source: the send is refused, never queued.
+source_preference = ["usb", "link", "fake"]
+
+[[requests.action]]
+action = "CALIB_GYRO_START"
+label = "Gyro calibration start"
+group = "Calibration"
+target = 1
+
+[[requests.action]]
+action = "CALIB_GYRO_STOP"
+label = "Gyro calibration stop"
+group = "Calibration"
+target = 1
+
+[[requests.action]]
+action = "CALIB_ACCEL_START"
+label = "Accelerometer calibration start"
+group = "Calibration"
+target = 1
+
+[[requests.action]]
+action = "CALIB_ACCEL_STOP"
+label = "Accelerometer calibration stop"
+group = "Calibration"
+target = 1
+
+[[requests.action]]
+action = "CALIB_MAG_START"
+label = "Magnetometer calibration start"
+group = "Calibration"
+target = 1
+
+[[requests.action]]
+action = "CALIB_MAG_STOP"
+label = "Magnetometer calibration stop"
+group = "Calibration"
+target = 1
+
+[[requests.action]]
+action = "CALIB_APPLY"
+label = "Apply calibration"
+group = "Calibration"
+target = 1
+
+[[requests.action]]
+action = "SAVE_CONFIG"
+label = "Save configuration"
+group = "Vehicle"
+target = 1
+
+[[requests.action]]
+action = "SYSTEM_RESET"
+label = "System reset"
+group = "Vehicle"
+target = 1
+
+# Link modules. The module ALWAYS obeys this, in flight too (workspace docs/safety.md 2.5 exception): it stops the radio
+# link and enters over-the-air firmware upload. Hence confirm = "danger".
+[[requests.action]]
+action = "LINK_UPLOAD_MODE"
+label = "TX module: firmware upload mode"
+group = "Link modules"
+target = 2
+confirm = "danger"
+
+[[requests.action]]
+action = "LINK_UPLOAD_MODE"
+label = "RX module: firmware upload mode"
+group = "Link modules"
+target = 3
+confirm = "danger"
 
 [radio]
 config = "config/radio.pocket.toml"

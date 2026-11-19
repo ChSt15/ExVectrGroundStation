@@ -27,6 +27,7 @@ FakeSource ---------------------------------------------> Packet -^
 | `SerialSource`, `provisional-1` profile, `tools/fake_vehicle_pty.py` | `exvectr_gs.sources.serial_source`, `exvectr_gs.wire.provisional_1` | implemented (T5), see [wire-profiles.md](wire-profiles.md) |
 | `exvectrnet-1` profile (real ExVectrNetwork wire format), fake vehicle `exvectrnet-1` mode | `exvectr_gs.wire.exvectrnet_1`, `tools/fake_vehicle_net.py` | implemented, see [wire-profiles.md](wire-profiles.md) |
 | RcController, radio config | `exvectr_gs.rc` | implemented (T6), `docs/radio.md` |
+| RequestController (whitelisted REQUEST sender, second uplink) | `exvectr_gs.requests` | implemented (`feature/request-sender`), `docs/requests.md` |
 
 ## Notes on the implementation
 

@@ -84,7 +84,8 @@ class SerialSource(Source):
         opts = dict(cfg.options)
         self.id = cfg.id
         self.kind = SourceKind(cfg.kind)
-        self.caps = SourceCaps(rc_role=cfg.rc_role, can_send=True)  # type: ignore[arg-type]
+        reach = (1,) if self.kind is SourceKind.VEHICLE_USB else (1, 2, 3)
+        self.caps = SourceCaps(rc_role=cfg.rc_role, can_send=True, request_targets=reach)  # type: ignore[arg-type]
         self.enabled = cfg.enabled
         self._match = {k: str(v) for k, v in cfg.match.items()}
         self._baud = int(cfg.baud or DEFAULT_BAUD)
@@ -129,8 +130,9 @@ class SerialSource(Source):
     async def send(self, pkt: Packet) -> bool:
         """Queue one uplink packet. False if not connected, not allowed or not encodable.
 
-        Only UP packet types go out, and RcState only through the source with rc_role = "control"
-        (design 6.2): a mirror or none source never carries GS RC state, whatever the caller asks.
+        Only UP packet types go out (RcState and Request), and RcState only through the source with
+        rc_role = "control" (design 6.2): a mirror or none source never carries GS RC state, whatever the
+        caller asks. A Request goes out whatever the rc_role, but only to a target this source can reach.
         """
         conn = self._conn
         if conn is None or conn.stop.is_set() or not self.caps.can_send:
@@ -142,6 +144,8 @@ class SerialSource(Source):
             return False
         if pkt.TYPE == "RcState" and self.caps.rc_role != "control":
             return False
+        if pkt.TYPE == "Request" and getattr(pkt, "target", None) not in self.caps.request_targets:
+            return False  # the request controller routes by reach; a source never carries what it cannot reach
         frame = self._profile.encode(pkt)
         if frame is None:
             return False

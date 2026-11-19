@@ -233,6 +233,20 @@ Version 1, direction `up`, nominal rate 25 Hz, history: no.
 | `flags` | int | - | generic flag byte of the wire packet (exvectrnet-1), as sent or received |
 | `source_ok` | bool | - | SOURCE_OK flag: the input is fresh (exvectrnet-1) |
 
+## Request
+
+One-shot REQUEST (whitelisted action with an idempotent req_id, sent and retried by the request controller, never by hand). target = destination node id (1 vehicle, 2 TX module, 3 RX module).
+
+Version 1, direction `up`, nominal rate n/a, history: no.
+
+| Field | Kind | Unit | Description |
+|---|---|---|---|
+| `req_id` | int | - | non-zero, new per action, reused on every retry |
+| `action` | enum (RequestAction: NONE=0, CALIB_GYRO_START=1, CALIB_GYRO_STOP=2, CALIB_ACCEL_START=3, CALIB_ACCEL_STOP=4, CALIB_MAG_START=5, CALIB_MAG_STOP=6, CALIB_APPLY=7, SAVE_CONFIG=8, SYSTEM_RESET=9, LINK_UPLOAD_MODE=10) | - |  |
+| `target` | int | - | destination node id |
+| `arg_i` | int | - |  |
+| `arg_f` | float | - |  |
+
 ## RadioLinkStats
 
 Planned type. Link quality as reported by the TX module.
@@ -370,7 +384,7 @@ Version 1, direction `local`, nominal rate n/a, history: no.
 
 | Field | Kind | Unit | Description |
 |---|---|---|---|
-| `kind` | enum (GsEventKind: rec_start=0, rec_stop=1, source_up=2, source_down=3, lease_acquired=4, lease_released=5, lease_expired=6, replay_note=7, link_warning=8) | - |  |
+| `kind` | enum (GsEventKind: rec_start=0, rec_stop=1, source_up=2, source_down=3, lease_acquired=4, lease_released=5, lease_expired=6, replay_note=7, link_warning=8, request_sent=9, request_retry=10, request_ack=11, request_timeout=12) | - |  |
 | `detail` | str | - |  |
 
 ## Note

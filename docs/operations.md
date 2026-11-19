@@ -42,6 +42,8 @@ rc_role = "control"        # master sends RC here too (the TX module rejects it)
 
 In slave (the Pocket's state arriving) the ground station sends nothing; it sends RC state only after the user switches to master, then to every connected `rc_role = "control"` source ([radio.md](radio.md)).
 
+**Requests** (calibration, save, link upload; [requests.md](requests.md)). The `[requests]` section of `gs.toml` is the whitelist of what the GUI and `exgs request send` may send; it is shipped in `config/gs.example.toml`. A request goes to the first connected source in `source_preference` that can reach the target (the vehicle USB reaches node 1, the TX module 1, 2 and 3), is retried once a second up to 5 times until the vehicle's `REQUEST_ACK` arrives, and is never queued: with the needed source unplugged it is refused. Every send needs a deliberate confirmation (GUI hold 1 s; CLI `--confirm ACTION`). `LINK_UPLOAD_MODE` makes the TX or RX module stop its radio link and enter firmware upload, **in flight too** (the module cannot know the vehicle state): the GUI shows a warning modal, the CLI needs `--i-understand-the-link-stops`. Do not send it while the vehicle is flying. Only control hosts can send.
+
 When two Teensys are attached, a VID/PID match picks the first; add `serial = "..."` or use the by-id path. When the vehicle is on USB and the radio chain is also connected, the default `source_priority = ["usb", "link", "fake"]` shows the vehicle's USB telemetry in the panels; both streams are recorded.
 
 Without hardware: run `tools/fake_vehicle_pty.py` and match its symlink (see [wire-profiles.md](wire-profiles.md)).

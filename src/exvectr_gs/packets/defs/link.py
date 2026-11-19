@@ -32,6 +32,49 @@ class RcState(Packet):
     source_ok: bool | None = f(desc="SOURCE_OK flag: the input is fresh (exvectrnet-1)")
 
 
+class RequestAction(IntEnum):
+    """Mirror of the `RequestAction` enum of the packet schema (a test compares the two). The ground station
+    does not interpret an action: it only sends the ones its whitelist names."""
+
+    NONE = 0
+    CALIB_GYRO_START = 1
+    CALIB_GYRO_STOP = 2
+    CALIB_ACCEL_START = 3
+    CALIB_ACCEL_STOP = 4
+    CALIB_MAG_START = 5
+    CALIB_MAG_STOP = 6
+    CALIB_APPLY = 7
+    SAVE_CONFIG = 8
+    SYSTEM_RESET = 9
+    LINK_UPLOAD_MODE = 10
+
+
+class RequestStatus(IntEnum):
+    """Mirror of the schema's `RequestStatus` (REQUEST_ACK status). Shown exactly as the vehicle reports it."""
+
+    DONE = 0
+    IN_PROGRESS = 1
+    REJECTED_STATE = 2
+    REJECTED_INVALID = 3
+    FAILED = 4
+
+
+@packet(
+    "Request",
+    version=1,
+    direction=Direction.UP,
+    history=False,
+    desc="One-shot REQUEST (whitelisted action with an idempotent req_id, sent and retried by the request "
+    "controller, never by hand). target = destination node id (1 vehicle, 2 TX module, 3 RX module).",
+)
+class Request(Packet):
+    req_id: int = f(desc="non-zero, new per action, reused on every retry")
+    action: RequestAction = f()
+    target: int = f(desc="destination node id")
+    arg_i: int = f()
+    arg_f: float = f()
+
+
 @packet(
     "RadioLinkStats",
     version=1,

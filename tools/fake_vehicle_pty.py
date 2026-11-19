@@ -146,7 +146,8 @@ class FakeVehiclePty:
 
     def __init__(self, link: str | Path, seed: int = 1, speed: float = 1.0, rates: dict[str, float] | None = None,
                  console: bool = True, profile: str = "provisional-1", role: str = "vehicle",
-                 hb_hz: float = 1.0, schema_hash: int | None = None, net_version: int = 1):  # fmt: skip
+                 hb_hz: float = 1.0, schema_hash: int | None = None, net_version: int = 1,
+                 request_status: int = 0, request_drop_first: int = 0):  # fmt: skip
         if profile not in ("provisional-1", "exvectrnet-1") or role not in ("vehicle", "txmodule"):
             raise ValueError(f"unknown profile {profile!r} or role {role!r}")
         self.profile = profile
@@ -175,6 +176,13 @@ class FakeVehiclePty:
         # exvectrnet-1: heartbeats received from the ground station (dicts of `parse_stream`, with `t`),
         # and what a TX module would pass on to its vehicle side (the router rule: node 0 heartbeats
         # are dropped before the air link, everything else is forwarded).
+        # exvectrnet-1 REQUEST test double (no vehicle logic): a REQUEST addressed to this role's node is
+        # answered with a REQUEST_ACK of `request_status` (idempotent per req_id, the first
+        # `request_drop_first` attempts of each id get no answer). `received_requests` lists every attempt.
+        self.request_status = request_status
+        self.request_drop_first = request_drop_first
+        self.received_requests: list[dict] = []
+        self._req_attempts: dict[int, int] = {}
         self.received_heartbeats: list[dict] = []
         self.forwarded: list[dict] = []
         self._lock = threading.Lock()
@@ -359,6 +367,21 @@ class FakeVehiclePty:
                 elif isinstance(item, ConsoleText):
                     self.received_text.append(item.text)
 
+    def _on_request(self, f: dict) -> None:
+        """A REQUEST frame: record it, and answer if it is addressed to this node (test double only)."""
+        try:
+            req = net.parse_request(f["payload"])
+        except Exception:
+            return
+        req["dst"], req["src"] = f["dst"], f["src"]
+        self.received_requests.append(req)
+        if f["dst"] != self.node:
+            return
+        n = self._req_attempts[req["req_id"]] = self._req_attempts.get(req["req_id"], 0) + 1
+        if n <= self.request_drop_first:
+            return
+        self.send_net(self.node, 0, net.PORT_REQUEST_ACK, net.pack_request_ack(req["req_id"], self.request_status))
+
     def _rx_net(self, data: bytes) -> None:
         """What the ground station sends: DATA frames, parsed with the independent decoder."""
         for b in data:
@@ -377,6 +400,8 @@ class FakeVehiclePty:
                     self.forwarded.append(f)
             elif f and self.role == "txmodule":
                 self.forwarded.append(f)
+            if f and f["type"] == "data" and f["port"] == net.PORT_REQUEST:
+                self._on_request(f)
             if f and f["type"] == "data":
                 meta = {"src": f["src"], "dst": f["dst"], "seq": f["seq"], "ttl": f["ttl"]}
                 self.received.append(Frame(channel=f["port"], payload=f["payload"], t=time.monotonic_ns(), meta=meta))
@@ -389,8 +414,13 @@ def main() -> None:
     ap.add_argument("--speed", type=float, default=1.0)
     ap.add_argument("--profile", choices=["provisional-1", "exvectrnet-1"], default="provisional-1")
     ap.add_argument("--role", choices=["vehicle", "txmodule"], default="vehicle", help="exvectrnet-1 only")
+    ap.add_argument("--request-status", type=int, default=0, help="REQUEST_ACK status to answer with (0 DONE, 2 ...)")
+    ap.add_argument("--request-drop-first", type=int, default=0, help="swallow the first N attempts of each REQUEST id")
     args = ap.parse_args()
-    veh = FakeVehiclePty(args.link, seed=args.seed, speed=args.speed, profile=args.profile, role=args.role)
+    veh = FakeVehiclePty(
+        args.link, seed=args.seed, speed=args.speed, profile=args.profile, role=args.role,
+        request_status=args.request_status, request_drop_first=args.request_drop_first,
+    )  # fmt: skip
     veh.start()
     print(f"fake vehicle on {args.link} -> {os.ttyname(veh._slave)} (Ctrl-C to stop)")
     try:

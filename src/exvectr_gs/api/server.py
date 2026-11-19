@@ -28,6 +28,7 @@ from ..core.hosts import is_control_host  # noqa: F401  (re-exported)
 from ..core.state import StateStore
 from ..packets import REGISTRY
 from ..rc.controller import ControlDenied, ControlLocked
+from ..requests import RequestError
 from . import protocol as P
 from .hub import Client, Hub, View
 from .protocol import ProtocolError
@@ -95,6 +96,9 @@ class ApiServer:
             "rc.set": self._op_rc_set,
             "rc.unlock": self._op_rc_unlock,
             "rc.lock": self._op_rc_lock,
+            "request.send": self._op_request_send,
+            "request.list": self._op_request_list,
+            "request.status": self._op_request_status,
             "sources.list": self._op_sources_list,
             "sources.enable": self._op_sources_enable,
             "config.get": self._op_config_get,
@@ -125,6 +129,9 @@ class ApiServer:
         await site.start()
         if self.port == 0:  # tests: report the chosen port
             self.port = self._runner.addresses[0][1]
+        rq = self._mod("requests")
+        if rq is not None:
+            rq.on_change = self._push_requests
         self._tasks = [
             asyncio.create_task(self._status_loop(), name="api-status"),
             asyncio.create_task(self._rc_loop(), name="api-rc"),
@@ -177,6 +184,8 @@ class ApiServer:
             return r
         except ProtocolError:
             raise
+        except RequestError as e:
+            raise ProtocolError(e.code, e.message) from None
         except ControlDenied as e:
             raise ProtocolError("control_denied", str(e) or "control denied") from None
         except ControlLocked as e:
@@ -322,6 +331,9 @@ class ApiServer:
         rc = self._rc_msg(client)
         if rc is not None:
             client.post(rc)
+        rqm = self._requests_msg()
+        if rqm is not None:
+            client.post(rqm)
 
     async def _op_subscribe(self, client: Client, msg: dict) -> dict:
         req = P.parse_subscribe(msg)
@@ -423,6 +435,45 @@ class ApiServer:
         rp = self._need("replayer", "replay")
         await self._call(rp.set_speed, P.parse_replay_speed(msg))
         return {}
+
+    # ------------------------------------------------------------ ops: REQUEST (safety-relevant, thin pass-through)
+
+    async def _op_request_send(self, client: Client, msg: dict) -> dict:
+        rq = self._need("requests", "the request sender")
+        if not client.can_control:  # control hosts only, enforced here as well as in the controller
+            raise ProtocolError("control_denied", "this client is not on a control host (view only)")
+        a = P.parse_request_send(msg)
+        st = await self._call(
+            lambda: rq.send(
+                a["action"],
+                a["target"],
+                client=client.name or client.id,
+                remote_addr=client.addr,
+                confirm=a["confirm"],
+                understand_link_stops=a["understand_link_stops"],
+            )
+        )
+        self._push_requests()
+        return rq._json(st)
+
+    async def _op_request_list(self, client: Client, msg: dict) -> dict:
+        return {"actions": self._need("requests", "the request sender").whitelist()}
+
+    async def _op_request_status(self, client: Client, msg: dict) -> dict:
+        return self._need("requests", "the request sender").status()
+
+    def _request_routes(self) -> dict[str, str | None]:
+        rq = self._mod("requests")
+        return {} if rq is None else {str(t): rq.route(t) for t in (1, 2, 3)}
+
+    def _requests_msg(self) -> dict | None:
+        rq = self._mod("requests")
+        return None if rq is None else {"op": "requests", **rq.status()}
+
+    def _push_requests(self) -> None:
+        m = self._requests_msg()
+        if m is not None:
+            self.hub.broadcast(m)
 
     # ------------------------------------------------------------ ops: RC (safety-relevant, thin pass-through)
 
@@ -566,6 +617,7 @@ class ApiServer:
             "recorder": rec,
             "replay": replay,
             "rc": self._rc_json(),  # extension: null when no RC controller is present
+            "request_routes": self._request_routes(),  # target node -> id of the source a request would use
             "clients": len(self.hub.clients),
         }
 

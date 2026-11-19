@@ -69,6 +69,7 @@ Plain ES modules in `web/`, served by the core (`GET /`, `/static/...`). No buil
 | `transport` | `status` | Visible in the REPLAY view only: play/pause, scrubber (seeks throttled to 10/s while dragging), time `mm:ss / mm:ss`, speed 0.25 to 8, jump +-5 s, keyboard space and arrow keys. |
 | `view3d` | `Attitude`, `Position`, `MissionState`, `FlapState`, `VehicleState` | Ship, flaps, trail, setpoint, thrust arrow, ground grid, N/W/Up gizmo. See the 3D view section. |
 | `radio` | `RcState`, `rc` push | Virtual radio (T9), see "Virtual radio" below. Safety-relevant. |
+| `requests` | `requests` push, `status` | Whitelisted one-shot REQUESTs (calibration, save, reset, link upload), see "Requests panel" below. Safety-relevant. Live view only. Shipped collapsed in every preset. |
 | `console` | `ConsoleText` (mode `all`), `event` | Vehicle text and GS events, filter, pause, clear, 500 lines. |
 | `inspector` | `*` | All (type, source) pairs with age and a field table from the schema. |
 
@@ -139,9 +140,19 @@ Panel `radio` (`web/app/radio/`; in every preset). **Safety-relevant**: it is th
 2. Add `import "./<name>.js";` to `web/app/panels/index.js`.
 3. Add `{ "panel": "<id>", "area": "<area>" }` to the presets in `config/layout.default.json` (or your own layout file).
 
+### Requests panel
+
+Panel `requests` (`web/app/requests/requests_logic.js`, `requests_panel.js`; `views = ["live"]`, so it is hidden in the replay view). **Safety-relevant**: with the radio widget it is the only GUI path that makes the core send anything ([requests.md](requests.md)). Rules, enforced in the logic module and covered by `web/test/requests_logic.test.js` and `tests/integration/test_requests_widget.py`:
+
+- **From the core's whitelist.** Rows come from `request.list` (group, label, target, confirm level, `route`); the GUI knows nothing about what an action means and has no other way to name an action.
+- **Hold to send.** Each row's button needs a continuous hold of **1 s** (progress bar, same pattern as the radio padlock); a click, a short hold, a blur or a pointer leaving sends nothing. The panel never sends by itself.
+- **`danger` actions** (`LINK_UPLOAD_MODE`) additionally open a modal after the hold: "This stops the radio link of the TX/RX module and puts it into firmware-upload mode. The module always obeys, even in flight." Its send button is **disabled for 2 s** (countdown in the label); Cancel and Escape close it without sending; only the button sends `request.send` with `understand_link_stops: true`.
+- **State from the core only:** each row shows the latest `requests` push for its (action, target): `sending, attempt n/5 via <source>`, `ACK <status as reported> (detail d)`, or `TIMEOUT`. `DONE` and `IN_PROGRESS` are green, any other status (and an unknown one) red, never an assumed success. The button is disabled while that request is in flight.
+- **Disabled** in the replay view, without a connection, on a view-only host (`welcome.can_control` false), while in flight, and when no source can reach the target (`status.request_routes`); the core still refuses everything itself and its error text is shown under the list.
+
 `ctx`: `store`, `schema`, `api` (`api.request(op, payload)` returns a promise of `data` or rejects with `{code, message}`), `fmt`, `h`, `Bindings`, `view()` (`"live"` or `"replay"`), `status()` (last `status` message), `rc()` (last `rc` push, `null` while disconnected), `now()` (view time), `switchView(v)` (asynchronous: view guards run first), `addViewGuard(async (nextView) => bool)` (returns a remover; a guard can veto a view switch, the radio uses it for the release prompt), `setTitle(text)`.
 
-The object returned by `create` may have: `onPacket(pkt)` (per received packet of a consumed type in the current view; also called for the items of a snapshot), `onReset(view)` (snapshot replaced the store), `onTick(now)` (10 Hz), `onViewChange(view)`, `onStatus(status)`, `onEvent(evt)`, `onRc(rc)` (every `rc` push, `null` on disconnect), `onReady()` (after every connect), `freshness()` returning `{state, age}` for the header badge, `destroy()`.
+The object returned by `create` may have: `onPacket(pkt)` (per received packet of a consumed type in the current view; also called for the items of a snapshot), `onReset(view)` (snapshot replaced the store), `onTick(now)` (10 Hz), `onViewChange(view)`, `onStatus(status)`, `onEvent(evt)`, `onRc(rc)` (every `rc` push, `null` on disconnect), `onRequests(msg)` (every `requests` push), `onReady()` (after every connect), `freshness()` returning `{state, age}` for the header badge, `destroy()`.
 
 Most panels only need `Bindings`:
 

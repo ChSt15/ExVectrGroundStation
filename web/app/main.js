@@ -90,6 +90,9 @@ function onMainMessage(msg) {
     case "event":
       for (const m of mounted) m.inst.onEvent?.(msg);
       break;
+    case "requests":
+      for (const m of mounted) m.inst.onRequests?.(msg);
+      break;
     case "rc":
       rcState = msg;
       for (const m of mounted) m.inst.onRc?.(msg);

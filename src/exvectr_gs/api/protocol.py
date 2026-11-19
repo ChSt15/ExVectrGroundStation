@@ -32,6 +32,11 @@ ERROR_CODES = (
     "no_lease",
     "invalid_value",
     "io_error",
+    "not_whitelisted",  # request.send: the action (or action and target) is not in the whitelist
+    "confirm_required",  # request.send: the confirmation arguments are missing or wrong
+    "rate_limited",  # request.send: more than one new request per 500 ms from this client
+    "request_in_flight",  # request.send: the same (action, target) is still waiting for its ACK
+    "no_route",  # request.send: no connected source can reach the target (nothing is queued)
     "not_implemented",  # the backing module (recorder, replayer, RC controller) has not landed yet
 )
 
@@ -403,6 +408,22 @@ def parse_rc_hold(msg: Mapping) -> float | None:
     if hold is not None and not 0 < hold <= MAX_RC_HOLD_S:
         raise ProtocolError("invalid_value", f"hold_s must be within (0, {MAX_RC_HOLD_S:g}]")
     return hold
+
+
+def parse_request_send(msg: Mapping) -> dict[str, Any]:
+    """`action` (name), optional `target` (node id), `confirm` (the action name repeated) and, for actions
+    with confirm level `danger`, `understand_link_stops: true`. Semantics are the controller's."""
+    action = _req(msg, "action", str, "an action name")
+    target = msg.get("target")
+    if target is not None and (isinstance(target, bool) or not isinstance(target, int)):
+        raise ProtocolError("bad_request", "target must be an integer node id")
+    confirm = msg.get("confirm")
+    if confirm is not None and not isinstance(confirm, str):
+        raise ProtocolError("bad_request", "confirm must be a string")
+    ack = msg.get("understand_link_stops", False)
+    if not isinstance(ack, bool):
+        raise ProtocolError("bad_request", "understand_link_stops must be true or false")
+    return {"action": action, "target": target, "confirm": confirm, "understand_link_stops": ack}
 
 
 def parse_replay_speed(msg: Mapping) -> float:

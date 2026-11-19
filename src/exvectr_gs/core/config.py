@@ -59,6 +59,33 @@ class GuiSection:
     model: str = "config/model.placeholder.json"
 
 
+REQUEST_CONFIRM_LEVELS = ("hold", "danger")
+REQUEST_TARGETS = (1, 2, 3)  # 1 vehicle, 2 TX module, 3 RX module (ExVectrNetwork node ids)
+
+
+@dataclass(frozen=True)
+class RequestEntry:
+    """One whitelisted REQUEST the GUI and CLI may send (docs/requests.md). The ground station does not
+    interpret the action: `label` and `group` are for display, `target` is the destination node and
+    `confirm` the deliberate-confirmation level (`hold`, or `danger` for actions that stop a link)."""
+
+    action: str
+    target: int
+    label: str
+    group: str
+    confirm: str = "hold"
+
+
+@dataclass
+class RequestsSection:
+    """`[requests]`: the only REQUESTs the ground station will ever send. Empty = none."""
+
+    # Source ids tried in this order (a source must be connected and able to reach the target). Not set:
+    # every vehicle_usb source, then every link_module source, then fake sources, each in config order.
+    source_preference: list[str] | None = None
+    actions: list[RequestEntry] = field(default_factory=list)
+
+
 @dataclass
 class GsConfig:
     core: CoreSection = field(default_factory=CoreSection)
@@ -67,6 +94,7 @@ class GsConfig:
     sources: list[SourceConfig] = field(default_factory=list)
     radio: RadioSection = field(default_factory=RadioSection)
     gui: GuiSection = field(default_factory=GuiSection)
+    requests: RequestsSection = field(default_factory=RequestsSection)
 
 
 def _section(cls: type, data: dict, where: str):
@@ -84,6 +112,44 @@ def _source(data: dict) -> SourceConfig:
     return SourceConfig(**known, options=data)
 
 
+def _requests(data: dict) -> RequestsSection:
+    from ..packets.defs.link import RequestAction
+
+    data = dict(data)
+    pref = data.pop("source_preference", None)
+    raw = data.pop("action", [])
+    if data:
+        raise ConfigError(f"[requests]: unknown key(s) {sorted(data)}")
+    if pref is not None and not (isinstance(pref, list) and all(isinstance(x, str) for x in pref)):
+        raise ConfigError("[requests] source_preference must be a list of source ids")
+    sec = RequestsSection(source_preference=pref)
+    if not isinstance(raw, list):
+        raise ConfigError("[[requests.action]] must be an array of tables")
+    seen: set[tuple[str, int]] = set()
+    for i, d in enumerate(raw):
+        where = f"[[requests.action]] #{i + 1}"
+        unknown = set(d) - {"action", "label", "group", "target", "confirm"}
+        if unknown:
+            raise ConfigError(f"{where}: unknown key(s) {sorted(unknown)}")
+        name = d.get("action")
+        if name == "NONE" or name not in RequestAction.__members__:
+            raise ConfigError(f"{where}: unknown action {name!r}")
+        target = d.get("target")
+        if isinstance(target, bool) or target not in REQUEST_TARGETS:
+            raise ConfigError(f"{where} {name}: target must be one of {REQUEST_TARGETS}")
+        confirm = d.get("confirm", "hold")
+        if confirm not in REQUEST_CONFIRM_LEVELS:
+            raise ConfigError(f"{where} {name}: confirm must be one of {REQUEST_CONFIRM_LEVELS}")
+        if (name, target) in seen:
+            raise ConfigError(f"{where}: {name} for target {target} is listed twice")
+        seen.add((name, target))
+        label, group = d.get("label", name), d.get("group", "Other")
+        if not isinstance(label, str) or not isinstance(group, str) or not label or not group:
+            raise ConfigError(f"{where} {name}: label and group must be non-empty strings")
+        sec.actions.append(RequestEntry(name, target, label, group, confirm))
+    return sec
+
+
 def parse_config(data: dict) -> GsConfig:
     """Build and validate a GsConfig from parsed TOML."""
     data = dict(data)
@@ -94,6 +160,7 @@ def parse_config(data: dict) -> GsConfig:
         sources=[_source(s) for s in data.pop("source", [])],
         radio=_section(RadioSection, data.pop("radio", {}), "radio"),
         gui=_section(GuiSection, data.pop("gui", {}), "gui"),
+        requests=_requests(data.pop("requests", {})),
     )
     if data:
         raise ConfigError(f"unknown top-level section(s) {sorted(data)}")
@@ -115,6 +182,9 @@ def validate(cfg: GsConfig) -> None:
     unknown = [i for i in cfg.core.source_priority if i not in ids]
     if unknown:
         raise ConfigError(f"core.source_priority names unknown source(s) {unknown}")
+    unknown = [i for i in cfg.requests.source_preference or [] if i not in ids]
+    if unknown:
+        raise ConfigError(f"requests.source_preference names unknown source(s) {unknown}")
     if cfg.recorder.raw_frames != "unknown":
         raise ConfigError('recorder.raw_frames: only "unknown" is supported')
     if not 0 < cfg.server.port < 65536:

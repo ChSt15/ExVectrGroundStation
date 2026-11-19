@@ -54,7 +54,7 @@ Decoded values are SI already. Where the wire does not carry a field, the GS fie
 | 0x02 | `LOG_TEXT` | `ConsoleText` | text is `[node N SEVERITY] text`, shown in the console panel |
 | 0x03 | `HANDSET_TELEM` | `HandsetTelem` | flags split into bools; shown as the vehicle sent it (no inference) |
 | 0x10 | `RC_STATE` | `RcState` | origin `gs` if sent by node 0, otherwise `handset` (the Pocket via the TX module). `ch_us = 1500 + ch / 2` (round half up), `CH_INVALID` becomes 0, `seq` is the wire sequence, `flags` and `source_ok` as received |
-| 0x11 | `REQUEST` | `RawFrame` | an uplink packet, not expected from a peer |
+| 0x11 | `REQUEST` | `RawFrame` | an uplink packet, not expected from a peer (the GS sends it, see "Uplink" below) |
 | 0x12 | `REQUEST_ACK` | `RequestAck` | |
 | 0x20 | `VEHICLE_STATUS` | `VehicleStatus`, `VehicleState` | `VehicleState` gets `mode`, `armed`, `sim` only (what the wire states directly) |
 | 0x21 | `AIR_POSE` | `Attitude` (`q` only), `Position` (`pos`, `vel`) | radio set; fixed point values already scaled |
@@ -71,7 +71,7 @@ Vehicle time (`t_us` of each packet) is not carried into the GS packets: `t` is 
 
 ### Uplink (`encode`)
 
-Only `RC_STATE` with `origin = gs` and 16 channels. `ch = clamp((us - 1500) * 2, CH_MIN, CH_MAX)`, a pulse width of 0 or less becomes `CH_INVALID`. `flags` contains only `SOURCE_OK` (the ground-station input is active: the core sends only while a client holds the lease), unless the packet says `source_ok = False`. No other flag is ever set; the motor enable is just a channel in the vehicle's fixed mapping. The frame is addressed to the vehicle (DST 1, SRC 0, TTL 3, QoS and LATEST from the generated class), whichever link carries it. The sequence number counts per port in the profile (the `RcState.seq` of the controller is not used). `encode` sends no other packet. `SerialSource` still sends `RcState` only through the source with `rc_role = "control"`: configure the vehicle USB as `control` and the TX module as `mirror`, because the vehicle rejects node 0 on the radio path.
+Only `RC_STATE` with `origin = gs` and 16 channels. `ch = clamp((us - 1500) * 2, CH_MIN, CH_MAX)`, a pulse width of 0 or less becomes `CH_INVALID`. `flags` contains only `SOURCE_OK` (the ground-station input is active: the core sends only while a client holds the lease), unless the packet says `source_ok = False`. No other flag is ever set; the motor enable is just a channel in the vehicle's fixed mapping. The frame is addressed to the vehicle (DST 1, SRC 0, TTL 3, QoS and LATEST from the generated class), whichever link carries it. The sequence number counts per port in the profile (the `RcState.seq` of the controller is not used). `encode` sends no other RC packet. `SerialSource` still sends `RcState` only through the source with `rc_role = "control"`: configure the vehicle USB as `control` and the TX module as `mirror`, because the vehicle rejects node 0 on the radio path.
 
 ### Sources
 
@@ -129,9 +129,13 @@ A profile may offer the optional method `encode_heartbeat(uptime_s) -> Frame` (l
 
 Who sends it: `CoreApp._heartbeat_loop` (`core/app.py`), a periodic task of its own (1 Hz) that calls `Source.send_heartbeat(uptime_s)` on every source. `SerialSource.send_heartbeat` sends on any connected source whatever its `rc_role` (`control`, `mirror`, `none`). It returns `False` and sends nothing if the source is down, the profile has no heartbeat or the writer queue is full (never blocking, and never displacing a queued frame). The task is independent of the `RcController`, leases and RC state: nothing reads them, and nothing in the RC path reads heartbeat results. Over a TX module the router drops node 0 heartbeats before the air link, so the vehicle never sees them over radio. Over a direct USB connection the vehicle receives them as presence information. A ground-station failure or silence never causes a failsafe, and a heartbeat never keeps the vehicle alive.
 
+### REQUEST (whitelisted one-shot actions)
+
+`encode` also accepts the `Request` packet (the request controller's, [requests.md](requests.md)): `req_id` 1..65535, `action` (`RequestAction`), `target`, `arg_i`, `arg_f` become `xp.Request` (port 0x11, QoS and LATEST from the generated class), addressed to **DST = `target`** (1 vehicle, 2 TX module, 3 RX module), SRC 0, with its own per-port sequence counter. A missing or out-of-range field returns `None`. The wire profile does not know which actions are allowed: the whitelist lives in the request controller. `REQUEST_ACK` (0x12) decodes to `RequestAck` as before. `SerialSource` sends a `Request` on any `rc_role`, but only for a target within its `SourceCaps.request_targets` (the vehicle's USB reaches node 1; a TX module reaches 1, 2 and 3).
+
 ### RC state
 
-Only `UP` packet types can be encoded. Today that is `RcState` with `origin = gs`, 16 channels; channels are clamped to 0..65535. Anything else (handset-origin state, wrong channel count, any non-UP type) returns `None`. A received `RcState` (a handset mirror from a TX module) decodes with `origin = handset`. There is no encoder for telecommands and none will be added (design 1.4).
+Only `UP` packet types can be encoded. Today that is `RcState` with `origin = gs`, 16 channels, and `Request` (above); channels are clamped to 0..65535. Anything else (handset-origin state, wrong channel count, any non-UP type) returns `None`. A received `RcState` (a handset mirror from a TX module) decodes with `origin = handset`. There is no encoder for legacy telecommands and none will be added (design 1.4).
 
 ## Serial source (`exvectr_gs.sources.serial_source`)
 
@@ -150,7 +154,7 @@ Behaviour:
 
 - States: `searching` (device not present), `connected`, `error` (device present but cannot be opened, for example permissions; `last_error` says why), `disabled` (not running). `source_up` and `source_down` `GsEvent`s mark transitions. On loss the framer is reset, a `LinkStats connected=false` is emitted and the source goes back to `searching` with no backoff. `reconnects` counts re-connections after the first one.
 - One reader thread and one writer thread per connection. The reader hands bytes to the event loop (`call_soon_threadsafe`); framing, decoding and the sink run on the loop. The port is opened exclusively. Writes go through a queue of 8 frames; when full the oldest is dropped (latest wins).
-- `send()` returns `False` when not connected, when the packet is not an `UP` type, when the profile cannot encode it, and for `RcState` unless this source has `rc_role = "control"`. A mirror or `none` source never carries GS RC state (several sources may be `control`; master sends to all), whatever a caller asks (design 6.2).
+- `send()` returns `False` when not connected, when the packet is not an `UP` type, when the profile cannot encode it, for `RcState` unless this source has `rc_role = "control"`, and for a `Request` whose target this source cannot reach. A mirror or `none` source never carries GS RC state (several sources may be `control`; master sends to all), whatever a caller asks (design 6.2).
 - `LinkStats` at `stats_period_s` per source: `connected`, `rx_bytes_s`, `rx_frames_s`, `tx_frames_s` (frames queued for the port), cumulative `crc_errors` (framer), `decode_errors` (frames that became a `RawFrame`) and `reconnects`.
 - Several sources run side by side. Each has its own framer and `src` id and publishes to the one bus; the `StateStore` picks the preferred fresh source per type from `core.source_priority`. The default `["usb", "link", "fake"]` prefers the vehicle's USB link for telemetry when the radio chain is connected as well.
 

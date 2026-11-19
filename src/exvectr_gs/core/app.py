@@ -16,6 +16,7 @@ from ..packets.defs.vehicle import MissionState, VehicleState
 from ..rc import RadioConfigError, RcController, load_radio_config
 from ..recording import LogLibrary, Recorder
 from ..replay import Replayer
+from ..requests import RequestController
 from ..sources import Source, build_source
 from ..wire import ProfileNotFound, WireProfile, load_profile
 from .bus import Bus
@@ -80,6 +81,11 @@ class CoreApp:
         except RadioConfigError as e:
             self.rc_error = str(e)
             log.error("RC controller disabled, invalid radio config: %s", e)
+        # Whitelisted REQUEST sender, the second uplink (user decision 2026-11-19, docs/requests.md). It sends
+        # nothing by itself: a control-host client must call `request.send` with the confirmation arguments.
+        self.requests = RequestController(
+            cfg.requests, self.sources, self.bus, clock=self.clock, control_hosts=cfg.server.control_hosts
+        )
         self.library = LogLibrary(Path(cfg.recorder.directory).expanduser())
         # Replay is a separate view (design 6.4): it publishes on replay_bus only, never on the live bus,
         # so replayed data is not recorded and live recording continues during replay.
@@ -144,6 +150,7 @@ class CoreApp:
         also run the API server on cfg.server.bind:port."""
         tasks = [asyncio.create_task(s.run(self.bus.publish), name=f"source-{s.id}") for s in self.sources]
         tasks.append(asyncio.create_task(self._heartbeat_loop(), name="gs-heartbeat"))
+        tasks.append(asyncio.create_task(self.requests.run(), name="requests"))
         api = None
         if self.rc is not None:
             tasks.append(asyncio.create_task(self.rc.run(), name="rc"))

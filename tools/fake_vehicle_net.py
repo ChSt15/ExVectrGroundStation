@@ -12,6 +12,7 @@ import math
 import struct
 
 PORT_LINK_STATS, PORT_LOG_TEXT, PORT_HANDSET, PORT_RC_STATE = 0x01, 0x02, 0x03, 0x10
+PORT_REQUEST, PORT_REQUEST_ACK = 0x11, 0x12
 PORT_VEHICLE_STATUS, PORT_AIR_POSE = 0x20, 0x21
 PORT_POSE, PORT_ACTUATORS, PORT_MISSION, PORT_GNSS = 0x80, 0x81, 0x82, 0x83
 PORT_IMU, PORT_ESTIMATOR, PORT_TIMING = 0x90, 0x91, 0x92
@@ -191,6 +192,15 @@ def pack_link_stats(uptime_ms: int, air_state: int, lq: int, rssi: int, snr: int
 
 def pack_rc_state(flags: int, ch: list[int]) -> bytes:
     return struct.pack("<BB16h", flags, 0, *ch)
+
+
+def pack_request_ack(req_id: int, status: int, detail: int = 0) -> bytes:
+    return struct.pack("<HBB", req_id, status, detail)
+
+
+def parse_request(payload: bytes) -> dict:
+    req_id, action, target, arg_i, arg_f = struct.unpack("<HBBif", payload[:12])
+    return {"req_id": req_id, "action": action, "target": target, "arg_i": arg_i, "arg_f": arg_f}
 
 
 def pack_imu(t_us: int, t: float) -> bytes:

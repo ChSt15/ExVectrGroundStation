@@ -2,7 +2,7 @@
 
 Spec: [ground-station-design.md](ground-station-design.md) sections 1.4, 5.6, 4.2 and decisions 10.1-1, 10.1-4, 10.1-6 and 10.1-7. Implemented in task T6: `src/exvectr_gs/rc/` (`radio_config.py`, `controller.py`), wired in `core/app.py` (`CoreApp.rc`), exposed by the `rc.*` API operations and `exgs rc ...` (see [api.md](api.md)). The radio widget (T9, `web/app/radio/`, [gui.md](gui.md)) is the GUI side. The lock on guarded controls, the keepalive lease that replaced the timed lease, and master/slave mode (below) are user decisions of 2026-11-19.
 
-**Safety-relevant.** The RC state is the only thing the ground station ever sends to the vehicle. The ground station makes no control, mission or safety decision: it maps control positions to channel values from a config and sends them while somebody holds a lease. It does not know what any switch means (the Starship's motor enable, mission go, and so on); the vehicle firmware interprets the channels with its own fixed mapping (workspace `docs/safety.md`, `docs/system-architecture.md` "Switch mapping").
+**Safety-relevant.** The RC state is the only thing the ground station sends continuously. Since the user decision of 2026-11-19 it also sends whitelisted one-shot `REQUEST`s (calibration, save, link upload) on a deliberate confirmation: see [requests.md](requests.md) (separate controller, separate rules, no lease). The ground station makes no control, mission or safety decision: it maps control positions to channel values from a config and sends them while somebody holds a lease. It does not know what any switch means (the Starship's motor enable, mission go, and so on); the vehicle firmware interprets the channels with its own fixed mapping (workspace `docs/safety.md`, `docs/system-architecture.md` "Switch mapping").
 
 ## Master and slave (user decision 2026-11-19, design 10.1-8)
 
@@ -79,7 +79,7 @@ The old modes `controlling`, `mirroring` and `conflict` are gone (renamed or rep
 
 ## What reaches the vehicle, and what happens on each disconnect path
 
-Only `RcState` (origin `gs`) packets, produced by the controller from the configured mapping, to the connected `control` sources, and only while a lease is active (master). No other packet type can be sent (the serial source refuses non-`UP` types and the provisional profile encodes only `RcState`); there is no raw-send API.
+Through the RC controller only `RcState` (origin `gs`) packets, produced from the configured mapping, to the connected `control` sources, and only while a lease is active (master). The one other thing the ground station can send is a whitelisted `REQUEST` from the request controller ([requests.md](requests.md)); no other packet type can be sent (the serial source refuses non-`UP` types and the profiles encode only these); there is no raw-send API.
 
 | Event | Result |
 |---|---|

@@ -23,5 +23,6 @@
 1763471001100006000 link TxModuleStats module_uptime=100.5 air_state=3 rx_lq=97 rssi=-71 snr=9 tx_power=10 rx_antenna=1 tx_antenna=0 air_rx_ok=1000 air_rx_bad=3 frames_dropped=0 frames_expired=1 queue_peak=12
 1763471001100007000 link RxModuleStats module_uptime=99.5 air_state=3 rx_lq=95 rssi=-73 snr=8 tx_power=10 rx_antenna=0 tx_antenna=1 air_rx_ok=990 air_rx_bad=4 frames_dropped=0 frames_expired=0 queue_peak=9
 1763471001100008000 usb RequestAck req_id=258 status=0 detail=0
+1763471001100008500 gs Request req_id=258 action=CALIB_APPLY target=1 arg_i=0 arg_f=0.0
 1763471001100009000 usb NetworkStatus node=1 role=1 net_version=1 schema_hash=2077240843 uptime=12.5 present=[0,1,0,0] age=[nan,0.2,nan,nan] incompatible=false local_schema_hash=2077240843 detail=""
 #end stopped=2026-11-18T14:21:40.002+01:00 packets=24

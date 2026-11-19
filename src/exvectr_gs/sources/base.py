@@ -23,6 +23,9 @@ class SourceKind(Enum):
 class SourceCaps:
     rc_role: Literal["control", "mirror", "none"]  # control: master sends GS RC state here. mirror, none: never
     can_send: bool
+    # REQUEST destinations this source can reach (node ids): the vehicle's USB reaches node 1, a TX module
+    # reaches 1 (air), 2 and 3. Empty: never sent a REQUEST.
+    request_targets: tuple[int, ...] = ()
 
 
 @dataclass

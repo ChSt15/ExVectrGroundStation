@@ -360,6 +360,31 @@ def test_encode_refuses_everything_but_gs_rc_state():
     assert p.encode(V.Attitude()) is None and p.encode(L.RequestAck()) is None
 
 
+def _request(**kw):
+    d = {"req_id": 0x0102, "action": L.RequestAction.LINK_UPLOAD_MODE, "target": 2, "arg_i": 0, "arg_f": 0.0}
+    return L.Request(t=5, src="gs", **{**d, **kw})
+
+
+def test_encode_request_addressed_to_its_target_matches_the_independent_decoder():
+    p = load_profile("exvectrnet-1")
+    fr_ = p.encode(_request())
+    assert (fr_.channel, fr_.meta["dst"], fr_.meta["qos"], fr_.meta["latest"]) == (0x11, 2, xp.Request.QOS, False)
+    assert net.parse_request(fr_.payload) == {"req_id": 0x0102, "action": 10, "target": 2, "arg_i": 0, "arg_f": 0.0}
+    wire = p.make_framer().encode(fr_)
+    f = net.parse_stream(net.cobs_decode(wire[:-1]))
+    assert (f["type"], f["src"], f["dst"], f["port"]) == ("data", 0, 2, 0x11)
+    assert p.encode(_request(target=1)).meta["dst"] == 1
+    seqs = [p.encode(_request()).meta["seq"] for _ in range(3)]
+    assert seqs[1] == seqs[0] + 1 and seqs[2] == seqs[0] + 2  # its own sequence counter, independent of RC_STATE
+
+
+def test_encode_request_refuses_bad_ids_and_incomplete_packets():
+    p = load_profile("exvectrnet-1")
+    for bad in ({"req_id": 0}, {"req_id": 0x10000}, {"req_id": None}, {"action": None}, {"target": None}):
+        assert p.encode(_request(**bad)) is None, bad
+    assert p.encode(_request(target=300)) is None  # does not fit u8
+
+
 def test_sequence_counter_wraps_at_256():
     p = load_profile("exvectrnet-1")
     seqs = [p.encode(rc()).meta["seq"] for _ in range(258)]

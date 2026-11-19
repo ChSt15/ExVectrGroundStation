@@ -18,6 +18,7 @@ import exvectr_packets as xp  # noqa: E402  isort: skip
 from ...packets import REGISTRY, Direction, Packet
 from ...packets.defs.host import GsEvent, GsEventKind, RawFrame
 from ...packets.defs.link import NetworkStatus, RcOrigin, RcState
+from ...packets.defs.link import Request as RequestPacket
 from ..profile import Frame
 from . import mapping
 from .framing import BROADCAST, DEFAULT_TTL, HEARTBEAT_CHANNEL, NET_VERSION, NetFramer
@@ -142,15 +143,18 @@ class ExVectrNet1Profile:
     # ---- send
 
     def encode(self, pkt: Packet) -> Frame | None:
-        """Only RC_STATE with origin gs, addressed to the vehicle (node 1), which is the final
-        destination whether the GS sits on the vehicle's USB or behind a TX module. Everything
-        else is not sent (design 1.4). The ground station's own heartbeat is not a packet: it has its
-        own method, `encode_heartbeat`."""
+        """Only two things are encodable (design 1.4): RC_STATE with origin gs, addressed to the vehicle
+        (node 1), which is the final destination whether the GS sits on the vehicle's USB or behind a TX
+        module, and a REQUEST (the request controller's whitelisted one-shot actions), addressed to its
+        `target` node. Everything else is not sent. The ground station's own heartbeat is not a packet: it
+        has its own method, `encode_heartbeat`."""
         try:
             if REGISTRY.get(pkt.TYPE).direction is not Direction.UP:
                 return None
         except KeyError:
             return None
+        if isinstance(pkt, RequestPacket):
+            return self._encode_request(pkt)
         if not isinstance(pkt, RcState) or pkt.origin != RcOrigin.gs or pkt.ch_us is None or len(pkt.ch_us) != 16:
             return None
         R = xp.RcState
@@ -164,6 +168,25 @@ class ExVectrNet1Profile:
         self._tx_seq[GS_RC_PORT] = (seq + 1) & 0xFF
         meta = {"dst": NODE_VEHICLE, "seq": seq, "qos": R.QOS, "latest": R.LATEST}
         return Frame(channel=GS_RC_PORT, payload=payload, t=pkt.t, meta=meta)
+
+    def _encode_request(self, pkt: RequestPacket) -> Frame | None:
+        if pkt.req_id is None or not 1 <= int(pkt.req_id) <= 0xFFFF or pkt.action is None or pkt.target is None:
+            return None
+        Q = xp.Request
+        try:
+            payload = Q(
+                req_id=int(pkt.req_id),
+                action=int(pkt.action),
+                target=int(pkt.target),
+                arg_i=int(pkt.arg_i or 0),
+                arg_f=float(pkt.arg_f or 0.0),
+            ).encode()
+        except (ValueError, TypeError):
+            return None
+        seq = self._tx_seq.get(Q.PORT, 0)
+        self._tx_seq[Q.PORT] = (seq + 1) & 0xFF
+        meta = {"dst": int(pkt.target), "seq": seq, "qos": Q.QOS, "latest": Q.LATEST}
+        return Frame(channel=Q.PORT, payload=payload, t=pkt.t, meta=meta)
 
     def encode_heartbeat(self, uptime_s: float) -> Frame:
         """The ground station's own heartbeat (network-design 4.5): role 0, network version, schema hash

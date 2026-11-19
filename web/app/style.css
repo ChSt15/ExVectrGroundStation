@@ -138,3 +138,20 @@ tr.incomplete td { color: var(--dim); }
 .rc-dialog { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; max-width: 26em; }
 .rc-dialog p { margin: 0 0 10px; }
 .rc-msg:empty { display: none; }
+
+/* Requests panel (docs/requests.md) */
+.rq-note { font-size: 12px; color: var(--dim, #6b7280); margin-bottom: 6px; }
+.rq-group h4 { margin: 8px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim, #6b7280); }
+.rq-row { display: grid; grid-template-columns: minmax(10em, 16em) auto auto 1fr; gap: 4px 10px; align-items: center; padding: 2px 0; }
+.rq-btn { position: relative; overflow: hidden; text-align: left; touch-action: none; user-select: none; }
+.rq-btn .bar { position: absolute; left: 0; bottom: 0; height: 4px; width: 0; background: #f0b429; }
+.rq-btn:disabled { opacity: .5; }
+.rq-target, .rq-route { font-size: 12px; color: var(--dim, #6b7280); }
+.rq-state { font-size: 12px; font-weight: 600; }
+.rq-state[data-tone="ok"] { color: var(--ok, #1a7f37); }
+.rq-state[data-tone="warn"] { color: var(--warn, #9a6700); }
+.rq-state[data-tone="bad"] { color: var(--bad, #cf222e); }
+.rq-msg { min-height: 1.2em; font-size: 12px; color: var(--bad, #cf222e); margin-top: 4px; }
+.rq-err { color: var(--bad, #cf222e); font-size: 12px; }
+.rq-danger-text { font-weight: 600; }
+.rc-ok:disabled { opacity: .45; cursor: not-allowed; }

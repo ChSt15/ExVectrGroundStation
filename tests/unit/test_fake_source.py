@@ -155,3 +155,39 @@ def test_registry_has_every_generated_type():
     s = make()
     s.reset(0)
     assert {p.TYPE for p in s.step(3)} <= {p.name for p in REGISTRY.all()}
+
+
+# ---- REQUEST answering test double (no vehicle logic)
+
+
+def _request_packet(rid=5, target=1):
+    from exvectr_gs.packets.defs.link import Request, RequestAction
+
+    return Request(t=1, src="gs", req_id=rid, action=RequestAction.CALIB_APPLY, target=target, arg_i=0, arg_f=0.0)
+
+
+async def _answer(src, *pkts):
+    got = []
+    src._sink = got.append
+    src._state = "connected"
+    oks = [await src.send(p) for p in pkts]
+    await asyncio.sleep(0)
+    return oks, got
+
+
+async def test_fake_source_answers_requests_only_when_asked_to():
+    assert await make().send(_request_packet()) is False
+    src = make(answer_requests=True, request_status=2, request_detail=7)
+    assert src.caps.can_send and src.caps.request_targets == (1, 2, 3) and src.caps.rc_role == "none"
+    oks, got = await _answer(src, _request_packet())
+    assert oks == [True] and [(p.TYPE, p.req_id, p.status, p.detail) for p in got] == [("RequestAck", 5, 2, 7)]
+
+
+async def test_fake_source_request_is_idempotent_drops_first_n_and_respects_reach():
+    src = make(answer_requests=True, request_drop_first=2, request_targets=[1])
+    oks, got = await _answer(src, *[_request_packet() for _ in range(3)], _request_packet(6, target=2))
+    assert oks == [True, True, True, False]  # node 2 is out of reach
+    assert [p.req_id for p in got] == [5]  # only the third attempt of id 5 is answered
+    assert len(src.executed_requests) == 1 and len(src.received_requests) == 3
+    src._state = "searching"
+    assert await src.send(_request_packet(9)) is False  # not connected

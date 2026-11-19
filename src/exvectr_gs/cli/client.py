@@ -135,6 +135,10 @@ class CoreClient:
             if op is None or msg["op"] == op:
                 return msg
 
+    @staticmethod
+    def loop_time() -> float:
+        return asyncio.get_running_loop().time()
+
     async def status(self) -> dict:
         """The current `status` message (the core sends one right after the handshake)."""
         if "status" not in self.last:

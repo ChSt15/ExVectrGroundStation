@@ -14,13 +14,13 @@ def test_all_section_3_2_types_registered():
         "Attitude", "Position", "Gps", "VehicleState", "MissionState", "FlapState", "TvcState", "RcState",
         "RadioLinkStats", "LinkStats", "ConsoleText", "RawFrame", "GsEvent", "Note",
             "VehicleStatus", "Actuators", "HandsetTelem", "ImuRaw", "Estimator", "TaskTiming", "TxModuleStats",
-            "RxModuleStats", "RequestAck", "NetworkStatus",
+            "RxModuleStats", "RequestAck", "NetworkStatus", "Request",
     }  # fmt: skip
 
 
 def test_directions_and_up_types():
     up = [p.name for p in REGISTRY.all() if p.direction is Direction.UP]
-    assert up == ["RcState"]
+    assert up == ["RcState", "Request"]  # the only uplink types: RC state and whitelisted REQUESTs
     assert REGISTRY.get("LinkStats").direction is Direction.LOCAL
 
 

@@ -17,6 +17,10 @@ class GsEventKind(IntEnum):
     lease_expired = 6
     replay_note = 7
     link_warning = 8
+    request_sent = 9
+    request_retry = 10
+    request_ack = 11
+    request_timeout = 12
 
 
 @packet(
