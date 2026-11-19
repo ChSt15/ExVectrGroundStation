@@ -18,6 +18,7 @@ from ..packets.fields import FieldSpec
 PROTOCOL_VERSION = 1
 VIEWS = ("live", "replay")
 REPLAY_SPEEDS = (0.25, 0.5, 1, 2, 4, 8)
+MAX_RC_HOLD_S = 10.0
 RC_KINDS = ("connection", "timed")
 MAX_TIMED_LEASE_S = 600.0
 
@@ -380,6 +381,14 @@ def parse_rc_set(msg: Mapping) -> dict[str, float | int]:
     if not out:
         raise ProtocolError("bad_request", "values is empty")
     return out
+
+
+def parse_rc_hold(msg: Mapping) -> float | None:
+    """Optional `hold_s` (extension): the core holds a momentary press for that long, then releases it."""
+    hold = _number(msg, "hold_s", optional=True)
+    if hold is not None and not 0 < hold <= MAX_RC_HOLD_S:
+        raise ProtocolError("invalid_value", f"hold_s must be within (0, {MAX_RC_HOLD_S:g}]")
+    return hold
 
 
 def parse_replay_speed(msg: Mapping) -> float:

@@ -50,16 +50,33 @@ async def _show(c: CoreClient, args: argparse.Namespace) -> int:
 
 async def _set(c: CoreClient, args: argparse.Namespace) -> int:
     values = parse_assignments(args.assignments)
-    if args.hold is not None and args.hold <= 0:
+    if args.hold is None:
+        d = await c.request("rc.set", values=values)
+        emit(args, d, "set " + " ".join(f"{k}={v}" for k, v in values.items()))
+        return EXIT_OK
+    if args.hold <= 0:
         raise CliError("--hold must be > 0", error_code="bad_request")
-    before = ((await c.status())["rc"] or {}).get("controls", {}) if args.hold is not None else {}
-    d = await c.request("rc.set", values=values)
-    emit(args, d, "set " + " ".join(f"{k}={v}" for k, v in values.items()))
-    if args.hold is not None:
-        await asyncio.sleep(args.hold)
-        restore = {k: before[k] for k in values if k in before}
-        if not restore:
-            raise CliError("--hold: the previous values are unknown, nothing restored", error_code="invalid_value")
+    # Momentary controls are held and released by the core (a killed CLI cannot leave one pressed).
+    # Any other control is restored by this client after the hold, using the values the core reported.
+    kinds = {x["id"]: x["kind"] for x in (await c.request("config.get", name="radio")).get("controls", [])}
+    momentary = {k: v for k, v in values.items() if kinds.get(k) == "momentary"}
+    other = {k: v for k, v in values.items() if k not in momentary}
+    before = ((await c.status())["rc"] or {}).get("controls", {}) if other else {}
+    restore = {k: before[k] for k in other if k in before}
+    if other and len(restore) != len(other):
+        raise CliError("--hold: the previous values are unknown, nothing set", error_code="invalid_value")
+    if other:
+        d = await c.request("rc.set", values=other)
+        emit(args, d, "set " + " ".join(f"{k}={v}" for k, v in other.items()))
+    if momentary:
+        d = await c.request("rc.set", values=momentary, hold_s=args.hold)
+        emit(
+            args,
+            d,
+            "pressed " + " ".join(f"{k}={v}" for k, v in momentary.items()) + f" (core releases after {args.hold:g} s)",
+        )
+    await asyncio.sleep(args.hold)
+    if restore:
         d = await c.request("rc.set", values=restore)
         emit(args, d, "restored " + " ".join(f"{k}={v}" for k, v in restore.items()))
     return EXIT_OK
@@ -74,4 +91,9 @@ def register(sub: argparse._SubParsersAction) -> None:
     add_client_command(rs, "show", "show the RC status", _show)
     s = add_client_command(rs, "set", "set controls, e.g. SA=1 S1=0.4", _set)
     s.add_argument("assignments", nargs="+", metavar="CONTROL=VALUE")
-    s.add_argument("--hold", type=float, metavar="S", help="restore the previous values after S seconds")
+    s.add_argument(
+        "--hold",
+        type=float,
+        metavar="S",
+        help="hold for S seconds, then release (momentary: held by the core; others: restored by this command)",
+    )

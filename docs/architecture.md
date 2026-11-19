@@ -25,7 +25,7 @@ FakeSource ---------------------------------------------> Packet -^
 | ApiServer, Hub, protocol helpers | `exvectr_gs.api` | implemented (T3), see [api.md](api.md) |
 | Replayer | `exvectr_gs.replay` | implemented (T4) |
 | `SerialSource`, `provisional-1` profile, `tools/fake_vehicle_pty.py` | `exvectr_gs.sources.serial_source`, `exvectr_gs.wire.provisional_1` | implemented (T5), see [wire-profiles.md](wire-profiles.md) |
-| RcController, radio config | `exvectr_gs.rc` | stub (T6) |
+| RcController, radio config | `exvectr_gs.rc` | implemented (T6), `docs/radio.md` |
 
 ## Notes on the implementation
 

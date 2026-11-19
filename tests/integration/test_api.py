@@ -424,6 +424,7 @@ async def test_cross_origin_websocket_is_refused():
 async def test_replay_rc_are_not_implemented_without_modules():
     app = make_app()
     del app.replayer  # a core without the module
+    app.rc = None  # ... and without an RC controller (for example an invalid radio config)
     async with running(app) as rig:
         c = await Client.connect(rig)
         for op, f in [
