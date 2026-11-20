@@ -23,7 +23,7 @@ from ..wire import ProfileNotFound, WireProfile, load_profile
 from .bus import Bus
 from .clock import Clock, MonotonicClock
 from .config import ConfigError, GsConfig
-from .history import History
+from .history import PLOT_MAX_HZ, PLOT_TYPES, PLOT_WINDOW_S, History
 from .state import StateStore
 
 log = logging.getLogger(__name__)
@@ -38,6 +38,8 @@ class CoreApp:
         self.bus = Bus()
         self.store = StateStore(REGISTRY, cfg.core.source_priority, cfg.core.stale_min_s, self.clock.now)
         self.history = History(REGISTRY)
+        # full-rate buffer of the tuning graphs (get_history buffer "plot"); the replay view reads the log instead
+        self.plot_history = History(REGISTRY, PLOT_WINDOW_S, PLOT_MAX_HZ, PLOT_TYPES)
         # replay view (filled by the Replayer; the API serves them as view "replay")
         self.replay_bus = Bus()
         self.replay_store = StateStore(REGISTRY, [], cfg.core.stale_min_s)
@@ -112,6 +114,7 @@ class CoreApp:
     def _on_packet(self, pkt) -> None:
         self.store.update(pkt)
         self.history.update(pkt)
+        self.plot_history.update(pkt)
         self.packet_counts[pkt.src] += 1
 
     def summary_line(self, period_s: float = 1.0) -> str:

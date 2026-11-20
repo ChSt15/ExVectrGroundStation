@@ -93,6 +93,17 @@ def test_pocket_config_loads_with_safe_defaults():
     assert {c.id: c.meaning for c in cfg.controls}["SD"] == "motor enable"  # informational label only
 
 
+def test_stick_display_mapping_defaults():
+    import tomllib
+
+    assert load_radio_config(POCKET).sticks == {"mode": 2, "roll": 1, "pitch": 2, "throttle": 3, "yaw": 4}
+    d = tomllib.loads(POCKET.read_text())
+    del d["sticks"]
+    assert radio_config_from_dict(d).sticks["throttle"] == 3  # all keys optional
+    d["sticks"] = {"mode": 1}
+    assert radio_config_from_dict(d).sticks == {"mode": 1, "roll": 1, "pitch": 2, "throttle": 3, "yaw": 4}
+
+
 def test_channel_mapping_and_back():
     cfg = load_radio_config(POCKET)
     st = {"SA": 1, "SB": 2, "SC": 1, "SD": 1, "SE": 1, "S1": 0.25}
@@ -117,6 +128,12 @@ def test_channel_mapping_and_back():
         lambda d: d.update(channel_defaults={"3": 3000}),
         lambda d: d.update(send_rate_hz=0),
         lambda d: d.update(bogus=1),
+        lambda d: d["sticks"].update(mode=3),  # stick display mapping
+        lambda d: d["sticks"].update(roll=2),  # duplicate stick channel
+        lambda d: d["sticks"].update(yaw=5),  # used by a control (SA)
+        lambda d: d["sticks"].update(throttle=17),
+        lambda d: d["sticks"].update(aux=6),
+        lambda d: d.update(sticks=3),
     ],
 )
 def test_invalid_radio_config_is_refused(mutate):

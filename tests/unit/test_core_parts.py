@@ -51,6 +51,18 @@ def test_history_only_history_types_downsample_window_query():
     assert h.query("Position", "usb", [], 0, 100 * S, 100)["t"] == [60 * S]
 
 
+def test_plot_history_keeps_its_types_at_full_rate():
+    from exvectr_gs.core.history import PLOT_MAX_HZ, PLOT_TYPES, PLOT_WINDOW_S
+
+    h = History(REGISTRY, PLOT_WINDOW_S, PLOT_MAX_HZ, PLOT_TYPES)
+    for i in range(300):  # 100 Hz with 1 ms jitter: every sample is kept
+        h.update(Position(t=i * S // 100 + (i % 2) * S // 1000, src="usb", pos=[float(i), 0, 0]))
+    h.update(Note(t=0, src="usb", text="x"))  # not a plot type
+    assert len(h.query("Position", "usb", ["pos"], 0, 10 * S, 100_000)["t"]) == 300
+    assert h.query("Note", None, ["text"], 0, 10 * S, 10)["t"] == []
+    assert "ImuRaw" in PLOT_TYPES and PLOT_WINDOW_S >= 120
+
+
 def test_history_keeps_sources_separate():
     h = History(REGISTRY)
     h.update(Attitude(t=0, src="usb", q=[1, 0, 0, 0]))

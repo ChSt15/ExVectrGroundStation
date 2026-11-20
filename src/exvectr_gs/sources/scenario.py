@@ -10,7 +10,7 @@ import math
 import random
 from typing import Any
 
-from ..packets.defs.vehicle import MissionMode, MissionPhase, SensorState, VehicleMode
+from ..packets.defs.vehicle import ControlSource, MissionMode, MissionPhase, SensorState, VehicleMode
 
 T_READY = 2.0
 T_START = 4.0  # mission begins (Hover)
@@ -193,6 +193,78 @@ class Scenario:
             "motor": [motor, motor],
             "enabled": running,
             "motors_enabled": running,
+        }
+
+    def _f_VehicleStatus(self, t: float) -> dict[str, Any]:
+        mode, mmode, phase = self.phase_at(t)
+        running = mode == VehicleMode.Running
+        ready = t >= T_READY
+        return {
+            "vehicle_time": int(t * 1e9),
+            "mode": mode,
+            "mission_mode": mmode,
+            "mission_phase": phase,
+            "ctrl_source": ControlSource.NONE,
+            "armed": running,
+            "simulation": True,
+            "motors_enabled": False,
+            "gs_present": True,
+            "incompatible": False,
+            "failsafe": False,
+            "failure_bits": 0,
+            "sensor_state": 0xAAA if ready else 0,  # six sensors Ready (2) / Init (0)
+            "last_req_id": 0,
+            "last_req_status": 0,
+            "rc_age": None,
+        }
+
+    def _f_Actuators(self, t: float) -> dict[str, Any]:
+        running = self.phase_at(t)[0] == VehicleMode.Running
+        az = self.vel(t + 0.05)[2] - self.vel(t - 0.05)[2]
+        return {
+            "flaps": self._f_FlapState(t + 0.1)["angle"],
+            "tvc": [0.05 * math.sin(1.1 * t), 0.04 * math.cos(0.9 * t)] if running else [0.0, 0.0],
+            "thrust": (G + az * 10) * 0.9 if running else 0.0,
+            "ground_distance": min(self.pos(t)[2], 2.0),
+        }
+
+    def _f_ImuRaw(self, t: float) -> dict[str, Any]:
+        w = self.omega(t)
+        bias = [0.01, -0.02, 0.005]
+        return {
+            "gyro": [w[i] + bias[i] + 0.002 * math.sin(37 * t + i) for i in range(3)],
+            "accel": [0.05 * math.sin(3 * t), 0.1, G + 0.2 * math.sin(2 * t)],
+            "mag": [2e-5, 0.0, 4e-5],
+            "pressure": 101325.0 - 12.0 * self.pos(t)[2],
+            "temperature": 293.15,
+        }
+
+    def _f_Estimator(self, t: float) -> dict[str, Any]:
+        k = 1.0 + 0.3 * math.sin(0.5 * t)
+        return {
+            "att_std": [0.01 * k, 0.01 * k, 0.03 * k],
+            "vel_std": [0.1 * k, 0.1 * k, 0.05 * k],
+            "pos_std": [0.5 * k, 0.5 * k, 0.3 * k],
+        }
+
+    def _f_TaskTiming(self, t: float) -> dict[str, Any]:
+        avg = [1e-4 + 1e-5 * i + 5e-6 * math.sin(t + i) for i in range(4)] + [math.nan] * 4
+        return {"count": 4, "avg": avg, "max": [a * 2 for a in avg[:4]] + [math.nan] * 4}
+
+    def _f_Calibration(self, t: float) -> dict[str, Any]:
+        eye = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+        return {
+            "raw_frame": 0,
+            "gyro_source": 3,
+            "accel_source": 3,
+            "mag_source": 3,
+            "gyro_offset": [0.01, -0.02, 0.0],
+            "gyro_matrix": eye,
+            "accel_offset": [0.0, 0.1, 0.0],
+            "accel_matrix": eye,
+            "mag_offset": [0.0, 0.0, 0.0],
+            "mag_matrix": eye,
+            "gyro_bias_est": [0.0, 0.0, 0.005],
         }
 
     def _f_RadioLinkStats(self, t: float) -> dict[str, Any]:

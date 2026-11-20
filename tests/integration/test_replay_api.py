@@ -74,6 +74,21 @@ async def test_replay_ops_snapshots_history_markers_and_status():
         )
         (s0,) = h["series"]
         assert 0 < len(s0["t"]) <= 50 and all(T0_NS / 1e9 <= t <= T0_NS / 1e9 + 10 for t in s0["t"])
+        # plot buffer: full rate read from the log (types without history=True too)
+        hp = await c.ok(
+            "get_history",
+            view="replay",
+            buffer="plot",
+            series=[{"type": "Position", "fields": ["pos"]}, {"type": "VehicleState", "fields": ["mode"]}],
+            t0=T0_NS / 1e9,
+            t1=T0_NS / 1e9 + 10,
+            max_points=100_000,
+        )
+        p0, v0 = hp["series"]
+        assert len(p0["t"]) > len(s0["t"]) and all(T0_NS / 1e9 <= t <= T0_NS / 1e9 + 10 for t in p0["t"])
+        assert p0["t"] == sorted(p0["t"]) and len(p0["pos"]) == len(p0["t"])
+        assert v0["t"] and isinstance(v0["mode"][0], str)
+        assert await c.err("get_history", buffer="x", series=[], t0=0, t1=1) == "invalid_value"
         live_h = await c.ok("get_history", view="live", series=[{"type": "Position", "fields": ["pos"]}], t0=0, t1=1e12)
         assert live_h["series"][0]["t"] == []  # replay history never reaches the live view
         markers = await c.ok("replay.markers")

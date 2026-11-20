@@ -18,6 +18,10 @@ POSITIONS = {"toggle2": 2, "switch3": 3, "momentary": 2}
 US_MIN, US_MAX = 1000, 2000  # every configured pulse width must be inside this range
 MAX_CHANNELS = 16  # the RcState packet carries 16 channels
 DEFAULT_LOCK_TIMEOUT_S = 60.0
+# Stick display (GUI only, never sent by the ground station): stick axis -> 1-based channel, and the
+# gimbal mode (2: left stick yaw / throttle, right stick roll / pitch; 1: left yaw / pitch, right roll / throttle).
+STICK_AXES = ("roll", "pitch", "throttle", "yaw")
+DEFAULT_STICKS = {"mode": 2, "roll": 1, "pitch": 2, "throttle": 3, "yaw": 4}
 MAX_LOCK_TIMEOUT_S = 3600.0
 
 
@@ -78,6 +82,7 @@ class RadioConfig:
     channel_defaults: dict[int, int] = field(default_factory=dict)
     mapping_note: str = ""
     controls: list[ControlSpec] = field(default_factory=list)
+    sticks: dict[str, int] | None = None  # None: the defaults, without the overlap check
 
     def __post_init__(self) -> None:
         self.validate()
@@ -102,6 +107,26 @@ class RadioConfig:
             raise RadioConfigError("control channels must be unique")
         for c in self.controls:
             self._check_control(c)
+        self._check_sticks(set(chans))
+
+    def _check_sticks(self, control_channels: set[int]) -> None:
+        """Display-only stick mapping: known keys, mode 1 or 2, distinct channels that no control uses."""
+        if self.sticks is None:
+            self.sticks = dict(DEFAULT_STICKS)
+            return
+        extra = set(self.sticks) - set(DEFAULT_STICKS)
+        if extra:
+            raise RadioConfigError(f"sticks: unknown keys {sorted(extra)}")
+        self.sticks = {**DEFAULT_STICKS, **self.sticks}
+        if self.sticks["mode"] not in (1, 2):
+            raise RadioConfigError("sticks: mode must be 1 or 2")
+        chans = [self.sticks[a] for a in STICK_AXES]
+        if any(not isinstance(c, int) or isinstance(c, bool) or not 1 <= c <= self.channel_count for c in chans):
+            raise RadioConfigError(f"sticks: channels must be integers within 1..{self.channel_count}")
+        if len(set(chans)) != len(chans):
+            raise RadioConfigError("sticks: channels must be distinct")
+        if set(chans) & control_channels:
+            raise RadioConfigError("sticks: a stick channel is also used by a control")
 
     def _check_control(self, c: ControlSpec) -> None:
         if not c.id or any(ch.isspace() or ch == "=" for ch in c.id):
@@ -201,12 +226,15 @@ def radio_config_from_dict(data: Mapping[str, Any]) -> RadioConfig:
     data = dict(data)
     controls = [_control(c) for c in data.pop("controls", [])]
     known = {"name", "send_rate_hz", "channel_count", "channel_default_us", "channel_defaults", "mapping_note"}
+    known.add("sticks")
     extra = set(data) - known
     if extra:
         raise RadioConfigError(f"unknown radio config keys {sorted(extra)}")
     try:
         if "channel_defaults" in data:
             data["channel_defaults"] = {int(k): int(v) for k, v in data["channel_defaults"].items()}
+        if "sticks" in data and not isinstance(data["sticks"], dict):
+            raise RadioConfigError("sticks must be a table")
         return RadioConfig(controls=controls, **data)
     except (TypeError, ValueError, AttributeError) as e:
         if isinstance(e, RadioConfigError):

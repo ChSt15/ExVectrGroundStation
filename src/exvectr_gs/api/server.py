@@ -5,8 +5,8 @@ operations are passed to the RC controller (T6), recording operations to the rec
 operations to the replayer (T4). A module the core does not have yet answers `not_implemented`.
 
 App context attributes used (all optional except the first four): `cfg`, `clock`, `bus`, `store`,
-`history`, `sources`, `recorder`, `library`, `replayer`, `rc`, `replay_bus`, `replay_store`,
-`replay_history`.
+`history`, `plot_history`, `sources`, `recorder`, `library`, `replayer`, `rc`, `replay_bus`,
+`replay_store`, `replay_history`.
 """
 
 from __future__ import annotations
@@ -364,12 +364,31 @@ class ApiServer:
         return self.hub.snapshot(P.view_of(msg), P.check_types(msg.get("types", "*")), src, bool(msg.get("preferred")))
 
     async def _op_get_history(self, client: Client, msg: dict) -> dict:
+        """`buffer` (extension): "trail" (default, types with history=True at 20 Hz) or "plot" (the tuning
+        graphs: full rate, about 2 min live from `plot_history`; in the replay view read from the open log)."""
         view, series, t0, t1, max_points = P.parse_history(msg)
-        history = self.ctx.history if view == "live" else self._mod("replay_history")
+        buffer = msg.get("buffer", "trail")
+        if buffer not in ("trail", "plot"):
+            raise ProtocolError("invalid_value", "buffer must be 'trail' or 'plot'")
+        results: list[dict[str, list]] | None = None
+        history = None
+        if buffer == "trail":
+            history = self.ctx.history if view == "live" else self._mod("replay_history")
+        elif view == "live":
+            history = self._mod("plot_history")
+        else:
+            replayer = self._mod("replayer")
+            if replayer is not None and hasattr(replayer, "read_series"):
+                try:
+                    results = await asyncio.to_thread(replayer.read_series, series, t0, t1, max_points)
+                except (RuntimeError, NotImplementedError, OSError):
+                    results = None  # no log open (or it went away): empty series
         out = []
-        for s in series:
-            if history is None:
-                res: dict[str, list] = {"t": [], **{f: [] for f in s["fields"]}}
+        for i, s in enumerate(series):
+            if results is not None:
+                res = results[i]
+            elif history is None:
+                res = {"t": [], **{f: [] for f in s["fields"]}}
             else:
                 res = history.query(s["type"], s["src"], s["fields"], t0, t1, max_points)
             res = {**res, "t": [x / 1e9 for x in res["t"]]}

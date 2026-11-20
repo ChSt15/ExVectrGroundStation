@@ -29,6 +29,13 @@ USB_RATES: dict[str, float] = {
     "MissionState": 10,
     "Gps": 1,
     "ConsoleText": 0.5,
+    # vehicle status and the USB debug set (tuning graphs, raw sensor panel)
+    "VehicleStatus": 10,
+    "Actuators": 50,
+    "ImuRaw": 100,
+    "Estimator": 20,
+    "TaskTiming": 5,
+    "Calibration": 0.5,
 }
 RADIO_RATES: dict[str, float] = {
     "Attitude": 10,
@@ -101,6 +108,8 @@ class FakeSource(Source):
             if name not in REGISTRY._types and name != "ConsoleText":
                 raise ConfigError(f"fake source {cfg.id}: unknown packet type {name!r} in rates")
         self.speed = float(opts.get("speed", 1.0))
+        # Reported `VehicleStatus.simulation` / `VehicleState.sim` (test double: false looks like a real vehicle)
+        self.simulation = bool(opts.get("simulation", True))
         self.scenario = Scenario(int(opts.get("seed", 1)))
         self.faults = parse_faults(opts.get("faults", []))
         # Test double of a vehicle answering REQUESTs (no vehicle logic). `answer_requests = true` makes this
@@ -190,7 +199,10 @@ class FakeSource(Source):
                     fields["pos"] = [math.nan, *fields["pos"][1:]]
         if type_name == "MissionState" and self.echo_rc and self._echo_idx is not None:
             fields["mission_index"] = self._echo_idx
+        if type_name == "VehicleStatus":
+            fields["simulation"] = self.simulation
         if type_name == "VehicleState":
+            fields["sim"] = self.simulation
             if self._fault("unknown_enum", td):
                 fields["mode"] = 9  # not a VehicleMode member
             if any(f.kind == "failure_flag" and td >= f.at for f in self.faults):

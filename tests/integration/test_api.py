@@ -240,6 +240,20 @@ async def test_get_history_returns_float_seconds_and_enum_names():
         assert await c.err("get_history", series=[{"type": "Position", "fields": ["x"]}], t0=0, t1=1) == "invalid_value"
         d = await c.ok("get_history", view="replay", series=[{"type": "Position", "fields": ["pos"]}], t0=0, t1=1)
         assert d["series"][0]["t"] == []
+        # plot buffer (tuning graphs): full rate, types without history=True too
+        d = await c.ok(
+            "get_history",
+            view="live",
+            buffer="plot",
+            series=[{"type": "Position", "fields": ["pos"]}, {"type": "Estimator", "fields": ["att_std"]}],
+            t0=now - 60,
+            t1=now + 1,
+            max_points=100_000,
+        )
+        assert len(d["series"][0]["t"]) >= len(pos["t"]) and d["series"][1]["att_std"]
+        pos_only = [{"type": "Position", "fields": ["pos"]}]
+        d = await c.ok("get_history", view="replay", buffer="plot", series=pos_only, t0=0, t1=1)
+        assert d["series"][0]["t"] == []  # no log open
         await c.close()
 
 

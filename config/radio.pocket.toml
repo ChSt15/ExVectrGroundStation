@@ -20,6 +20,17 @@ channel_default_us = 1500           # sticks (channels 1, 2, 4) and any unmapped
 channel_defaults = { 3 = 1000 }     # 1-based channel -> us: throttle low
 mapping_note = "Must match the flight-software compiled-in RC channel table (rev: not yet versioned)"
 
+# Stick DISPLAY only (radio panel and the compact RC panel of the Flight view): which channels the two gimbals
+# show. The ground station sends no stick values: in master these channels carry the defaults above (sticks
+# neutral 1500 us, throttle low 1000 us). 1-based channels; mode 2 = left stick yaw (x) / throttle (y), right
+# stick roll (x) / pitch (y); mode 1 = left yaw / pitch, right roll / throttle. All keys optional (these defaults).
+[sticks]
+mode = 2
+roll = 1
+pitch = 2
+throttle = 3
+yaw = 4
+
 [[controls]]
 id = "SA"
 label = "SA"
