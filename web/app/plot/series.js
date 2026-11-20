@@ -159,9 +159,15 @@ export function paddedRange(r, pad = 0.08) {
 /** "Nice" tick values (1, 2, 5 times a power of ten) covering [lo, hi] with about n ticks. */
 export function niceTicks(lo, hi, n = 5) {
   if (!(hi > lo) || !Number.isFinite(lo) || !Number.isFinite(hi)) return [];
-  const raw = (hi - lo) / Math.max(1, n);
-  const p = 10 ** Math.floor(Math.log10(raw));
-  const step = [1, 2, 5, 10].map((m) => m * p).find((s) => s >= raw) || 10 * p;
+  const span = hi - lo;
+  const want = Math.max(1, n);
+  const p = 10 ** Math.floor(Math.log10(span / want));
+  // the 1-2-5 step whose tick count is closest to the wanted one (never fewer than two ticks inside a range)
+  let step = p;
+  for (const m of [1, 2, 5, 10, 20]) {
+    const c = m * p;
+    if (Math.abs(span / c - want) < Math.abs(span / step - want) && span / c >= 1.5) step = c;
+  }
   const out = [];
   for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-9; v += step) out.push(Math.abs(v) < step * 1e-9 ? 0 : v);
   return out;

@@ -54,6 +54,7 @@ test("ranges, ticks, window and CSV", () => {
   assert.ok(flat[0] < 5 && flat[1] > 5);
   assert.deepEqual(niceTicks(0, 10, 5), [0, 2, 4, 6, 8, 10]);
   assert.deepEqual(niceTicks(-0.3, 0.3, 3), [-0.2, 0, 0.2]);
+  assert.ok(niceTicks(-9, 9, 3).length >= 3, "a symmetric range gets ticks on both sides");
   assert.equal(tickDigits([0, 0.2, 0.4]), 1);
   assert.equal(tickDigits([0, 20, 40]), 0);
   assert.deepEqual(viewWindow({ now: 100, windowS: 10, follow: true }), [90, 100]);

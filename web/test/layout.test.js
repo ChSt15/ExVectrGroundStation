@@ -72,12 +72,13 @@ test("view, dock state and tab choice: remembered if still valid, else the defau
   assert.equal(pickTab(layout, "gone"), "radio");
 });
 
-test("the shipped layout has the bench and flight views and passes without problems", async () => {
+test("the shipped layout has the bench, flight and tuning views and passes without problems", async () => {
   const raw = await loadJson(new URL("../../config/layout.default.json", import.meta.url));
   const ids = [...new Set([...raw.dock.tabs.map((t) => t.panel), ...Object.values(raw.views).flatMap((v) => v.groups.flatMap((g) => g.panels.map((p) => p.panel))), "transport"])];
   const { layout, problems } = normalizeLayout(raw, ids);
   assert.deepEqual(problems, []);
-  assert.deepEqual(Object.keys(layout.views), ["bench", "flight"]); // tuning: remaining work (docs/gui.md)
+  assert.deepEqual(Object.keys(layout.views), ["bench", "flight", "tuning"]);
+  assert.equal(layout.views.tuning.dock, "rail");
   assert.equal(layout.default, "bench");
   for (const v of ["bench", "flight"]) assert.deepEqual(layout.views[v].groups.map((g) => g.title), ["Vehicle", "Guidance", "Mission"]);
   assert.equal(layout.views.bench.dock, "open");

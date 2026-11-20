@@ -155,6 +155,23 @@
           ]
         }
       ]
+    },
+    "tuning": {
+      "label": "Tuning",
+      "hint": "time-series graphs for filter and control tuning",
+      "columns": "minmax(0, 1fr)",
+      "dock": "rail",
+      "groups": [
+        {
+          "id": "graphs",
+          "title": "Graphs",
+          "panels": [
+            {
+              "panel": "tuning"
+            }
+          ]
+        }
+      ]
     }
   }
 }

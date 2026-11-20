@@ -18,3 +18,4 @@ import "./radio.js";
 import "./requests.js";
 import "./telecommands.js";
 import "./rcsticks.js";
+import "./tuning.js";

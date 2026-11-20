@@ -48,17 +48,18 @@ def test_relative_imports_resolve():
 
 def test_default_layout_is_consistent_with_the_registered_panels():
     layout = json.loads((ROOT / "config" / "layout.default.json").read_text())
-    assert set(layout["views"]) == {"bench", "flight"} and layout["default"] == "bench"
+    assert set(layout["views"]) == {"bench", "flight", "tuning"} and layout["default"] == "bench"
     ids = panel_ids()
     dock = [t["panel"] for t in layout["dock"]["tabs"]]
     assert set(dock) <= ids and len(dock) == len(set(dock))
     for name, view in layout["views"].items():
-        assert [g["title"] for g in view["groups"]] == ["Vehicle", "Guidance", "Mission"], name
+        if name != "tuning":
+            assert [g["title"] for g in view["groups"]] == ["Vehicle", "Guidance", "Mission"], name
         used = [e["panel"] for g in view["groups"] for e in g["panels"]]
         assert set(used) <= ids, f"{name}: unknown panels {set(used) - ids}"
         assert len(used) == len(set(used)), f"{name}: panel listed twice"
         assert not set(used) & set(dock), f"{name}: dock panel inside a group"
-        assert "view3d" in used
+        assert "view3d" in used or name == "tuning"
 
 
 def test_index_page_has_no_external_resources():
@@ -251,4 +252,47 @@ async def test_browser_source_switch_disconnects_and_reconnects():
             await b.eval(f"document.querySelector('{sw}').click()")  # on: no confirmation
             await b.sleep(1.5)
             assert rig.app.sources[0].status().state == "connected"
+            assert not [m for m in b.console if "EXCEPTION" in m], b.console
+
+
+@needs_browser
+async def test_browser_tuning_graphs_live_history_reload_and_replay():
+    from pathlib import Path
+
+    from tests.support_logs import make_log
+
+    app = make_app(speed=1.0)
+    make_log(Path(app.library.directory), "full", 20.0)
+    async with running(app) as rig:
+        async with browser_check.Browser(1600, 1000, 9347) as b:
+            await b.goto(rig.url() + "/")
+            await b.sleep(1.0)
+            await b.eval("window.exgs.layout.set('tuning')")
+            await b.sleep(4.0)
+            d = await b.eval("window.exgs.tuning.debug()")
+            assert len(d["graphs"]) == 8 and await b.eval("document.querySelectorAll('.tn-card canvas').length") == 8
+            assert d["points"] > 500 and d["frameMs"] < 30, d
+            for sig in ("att.roll", "rate.x", "imu.gyro.x", "cal.gyro.x", "act.thrust", "std.att.N", "err.pos.U"):
+                assert sig in d["supplied"], sig
+            n_rate = d["rings"]["rate.x"]
+            assert n_rate > 250  # 100 Hz Attitude, every sample (mode "all"), not the 20 Hz latest stream
+            # a reload keeps the history (the core's plot buffer)
+            await b.goto(rig.url() + "/")
+            await b.sleep(2.0)
+            d2 = await b.eval("window.exgs.tuning.debug()")
+            assert d2["rings"].get("rate.x", 0) >= n_rate, (n_rate, d2["rings"].get("rate.x"))
+            # pause freezes the window
+            await b.eval("document.querySelector('.tn-bar .pause').click()")
+            assert (await b.eval("window.exgs.tuning.debug()"))["paused"] is True
+            await b.eval("document.querySelector('.tn-bar .pause').click()")
+            # replay: history comes from the log
+            await b.eval("window.exgs.dock.open('recording')")
+            await b.eval("document.querySelector('[data-panel=recording] .sect-title button').click()")
+            await b.sleep(0.8)
+            await b.eval("[...document.querySelectorAll('[data-panel=recording] .loglist button')][0].click()")
+            await b.sleep(1.5)
+            await b.eval("document.querySelector('[data-panel=transport] .play').click()")
+            await b.sleep(3.0)
+            d3 = await b.eval("window.exgs.tuning.debug()")
+            assert d3["rings"].get("att.roll", 0) > 50, d3["rings"]
             assert not [m for m in b.console if "EXCEPTION" in m], b.console

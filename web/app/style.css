@@ -384,7 +384,7 @@ body[data-layout="tuning"] .group-title { display: none; }
 [data-panel="tuning"] > .body { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; padding: 8px; overflow: hidden; }
 .tn-bar { margin: 0 0 8px; }
 .tn-info { margin: 0 0 0 6px; }
-.tn-grid { flex: 1 1 auto; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 560px), 1fr)); grid-auto-rows: minmax(210px, calc((100% - 3 * 8px) / 4)); gap: 8px; scrollbar-width: thin; }
+.tn-grid { flex: 1 1 auto; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 560px), 1fr)); grid-auto-rows: minmax(220px, 1fr); gap: 8px; scrollbar-width: thin; }
 .tn-card { display: flex; flex-direction: column; min-height: 0; background: var(--surface-2); border: 1px solid var(--line); border-radius: 5px; padding: 4px 6px 4px; }
 .tn-head { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 .tn-head h3 { margin: 0; font-size: var(--fs-s); font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
