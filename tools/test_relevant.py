@@ -52,9 +52,8 @@ def main():
     if not selected and not js:
         selected = {t for t in tests if "unit" in t.parts}
     names = [str(t.relative_to(ROOT)) for t in sorted(selected)]
-    print(
-        f"changed files: {len(files)}; test files: {len(names)}; js: {js}; skipped browser tests: {len(browser) if '--browser' not in flags else 0}"
-    )
+    skipped = len(browser) if "--browser" not in flags else 0
+    print(f"changed files: {len(files)}; test files: {len(names)}; js: {js}; skipped browser: {skipped}")
     for n in names:
         print("  ", n)
     if "--list" in flags:
