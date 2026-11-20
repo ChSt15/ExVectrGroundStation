@@ -248,6 +248,10 @@ return { onTick: () => b.update(), onViewChange: () => b.update(), freshness: ()
 
 Value spec: `type` (or `types` for derived values), `field`, `index`, `src`, `unit`, `digits`, `scale`, `kind` (`num`, `vec`, `enum`, `bool`, `time`, `text`), `labels` (bool), `format(value)`, `derive(entry or entries)`. The cell options `tone(description)` (colour name) and `class` are the optional last argument of `row` and `cell`.
 
+### Software tab and update badge (panel `update`, dock tab "Software"; `update/update_logic.js`)
+
+Version (sha, branch, date, subject), tree state, packets schema hash (disk and running), submodule pins; **Check for updates** (control hosts), the new commits with notes (pyproject change, submodule pins, diverged), **Update and restart** (hold 1 s) and the progress output (`update_progress` pushes). The button is disabled with the reason when: no check yet / up to date, dirty tree, other branch, detached HEAD, replay view, view-only host, vehicle armed, motors enabled, mission Running, recording active, RC lease held, or any guard the core reports ([updating.md](updating.md)). The header shows a badge (`update: N new` or `restart pending`) from the core's `update` push; clicking it opens the tab. After the restart the existing reconnect logic reconnects and the tab reloads the page once if the commit changed. The core enforces everything again.
+
 ## Testing
 
 ```bash

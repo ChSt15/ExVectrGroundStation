@@ -30,5 +30,7 @@ The example config enables only the fake source, which runs a scripted flight (S
 | [requests.md](requests.md) | Whitelisted one-shot REQUESTs (calibration, save, link upload): whitelist, ids and retry, routing, confirmation, API/CLI/GUI, test doubles | request sender (2026-11-19) |
 | [telecommands.md](telecommands.md) | **TEMPORARY** legacy telecommand uplink (port 0x7F: arm, simulation toggle, mission, magnetometer calibration): frame layout, rules (one frame, no retry, no ACK), config, API/CLI/GUI, test doubles, what to delete at T9b | third uplink (2026-11-20) |
 | [glossary.md](glossary.md) | User-facing names: Router (node 2), ship radio node (node 3), vehicle, Pocket | 2026-11-20 |
+| [updating.md](updating.md) | Self-update from git: config, apply steps, guards, exit code 42, `exgs update` | feature/update-button |
+| [install-frame.md](install-frame.md) | Install and run on the Steam Frame (clone, `start.sh`, config, USB limit, rollback) | feature/update-button |
 | [radio.md](radio.md) | Virtual radio, leases (connection, keepalive), locked controls, safety notes | T6, T9 |
 | [operations.md](operations.md) | Field setup, udev, systemd | skeleton |

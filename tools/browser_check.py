@@ -39,7 +39,7 @@ class Browser:
         self.ws: aiohttp.ClientWebSocketResponse | None = None
         self.n = 0
         self.console: list[str] = []
-        self._tmp = tempfile.TemporaryDirectory(prefix="exgs-chrome-")
+        self._tmp = tempfile.TemporaryDirectory(prefix="exgs-chrome-", ignore_cleanup_errors=True)
 
     async def __aenter__(self) -> Browser:
         exe = find_browser()

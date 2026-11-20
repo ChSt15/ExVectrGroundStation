@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=ExVectr Ground Station
+Comment=Starship ground station core and GUI
+Exec=@INSTALL_DIR@/start.sh
+Path=@INSTALL_DIR@
+Terminal=true
+Categories=Utility;
