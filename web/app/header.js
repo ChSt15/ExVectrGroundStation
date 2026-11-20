@@ -4,6 +4,7 @@
 import { h, makeCell, renderValue } from "./ui.js";
 import { describe } from "./fmt.js";
 import { describeRecorder } from "./status/source_logic.js";
+import { badgeState } from "./update/update_logic.js";
 
 export const HEADER_CONSUMES = ["RadioLinkStats"];
 
@@ -31,6 +32,9 @@ export function createHeader(ctx, opts) {
   const link = h("span", { class: "chip", title: "radio link quality (Router)" });
   const linkVal = makeCell();
   link.append(h("span", { class: "chip-l", text: "LQ" }), linkVal.el);
+  // software update badge (docs/updating.md): shown when a check found new commits or a restart is pending
+  const upd = h("button", { class: "chip upd-chip", "data-testid": "update-badge", hidden: true, "aria-label": "software update available: open the Software tab" });
+  upd.addEventListener("click", () => window.exgs?.dock?.open("update"));
   // recorder block
   const recDot = h("span", { class: "rec-dot" });
   const recState = h("span", { class: "rec-state", "data-testid": "rec-state" }, recDot, h("span", { class: "rec-t" }));
@@ -65,6 +69,7 @@ export function createHeader(ctx, opts) {
     views,
     toggle,
     h("span", { class: "grow" }),
+    upd,
     rc,
     link,
     rec,
@@ -90,6 +95,10 @@ export function createHeader(ctx, opts) {
     rc.textContent = !open ? "RC —" : !r ? "RC n/a" : `RC ${RC_TEXT[r.mode] || r.mode}${r.mode === "master" && r.sending ? " · SENDING" : r.mode === "slave" ? " · Pocket" : ""}`;
     rc.dataset.mode = open && r ? r.mode : "";
     rc.dataset.sending = String(!!(open && r && r.sending));
+    const ub = badgeState(ctx.update && ctx.update());
+    upd.hidden = !ub.show;
+    upd.textContent = ub.text;
+    upd.dataset.tone = ub.tone || "";
     // recorder
     const st = ctx.status();
     const d = describeRecorder(st && st.recorder, st && st.clock);

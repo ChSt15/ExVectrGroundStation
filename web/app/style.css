@@ -500,3 +500,15 @@ body[data-layout="flight"] .tiles.t4 .val.big .v { font-size: calc(var(--fs-tile
 .co-history li { padding: 1px 6px; border-left: 3px solid var(--line); }
 .co-history li[data-tone="bad"] { border-color: var(--bad); } .co-history li[data-tone="warn"] { border-color: var(--warn); }
 .co-history li[data-tone="ok"] { border-color: var(--ok); } .co-history li[data-tone="info"] { border-color: var(--info); }
+
+/* Software tab and update badge (docs/updating.md) */
+.upd-chip { cursor: pointer; font-weight: 700; background: transparent; }
+.upd-chip[data-tone="info"] { border-color: var(--info); } .upd-chip[data-tone="warn"] { border-color: var(--warn); background: var(--warn-bg); }
+.up-version { font-family: var(--mono, monospace); font-size: var(--fs-s); margin-bottom: 4px; word-break: break-word; }
+.up-details { font-size: var(--fs-xs); color: var(--dim); margin-bottom: 8px; }
+.up-details[data-dirty="true"] { color: var(--warn); font-weight: 600; }
+.up-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.up-why { font-size: var(--fs-s); color: var(--warn); margin: 6px 0; min-height: 1.2em; }
+.up-commits { margin: 6px 0; padding-left: 18px; font-size: var(--fs-s); }
+.up-notes { font-size: var(--fs-xs); color: var(--warn); }
+.up-out { max-height: 14em; overflow: auto; background: var(--surface-2); border: 1px solid var(--line); padding: 6px; font-size: var(--fs-xs); white-space: pre-wrap; }

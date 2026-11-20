@@ -28,6 +28,10 @@
         "label": "Callouts"
       },
       {
+        "panel": "update",
+        "label": "Software"
+      },
+      {
         "panel": "recording",
         "label": "Recordings"
       },

@@ -56,6 +56,7 @@ let allApi = null;
 let callouts = null; // callout controller (docs/callouts.md), display only
 let notifier = null;
 let speaker = null;
+let updatePush = null; // last `update` push (self-update summary: behind count, restart pending; docs/updating.md)
 let tcPush = null; // last `telecommands` push (TEMPORARY, docs/telecommands.md)
 
 const api = new Api({
@@ -119,6 +120,14 @@ function onMainMessage(msg) {
       statusBar?.render(); // the status bar shows "ZeroEstimators sent N s ago" from this record
       for (const m of mounted) m.inst.onTelecommands?.(msg);
       break;
+    case "update":
+      updatePush = msg;
+      for (const m of mounted) m.inst.onUpdate?.(msg);
+      header?.render();
+      break;
+    case "update_progress":
+      for (const m of mounted) m.inst.onUpdateProgress?.(msg);
+      break;
     case "rc":
       rcState = msg;
       for (const m of mounted) m.inst.onRc?.(msg);
@@ -169,6 +178,7 @@ function makeCtx(entry, getM) {
     rc: () => rcState,
     rates: () => ratesData,
     telecommands: () => tcPush,
+    update: () => updatePush,
     callouts: () => callouts,
     notifier: () => notifier,
     speaker: () => speaker,
