@@ -125,6 +125,18 @@ def test_uart_peer_seen_flag_is_bit_6_and_information_only():
         assert d["VehicleStatus"].armed is False and d["VehicleStatus"].motors_enabled is False  # nothing else follows
 
 
+def test_zeroing_flag_is_none_without_the_constant_and_bit_7_with_it(monkeypatch):
+    X = xp.VehicleStatus
+    monkeypatch.delattr(X, "FLAGS_ZEROING", raising=False)  # the currently pinned schema has no such flag
+    pl = X(flags=128).encode()
+    assert by_type(PROFILE.decode_many(frame(0x20, pl), "usb"))["VehicleStatus"].zeroing is None
+    monkeypatch.setattr(X, "FLAGS_ZEROING", 1 << 7, raising=False)  # fake mask, as after the pin update
+    for on in (True, False):
+        pl = X(flags=128 if on else 0).encode()
+        vs = by_type(PROFILE.decode_many(frame(0x20, pl), "usb"))["VehicleStatus"]
+        assert vs.zeroing is on and vs.armed is False and vs.simulation is False  # nothing else follows
+
+
 def test_unknown_enum_values_stay_plain_integers():
     pl = bytearray(xp.VehicleStatus().encode())
     pl[12], pl[15] = 99, 77

@@ -192,9 +192,22 @@ param_int = 0
 [[telecommands.command]]
 name = "SystemReset"
 type = "SystemReset"
-label = "System reset (also disarms)"
+label = "Reset system state (does NOT zero estimators)"
 group = "Vehicle"
 param_int = 0xC5
+note = "resets failures, mode and mission only; the estimators keep their values (use Zero estimators)"
+
+[[telecommands.command]]
+name = "ZeroEstimators"
+type = "ZeroEstimators"
+label = "Zero estimators"
+group = "Vehicle"
+param_int = 0x2E                               # validation value, fixed
+param_float = 10.0                             # duration in s (0 = the vehicle's own default, 10 s)
+param_float_min = 1.0                          # the vehicle clamps to 1..60 s as well
+param_float_max = 60.0
+param_float_name = "duration_s"
+note = "zeroes the estimators for the duration; the vehicle reports ZEROING in its status"
 
 [[telecommands.command]]
 name = "SimulationMode"

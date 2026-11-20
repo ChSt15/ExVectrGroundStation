@@ -19,6 +19,22 @@ WL = [
     TelecommandEntry("Arm", "Arm", "Arm", "Vehicle", 0, 0xA5),
     TelecommandEntry("Disarm", "Arm", "Disarm", "Vehicle", 0, 0),
     TelecommandEntry("SimulationMode", "SimulationMode", "Sim toggle", "Vehicle", 0, 0xA9),
+    TelecommandEntry(
+        "ZeroEstimators",
+        "ZeroEstimators",
+        "Zero",
+        "Vehicle",
+        0,
+        0x2E,
+        None,
+        None,
+        "hold",
+        "",
+        10.0,
+        1.0,
+        60.0,
+        "duration_s",
+    ),
     TelecommandEntry("MissionBegin", "MissionBegin", "Begin", "Mission", 0, -10, -3600, 3600),
 ]
 
@@ -135,6 +151,29 @@ async def test_parameter_only_within_the_configured_range():
     assert e.value.code == "invalid_value"
 
 
+async def test_float_parameter_only_within_range_and_default_is_ten_seconds():
+    r = Rig()
+    rec = await r.send("ZeroEstimators")
+    assert (rec.param_int, rec.param_float) == (0x2E, 10.0)
+    assert r.usb.sent[-1].param_float == 10.0 and r.usb.sent[-1].tc_type == TelecommandType.ZeroEstimators
+    for pf in (0.5, 61, float("nan"), float("inf"), True, "5"):
+        r.clock.advance(1)
+        with pytest.raises(TelecommandError) as e:
+            await r.send("ZeroEstimators", param_float=pf)
+        assert e.value.code == "invalid_value"
+    r.clock.advance(1)
+    assert (await r.send("ZeroEstimators", param_float=30)).param_float == 30.0
+    assert r.usb.sent[-1].param_float == 30.0 and len(r.usb.sent) == 2  # refusals sent nothing
+    r.clock.advance(1)
+    with pytest.raises(TelecommandError) as e:
+        await r.send("Arm", param_float=5.0)  # no float range: a client cannot choose one
+    assert e.value.code == "invalid_value"
+    assert r.tc.status()["recent"][0]["param_float"] == 30.0
+    w = {x["name"]: x for x in r.tc.whitelist()}["ZeroEstimators"]
+    assert (w["param_float"], w["param_float_min"], w["param_float_max"], w["param_float_name"]) == (
+        10.0, 1.0, 60.0, "duration_s")  # fmt: skip
+
+
 async def test_status_records_the_send_without_any_result_field():
     r = Rig()
     await r.send("Arm")
@@ -162,6 +201,18 @@ def test_profile_encodes_the_exact_legacy_frame_little_endian():
     assert f2.meta["seq"] == 1  # the sequence counts per command
 
 
+def test_zero_estimators_frame_is_the_exact_eight_bytes():
+    from exvectr_gs.packets.defs.link import Telecommand
+
+    f = ExVectrNet1Profile().encode(
+        Telecommand(
+            t=1, src="gs", tc_type=TelecommandType.ZeroEstimators, subsystem=0, param_int=0x2E, param_float=10.0
+        )
+    )
+    assert f.channel == 0x7F and f.payload == bytes([10, 0, 0x2E, 0, 0x00, 0x00, 0x20, 0x41])  # 10.0f = 0x41200000
+    assert f.payload == struct.pack("<BBhf", 10, 0, 0x2E, 10.0)
+
+
 def cfg(**tc):
     return parse_config(
         {"core": {"source_priority": ["a"]}, "source": [{"id": "a", "kind": "fake"}], "telecommands": tc}
@@ -182,6 +233,10 @@ def test_config_validation():
         {"command": [{"name": "A", "type": "Arm", "extra": 1}]},
         {"source_preference": ["zzz"]},
         {"bogus": 1},
+        {"command": [{"name": "A", "type": "Arm", "param_float_min": 1.0}]},
+        {"command": [{"name": "A", "type": "Arm", "param_float": 70.0, "param_float_min": 1, "param_float_max": 60}]},
+        {"command": [{"name": "A", "type": "Arm", "param_float": float("nan")}]},
+        {"command": [{"name": "A", "type": "Arm", "param_float": True}]},
     ]
     for b in bad:
         with pytest.raises(ConfigError):
@@ -199,6 +254,15 @@ def test_shipped_configs_whitelist_the_expected_commands():
         assert names["Arm"].param_int == 0xA5 and names["Disarm"].param_int == 0
         assert names["SystemReset"].param_int == 0xC5 and names["SimulationMode"].param_int == 0xA9
         assert all(e.confirm == "hold" for e in names.values())
+        z = names["ZeroEstimators"]
+        assert (z.type, z.subsystem, z.param_int) == ("ZeroEstimators", 0, 0x2E)
+        assert (z.param_float, z.param_float_min, z.param_float_max, z.param_float_name) == (
+            10.0,
+            1.0,
+            60.0,
+            "duration_s",
+        )
+        assert "NOT zero estimators" in names["SystemReset"].label
         reb = {(e.action, e.target): e for e in c.requests.actions if e.action == "LINK_REBOOT"}
         assert set(reb) == {("LINK_REBOOT", 2), ("LINK_REBOOT", 3)}
         assert all(e.confirm == "danger" and e.warning for e in reb.values())

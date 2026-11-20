@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { NO_ACK_TEXT, TELECOMMAND_HOLD_MS, describeSent, groupCommands, lastSent, parseParam, reportedSimulation, sendState } from "../app/telecommand/telecommand_logic.js";
+import { NO_ACK_TEXT, TELECOMMAND_HOLD_MS, describeSent, groupCommands, hasFloat, lastSent, parseFloatParam, parseParam, reportedSimulation, sendState } from "../app/telecommand/telecommand_logic.js";
 
 const WL = [
   { name: "Arm", group: "Vehicle", param_int: 165, param_min: null, param_max: null },
@@ -52,4 +52,15 @@ test("the simulation state shown is only what the vehicle reports", () => {
   assert.equal(reportedSimulation({ f: { simulation: true } }).text, "vehicle reports: SIMULATION");
   assert.equal(reportedSimulation({ f: { simulation: false } }).text, "vehicle reports: REAL SENSORS");
   assert.match(reportedSimulation({ f: {} }).text, /does not report/);
+});
+
+test("float parameter (ZeroEstimators duration): only finite numbers within the range", () => {
+  const z = { name: "ZeroEstimators", param_float: 10, param_float_min: 1, param_float_max: 60 };
+  assert.ok(hasFloat(z) && !hasFloat(WL[0]));
+  assert.equal(parseFloatParam("10", z), 10);
+  assert.equal(parseFloatParam(" 2.5 ", z), 2.5);
+  for (const bad of ["", "0.5", "61", "abc", "1e2", "NaN", "Infinity", "-3"]) assert.equal(parseFloatParam(bad, z), null, bad);
+  assert.equal(parseFloatParam("5", WL[0]), null);
+  const d = describeSent({ n: 1, name: "ZeroEstimators", source: "usb", param_int: 46, param_float: 10, t: 1 }, 4);
+  assert.match(d.text, /param 46, 10; no ACK exists/);
 });

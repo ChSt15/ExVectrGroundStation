@@ -191,6 +191,7 @@ class FakeVehiclePty:
         self.received_telecommands: list[dict] = []
         self.sim_state: bool | None = None
         self.armed_state: bool | None = None
+        self.zeroing_until: float | None = None  # monotonic s; ZEROING flag (VEHICLE_STATUS bit 7) while it is ahead
         self.tx_power = 10  # dBm reported in LINK_STATS (txmodule role: both nodes 2 and 3)
         self.link_config_power = 10  # dBm in LINK_CONFIG (rate "LINK_CONFIG" must be enabled)
         self.received_heartbeats: list[dict] = []
@@ -334,8 +335,13 @@ class FakeVehiclePty:
                 vs["sim"] = self.sim_state
             if self.armed_state is not None:
                 vs["armed"] = self.armed_state
+            zeroing = self.zeroing_until is not None and time.monotonic() < self.zeroing_until
             pl = net.pack_vehicle_status(
-                int(t * 1e9), {**vs, "uart_peer_seen": True}, ms["mission_mode"], ms["mission_phase"]
+                int(t * 1e9),
+                {**vs, "uart_peer_seen": True},
+                ms["mission_mode"],
+                ms["mission_phase"],
+                flags_extra=128 if zeroing else 0,
             )
             return self._data(src, 0, net.PORT_VEHICLE_STATUS, pl)
         if name == "POSE":
@@ -425,6 +431,10 @@ class FakeVehiclePty:
         )
         if tc["type"] == 5:  # Arm
             self.armed_state = tc["param_int"] == 0xA5
+        elif tc["type"] == 10 and tc["param_int"] == 0x2E:  # ZeroEstimators: flag for the clamped duration
+            dur = tc["param_float"]
+            dur = 10.0 if not dur >= 0 or dur == 0 else min(60.0, max(1.0, dur))  # 0 or NaN = default, clamp 1..60
+            self.zeroing_until = time.monotonic() + dur
         elif tc["type"] == 6 and tc["param_int"] == 0xA9:  # SimulationMode toggles
             self.sim_state = not cur_sim
             self.armed_state = cur_arm

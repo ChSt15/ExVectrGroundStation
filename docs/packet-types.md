@@ -136,6 +136,7 @@ Version 1, direction `down`, nominal rate 5 Hz, history: no.
 | `motors_enabled` | bool | - | the hard motor gate is currently open |
 | `gs_present` | bool | - |  |
 | `uart_peer_seen` | bool | - | the vehicle heard the ship radio node (node 3) on its UART in the last 3 s; information only |
+| `zeroing` | bool | - | the vehicle is zeroing its estimators (VEHICLE_STATUS flag ZEROING, bit 7); n/s until the pinned ExVectrPackets schema has the flag; information only |
 | `incompatible` | bool | - | vehicle reports a version or schema mismatch |
 | `failsafe` | bool | - |  |
 | `failure_bits` | int | - |  |
@@ -288,10 +289,10 @@ Version 1, direction `up`, nominal rate n/a, history: no.
 
 | Field | Kind | Unit | Description |
 |---|---|---|---|
-| `tc_type` | enum (TelecommandType: CalibStart=0, CalibApply=1, Load=2, Save=3, SystemReset=4, Arm=5, SimulationMode=6, MissionBegin=7, MissionSelect=8, MissionAbort=9) | - | legacy command code |
+| `tc_type` | enum (TelecommandType: CalibStart=0, CalibApply=1, Load=2, Save=3, SystemReset=4, Arm=5, SimulationMode=6, MissionBegin=7, MissionSelect=8, MissionAbort=9, ZeroEstimators=10) | - | legacy command code |
 | `subsystem` | int | - | legacy Subsystem (0 gyro, 1 accel, 2 magneto, ...) |
 | `param_int` | int | - | int16 parameter (magic value or mission time) |
-| `param_float` | float | - | unused by every vehicle handler |
+| `param_float` | float | - | float32 parameter: 0 for every command except ZeroEstimators (duration in s) |
 
 ## RadioLinkStats
 

@@ -3,6 +3,7 @@
 import { h } from "../ui.js";
 import { compatibilityProblems, describeVehicleStatus, linkHealth } from "./status_logic.js";
 import { powerReport } from "../link/link_logic.js";
+import { lastSent } from "../telecommand/telecommand_logic.js";
 import { isStale } from "../fmt.js";
 import { describeAir } from "../rates/rates_logic.js";
 
@@ -38,7 +39,9 @@ export function createStatusBar(ctx) {
     const now = ctx.store.now(view) ?? Infinity;
     const schema = (t) => ctx.store.schema.get(t);
     const entry = ctx.store.get(view, "VehicleStatus");
-    const d = describeVehicleStatus(entry, now, schema("VehicleStatus"));
+    const sentRec = view === "live" ? lastSent(ctx.telecommands?.(), "ZeroEstimators") : null; // never in replay
+    const zeroAge = sentRec && Number.isFinite(now) ? now - sentRec.t : null;
+    const d = describeVehicleStatus(entry, now, schema("VehicleStatus"), zeroAge);
     el.dataset.state = d.state;
     el.dataset.view = view;
     state.textContent =

@@ -142,6 +142,52 @@ async def test_status_bar_shows_only_reported_values_and_follows_a_simulation_to
 
 
 @needs_browser
+async def test_zero_estimators_panel_float_field_and_the_zeroing_indicator(tmp_path, zeroing_mask):
+    async with rig_with(tmp_path) as rig, browser_check.Browser(1500, 1300, 9372) as b:
+        await open_page(b, rig, ["telecommands"])
+        await until(
+            lambda: b.eval("document.querySelector('#statusbar').dataset.state === 'fresh'"), what="fresh status"
+        )
+        assert "not zeroing" == await text(b, cell("zeroing"))  # reported flag clear, nothing sent yet
+        row = "[data-panel=telecommands] .tc-row[data-name=ZeroEstimators]"
+        btn = f"{row} .rq-btn"
+        fld = f"{row} .tc-float"
+        assert await b.eval(f"document.querySelector({fld!r}).value") == "10"  # default duration
+        await b.eval(  # out of range: the button is disabled
+            f"(() => {{ const e = document.querySelector({fld!r}); e.value = '99'; "
+            "e.dispatchEvent(new Event('input')); })()"
+        )
+        assert await b.eval(f"document.querySelector({btn!r}).disabled") is True
+        await b.eval(
+            f"(() => {{ const e = document.querySelector({fld!r}); e.value = '3'; "
+            "e.dispatchEvent(new Event('input')); })()"
+        )
+        await until(lambda: b.eval(f"!document.querySelector({btn!r}).disabled"), what="enabled")
+        await press(b, btn)
+        await until(lambda: len(rig.v1.received_telecommands) == 1, timeout=3, what="frame after the hold")
+        await let_go(b, btn)
+        tc = rig.v1.received_telecommands[0]
+        assert (tc["type"], tc["param_int"], tc["param_float"]) == (10, 0x2E, 3.0)
+        await until(
+            lambda: b.eval(f"document.querySelector({cell('zeroing')!r}).textContent.startsWith('ZEROING')"),
+            timeout=4,
+            what="ZEROING as reported",
+        )
+        t = await text(b, cell("zeroing"))
+        assert "ZeroEstimators sent" in t and "ago" in t
+        assert await b.eval(f"document.querySelector({cell('zeroing')!r}).parentElement.dataset.tone") == "warn"
+        sent = await text(b, f"{row} .rq-state")
+        assert "once via usb" in sent and "3" in sent
+        await until(
+            lambda: b.eval(f"document.querySelector({cell('zeroing')!r}).textContent.startsWith('not zeroing')"),
+            timeout=8,
+            what="ZEROING cleared by the vehicle",
+        )
+        await b.sleep(1.0)
+        assert len(rig.v1.received_telecommands) == 1
+
+
+@needs_browser
 async def test_commands_panel_is_locked_in_replay_and_buttons_need_a_route(tmp_path):
     async with rig_with(tmp_path, with_usb=False) as rig, browser_check.Browser(1500, 1300, 9372) as b:
         await open_page(b, rig, ["telecommands"])

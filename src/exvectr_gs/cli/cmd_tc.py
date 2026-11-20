@@ -15,9 +15,14 @@ import argparse
 from .client import EXIT_OK, CliError, CoreClient, add_client_command, emit
 
 
+def _ff(r: dict) -> str:
+    return f" float {r['param_float']:g}" if r.get("param_float") else ""
+
+
 def _line(r: dict) -> str:
     return (
-        f"{r['name']} ({r['type']} subsystem {r['subsystem']} param {r['param_int']}) handed to {r['source']} once; "
+        f"{r['name']} ({r['type']} subsystem {r['subsystem']} param {r['param_int']}"
+        f"{_ff(r)}) handed to {r['source']} once; "
         "no ACK exists: check what the vehicle reports"
     )
 
@@ -27,6 +32,11 @@ async def _list(c: CoreClient, args: argparse.Namespace) -> int:
     lines = []
     for e in d["commands"]:
         rng = "" if e["param_min"] is None else f" param {e['param_min']}..{e['param_max']} (default {e['param_int']})"
+        if e.get("param_float_min") is not None:
+            rng += (
+                f" {e['param_float_name'] or 'float'} {e['param_float_min']:g}..{e['param_float_max']:g}"
+                f" (default {e['param_float']:g})"
+            )
         lines.append(
             f"{e['group']:<12} {e['name']:<18} {e['type']:<15} sub {e['subsystem']} param {e['param_int']}{rng} "
             f"confirm={e['confirm']} route={e['route'] or '-'}  {e['label']}"
@@ -43,7 +53,9 @@ async def _send(c: CoreClient, args: argparse.Namespace) -> int:
             "A telecommand is sent exactly once and never repeated",
             error_code="confirm_required",
         )
-    r = await c.request("telecommand.send", name=name, confirm=args.confirm, param=args.param)
+    r = await c.request(
+        "telecommand.send", name=name, confirm=args.confirm, param=args.param, param_float=args.param_float
+    )
     emit(args, r, _line(r))
     return EXIT_OK
 
@@ -56,3 +68,8 @@ def register(sub: argparse._SubParsersAction) -> None:
     p.add_argument("name", help="name from the whitelist, for example Arm or MissionBegin")
     p.add_argument("--confirm", help="the name repeated: there is no default confirmation")
     p.add_argument("--param", type=int, help="int16 parameter, only for entries that list a range (MissionBegin)")
+    p.add_argument(
+        "--param-float",
+        type=float,
+        help="float parameter, only for entries that list a range (ZeroEstimators: seconds)",
+    )

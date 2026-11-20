@@ -2,7 +2,7 @@
 // core send a legacy telecommand. See telecommand_logic.js for the rules; the core enforces the whitelist, control
 // hosts, rate limit and confirmation again.
 import { h } from "../ui.js";
-import { HoldTimer, NO_ACK_TEXT, TELECOMMAND_HOLD_MS, describeSent, groupCommands, lastSent, parseParam, reportedSimulation, sendState } from "./telecommand_logic.js";
+import { HoldTimer, NO_ACK_TEXT, TELECOMMAND_HOLD_MS, describeSent, groupCommands, hasFloat, lastSent, parseFloatParam, parseParam, reportedSimulation, sendState } from "./telecommand_logic.js";
 
 export function createTelecommandPanel(el, ctx) {
   let commands = [];
@@ -28,9 +28,13 @@ export function createTelecommandPanel(el, ctx) {
     render();
   }
 
-  async function send(c, param) {
+  async function send(c, param, paramFloat) {
     try {
-      await ctx.api.request("telecommand.send", { name: c.name, confirm: c.name, ...(param === null ? {} : { param }) }, 5000);
+      await ctx.api.request(
+        "telecommand.send",
+        { name: c.name, confirm: c.name, ...(param === null ? {} : { param }), ...(paramFloat === null ? {} : { param_float: paramFloat }) },
+        5000,
+      );
       msg.textContent = "";
     } catch (e) {
       msg.textContent = `${c.name}: ${e.message}`;
@@ -49,6 +53,8 @@ export function createTelecommandPanel(el, ctx) {
         const btn = h("button", { class: "rq-btn", "data-name": c.name, "data-type": c.type, title: `hold ${TELECOMMAND_HOLD_MS / 1000} s to send ONE frame` }, h("span", { class: "rq-label", text: c.label }), bar);
         const ranged = c.param_min !== null && c.param_min !== undefined;
         const input = ranged ? h("input", { type: "number", class: "tc-param", value: String(c.param_int), min: String(c.param_min), max: String(c.param_max), step: "1", "aria-label": `${c.name} parameter` }) : null;
+        const fl = hasFloat(c);
+        const finput = fl ? h("input", { type: "number", class: "tc-param tc-float", value: String(c.param_float), min: String(c.param_float_min), max: String(c.param_float_max), step: "any", title: c.param_float_name || "float parameter", "aria-label": `${c.name} ${c.param_float_name || "parameter"}` }) : null;
         const route = h("span", { class: "rq-route" });
         const state = h("span", { class: "rq-state" });
         let anim = null;
@@ -59,7 +65,7 @@ export function createTelecommandPanel(el, ctx) {
         };
         const timer = new HoldTimer(() => {
           stopAnim();
-          send(c, input ? parseParam(input.value, c) : null);
+          send(c, input ? parseParam(input.value, c) : null, finput ? parseFloatParam(finput.value, c) : null);
         }, undefined, TELECOMMAND_HOLD_MS);
         const stop = () => { timer.cancel(); stopAnim(); };
         const start = () => {
@@ -79,8 +85,9 @@ export function createTelecommandPanel(el, ctx) {
         btn.addEventListener("keydown", (e) => { if ((e.key === " " || e.key === "Enter") && !e.repeat) { start(); e.preventDefault(); } });
         btn.addEventListener("keyup", (e) => { if (e.key === " " || e.key === "Enter") stop(); });
         if (input) input.addEventListener("input", render);
-        sec.append(h("div", { class: "rq-row tc-row", "data-name": c.name }, btn, input, h("span", { class: "rq-target", text: c.note || "" }), route, state));
-        rows.set(c.name, { c, btn, input, route, state, stop });
+        if (finput) finput.addEventListener("input", render);
+        sec.append(h("div", { class: "rq-row tc-row", "data-name": c.name }, btn, input, finput, h("span", { class: "rq-target", text: c.note || "" }), route, state));
+        rows.set(c.name, { c, btn, input, finput, route, state, stop });
       }
       body.append(sec);
     }
@@ -92,7 +99,7 @@ export function createTelecommandPanel(el, ctx) {
     const route = st ? st.telecommand_route || null : null;
     const now = ctx.store.now("live");
     for (const r of rows.values()) {
-      const paramOk = !r.input || parseParam(r.input.value, r.c) !== null;
+      const paramOk = (!r.input || parseParam(r.input.value, r.c) !== null) && (!r.finput || parseFloatParam(r.finput.value, r.c) !== null);
       const s = sendState({ apiState: ctx.api.state, view: ctx.view(), canControl, route, paramOk });
       r.btn.disabled = !s.enabled;
       if (!s.enabled) r.stop();

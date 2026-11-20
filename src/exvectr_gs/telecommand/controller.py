@@ -24,6 +24,7 @@ docs/project/hardware-and-drivers.md section 10). Rules this module enforces:
 from __future__ import annotations
 
 import logging
+import math
 from collections import deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -64,6 +65,7 @@ class TelecommandSent:
     type: str
     subsystem: int
     param_int: int
+    param_float: float
     client: str
     source: str
     t: int  # ns, host clock, when it was handed to the source
@@ -126,6 +128,10 @@ class TelecommandController:
                 "param_int": e.param_int,
                 "param_min": e.param_min,
                 "param_max": e.param_max,
+                "param_float": e.param_float,
+                "param_float_min": e.param_float_min,
+                "param_float_max": e.param_float_max,
+                "param_float_name": e.param_float_name,
                 "confirm": e.confirm,
                 "note": e.note,
                 "route": route,
@@ -145,6 +151,7 @@ class TelecommandController:
             "type": s.type,
             "subsystem": s.subsystem,
             "param_int": s.param_int,
+            "param_float": s.param_float,
             "client": s.client,
             "source": s.source,
             "t": s.t / 1e9,
@@ -163,6 +170,7 @@ class TelecommandController:
         remote_addr: str,
         confirm: str | None,
         param: int | None = None,
+        param_float: float | None = None,
     ) -> TelecommandSent:
         """Send ONE whitelisted telecommand frame now. Raises TelecommandError. Never retries."""
         if self._control_hosts is not None and not is_control_host(remote_addr, self._control_hosts):
@@ -180,6 +188,16 @@ class TelecommandController:
                     f"{entry.name} parameter must be an integer within {entry.param_min}..{entry.param_max}",
                 )
             value = param
+        fvalue = entry.param_float
+        if param_float is not None:
+            lo, hi = entry.param_float_min, entry.param_float_max
+            if lo is None or hi is None:
+                raise TelecommandError("invalid_value", f"{entry.name} has a fixed float parameter, none may be given")
+            if isinstance(param_float, bool) or not isinstance(param_float, (int, float)):
+                raise TelecommandError("invalid_value", f"{entry.name} float parameter must be a number")
+            if not math.isfinite(param_float) or not lo <= param_float <= hi:
+                raise TelecommandError("invalid_value", f"{entry.name} float parameter must be within {lo:g}..{hi:g}")
+            fvalue = float(param_float)
         now = self._clock.now()
         last = self._last_by_client.get(remote_addr)
         if last is not None and now - last < int(MIN_INTERVAL_S * 1e9):
@@ -193,7 +211,7 @@ class TelecommandController:
             tc_type=TelecommandType[entry.type],
             subsystem=entry.subsystem,
             param_int=value,
-            param_float=0.0,
+            param_float=fvalue,
         )
         used: str | None = None
         for s in cands:  # the first source that takes it; ONE frame, never to two sources
@@ -210,14 +228,17 @@ class TelecommandController:
         self.sent_count += 1
         self._n += 1
         self._last_by_client[remote_addr] = now
-        rec = TelecommandSent(self._n, entry.name, entry.label, entry.type, entry.subsystem, value, client, used, now)
+        rec = TelecommandSent(
+            self._n, entry.name, entry.label, entry.type, entry.subsystem, value, fvalue, client, used, now
+        )
         self._recent.append(rec)
         self._bus.publish(
             GsEvent(
                 t=now,
                 src="gs",
                 kind=GsEventKind.telecommand_sent,
-                detail=f"TELECOMMAND {entry.name} ({entry.type} sub {entry.subsystem} param {value}) via {used} "
+                detail=f"TELECOMMAND {entry.name} ({entry.type} sub {entry.subsystem} param {value} float {fvalue:g}) "
+                f"via {used} "
                 f"(client {client}), sent once",
             )
         )

@@ -33,7 +33,8 @@ export function lastSent(push, name) {
 export function describeSent(rec, now) {
   if (!rec) return { tone: "dim", text: "" };
   const ago = now === null || now === undefined ? "" : `${fmtAge(Math.max(0, now - rec.t))} ago`;
-  return { tone: "info", text: `#${rec.n} sent ${ago} once via ${rec.source}, param ${rec.param_int}; no ACK exists` };
+  const fl = rec.param_float ? `, ${rec.param_float}` : "";
+  return { tone: "info", text: `#${rec.n} sent ${ago} once via ${rec.source}, param ${rec.param_int}${fl}; no ACK exists` };
 }
 
 /** Whether the send button can be used, and why not. The core still checks everything itself. */
@@ -52,6 +53,18 @@ export function parseParam(text, cmd) {
   if (!/^-?\d+$/.test(String(text).trim())) return null;
   const v = Number(text);
   return v >= cmd.param_min && v <= cmd.param_max ? v : null;
+}
+
+/** True when an entry has a client-settable float parameter (ZeroEstimators duration). */
+export const hasFloat = (cmd) => cmd.param_float_min !== null && cmd.param_float_min !== undefined;
+
+/** Parse the float field: a finite number within [param_float_min, param_float_max], else null. */
+export function parseFloatParam(text, cmd) {
+  if (!hasFloat(cmd)) return null;
+  const t = String(text).trim();
+  if (!/^[+-]?(\d+\.?\d*|\.\d+)$/.test(t)) return null;
+  const v = Number(t);
+  return Number.isFinite(v) && v >= cmd.param_float_min && v <= cmd.param_float_max ? v : null;
 }
 
 /** The simulation state as the VEHICLE reports it (never an assumed one). entry: VehicleStatus store entry. */

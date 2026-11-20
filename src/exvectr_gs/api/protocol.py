@@ -436,7 +436,10 @@ def parse_telecommand_send(msg: Mapping) -> dict[str, Any]:
     param = msg.get("param")
     if param is not None and (isinstance(param, bool) or not isinstance(param, int)):
         raise ProtocolError("bad_request", "param must be an integer")
-    return {"name": name, "confirm": confirm, "param": param}
+    pf = msg.get("param_float")
+    if pf is not None and (isinstance(pf, bool) or not isinstance(pf, (int, float))):
+        raise ProtocolError("bad_request", "param_float must be a number")
+    return {"name": name, "confirm": confirm, "param": param, "param_float": pf}
 
 
 def parse_replay_speed(msg: Mapping) -> float:

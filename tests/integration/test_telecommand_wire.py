@@ -16,6 +16,15 @@ COMMANDS = [
     {"name": "Arm", "type": "Arm", "param_int": 0xA5},
     {"name": "Disarm", "type": "Arm", "param_int": 0},
     {"name": "SimulationMode", "type": "SimulationMode", "param_int": 0xA9},
+    {
+        "name": "ZeroEstimators",
+        "type": "ZeroEstimators",
+        "param_int": 0x2E,
+        "param_float": 10.0,
+        "param_float_min": 1.0,
+        "param_float_max": 60.0,
+        "param_float_name": "duration_s",
+    },
     {"name": "MissionBegin", "type": "MissionBegin", "param_int": -10, "param_min": -3600, "param_max": 3600},
 ]
 
@@ -130,7 +139,13 @@ async def test_api_refusals_send_nothing_and_a_view_only_host_is_denied(tmp_path
             assert await c.err("telecommand.send", name="Format", confirm="Format") == "not_whitelisted"
             assert await c.err("telecommand.send", name="Arm", confirm="Arm", param=1) == "invalid_value"
             lst = await c.ok("telecommand.list")
-            assert [e["name"] for e in lst["commands"]] == ["Arm", "Disarm", "SimulationMode", "MissionBegin"]
+            assert [e["name"] for e in lst["commands"]] == [
+                "Arm",
+                "Disarm",
+                "SimulationMode",
+                "ZeroEstimators",
+                "MissionBegin",
+            ]
             assert lst["commands"][0]["route"] == "usb"
             await c.ok("telecommand.send", name="Arm", confirm="Arm")
             assert await c.err("telecommand.send", name="Disarm", confirm="Disarm") == "rate_limited"
@@ -140,6 +155,38 @@ async def test_api_refusals_send_nothing_and_a_view_only_host_is_denied(tmp_path
         async with started(make_app(v1, v2, hosts=("10.9.9.9",))) as rig:
             c = await Client.connect(rig)
             assert await c.err("telecommand.send", name="Arm", confirm="Arm") == "control_denied"
+            await c.close()
+    finally:
+        v1.stop()
+        v2.stop()
+
+
+def zeroing(app):
+    e = app.store.get("VehicleStatus")
+    return None if e is None else e.packet.zeroing
+
+
+async def test_zero_estimators_frame_decodes_and_the_reported_zeroing_flag_sets_then_clears(tmp_path, zeroing_mask):
+    v1, v2 = make_vehicle(tmp_path, "usb"), make_vehicle(tmp_path, "radio", role="txmodule")
+    try:
+        app = make_app(v1, v2)
+        async with started(app) as rig:
+            c = await Client.connect(rig)
+            await wait_for(lambda: zeroing(app) is False, what="VehicleStatus with the flag clear")
+            r = await c.ok("telecommand.send", name="ZeroEstimators", confirm="ZeroEstimators", param_float=1.0)
+            assert r["source"] == "usb" and r["param_float"] == 1.0 and "state" not in r
+            await wait_for(lambda: v1.received_telecommands, what="telecommand at the vehicle")
+            tc = v1.received_telecommands[0]  # independent decoder
+            assert (tc["type"], tc["subsystem"], tc["param_int"], tc["param_float"]) == (10, 0, 0x2E, 1.0)
+            assert (tc["dst"], tc["src"], tc["ctrl"]) == (1, 0, 0x48)
+            await wait_for(lambda: zeroing(app) is True, what="ZEROING as reported")
+            await wait_for(lambda: zeroing(app) is False, timeout=5, what="ZEROING cleared by the vehicle")
+            assert len(v1.received_telecommands) == 1  # no repeat
+            await asyncio.sleep(0.55)
+            r = await c.ok("telecommand.send", name="ZeroEstimators", confirm="ZeroEstimators")  # default 10 s
+            assert r["param_float"] == 10.0
+            await wait_for(lambda: len(v1.received_telecommands) == 2, what="second frame")
+            assert v1.received_telecommands[1]["param_float"] == 10.0
             await c.close()
     finally:
         v1.stop()

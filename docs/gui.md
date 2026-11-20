@@ -166,6 +166,7 @@ Panel `radio` (`web/app/radio/`; first tab of the Operations dock). **Safety-rel
 | Cell | Source field | Display |
 |---|---|---|
 | Sensors | `simulation` | large coloured badge: **SIMULATION** (purple) or **REAL SENSORS** (green); `SIM? (not supplied)` if the field is absent |
+| Estimators | `zeroing` (VEHICLE_STATUS flag ZEROING, bit 7) | large amber **ZEROING** while the vehicle reports it, else `not zeroing`; `zeroing n/s` while the pinned schema or the wire profile does not supply the flag (never shown as false). Appended `(ZeroEstimators sent N s ago)` is the ground station's own record of the one frame it sent (live view only, from the `telecommands` push); **no countdown is computed or assumed**, the indicator ends only when the vehicle stops reporting the flag. |
 | Mode | `mode` | name as reported, tone by mode |
 | Mission | `mission_mode` / `mission_phase` | names |
 | Armed | `armed` | `ARMED` (amber) or `disarmed` |
@@ -214,7 +215,7 @@ Block in the `link` panel (`web/app/link/link_logic.js`, `web/test/link_logic.te
 
 ### Commands (temporary) panel
 
-TEMPORARY, safety-relevant: see [telecommands.md](telecommands.md) (hold 1 s, one frame, no ACK, the simulation state shown is only what the vehicle reports). Logic `web/app/telecommand/telecommand_logic.js`, panel `telecommand_panel.js`.
+TEMPORARY, safety-relevant: see [telecommands.md](telecommands.md) (hold 1 s, one frame, no ACK, the simulation state shown is only what the vehicle reports). Two entries need a word: `SystemReset` is labelled **Reset system state (does NOT zero estimators)** (it resets failures, mode and mission only) and **Zero estimators** (`ZeroEstimators`) has a number field `duration_s` (default 10 s, allowed 1..60 s, the button is disabled outside it; the vehicle clamps as well). Both rows show a one-line explanation (the entry's `note` from the config). The outcome of zeroing is the amber ZEROING cell of the status bar, reported by the vehicle. Logic `web/app/telecommand/telecommand_logic.js`, panel `telecommand_panel.js`.
 
 ### Requests panel
 

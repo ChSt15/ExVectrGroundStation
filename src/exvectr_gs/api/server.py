@@ -548,6 +548,7 @@ class ApiServer:
                 remote_addr=client.addr,
                 confirm=a["confirm"],
                 param=a["param"],
+                param_float=a["param_float"],
             )
         )
         self._push_telecommands()

@@ -106,6 +106,7 @@ class TelecommandType(IntEnum):
     MissionBegin = 7
     MissionSelect = 8
     MissionAbort = 9
+    ZeroEstimators = 10
 
 
 @packet(
@@ -120,7 +121,7 @@ class Telecommand(Packet):
     tc_type: TelecommandType = f(desc="legacy command code")
     subsystem: int = f(desc="legacy Subsystem (0 gyro, 1 accel, 2 magneto, ...)")
     param_int: int = f(desc="int16 parameter (magic value or mission time)")
-    param_float: float = f(desc="unused by every vehicle handler")
+    param_float: float = f(desc="float32 parameter: 0 for every command except ZeroEstimators (duration in s)")
 
 
 @packet(

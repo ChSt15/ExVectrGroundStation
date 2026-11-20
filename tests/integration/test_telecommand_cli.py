@@ -28,6 +28,14 @@ name = "Arm"
 type = "Arm"
 param_int = 165
 [[telecommands.command]]
+name = "ZeroEstimators"
+type = "ZeroEstimators"
+param_int = 0x2E
+param_float = 10.0
+param_float_min = 1.0
+param_float_max = 60.0
+param_float_name = "duration_s"
+[[telecommands.command]]
 name = "MissionBegin"
 type = "MissionBegin"
 param_int = -10
@@ -89,3 +97,22 @@ def test_send_once_and_say_there_is_no_ack(core):
     assert d["ok"] and d["param_int"] == -30 and "state" not in d
     r = exgs(core, "tc", "send", "MissionBegin", "--confirm", "MissionBegin", "--param", "99999", "--json")
     assert r.returncode == 1 and json.loads(r.stdout)["error"]["code"] == "invalid_value"
+
+
+def test_zero_estimators_float_parameter(core):
+    r = exgs(core, "tc", "list")
+    assert "duration_s 1..60 (default 10)" in r.stdout
+    d = json.loads(exgs(core, "tc", "send", "ZeroEstimators", "--confirm", "ZeroEstimators", "--json").stdout)
+    assert d["ok"] and (d["param_int"], d["param_float"]) == (0x2E, 10.0)
+    d = json.loads(
+        exgs(
+            core, "tc", "send", "ZeroEstimators", "--confirm", "ZeroEstimators", "--param-float", "30", "--json"
+        ).stdout
+    )
+    assert d["ok"] and d["param_float"] == 30.0 and "state" not in d
+    r = exgs(core, "tc", "send", "ZeroEstimators", "--confirm", "ZeroEstimators", "--param-float", "99", "--json")
+    assert r.returncode == 1 and json.loads(r.stdout)["error"]["code"] == "invalid_value"
+    r = exgs(core, "tc", "send", "Arm", "--confirm", "Arm", "--param-float", "5", "--json")
+    assert r.returncode == 1 and json.loads(r.stdout)["error"]["code"] == "invalid_value"
+    r = exgs(core, "tc", "send", "ZeroEstimators", "--confirm", "Zero")
+    assert r.returncode == 1 and "--confirm ZeroEstimators" in r.stderr

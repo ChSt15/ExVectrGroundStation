@@ -118,3 +118,7 @@ yaw = 4
 ```
 
 The core validates it (`rc/radio_config.py`: known keys, mode 1 or 2, distinct channels within `channel_count`, no channel shared with a control when the table is given) and never uses it for sending. The GUI maps pulse widths to −1..1 (centred axes, 1500 µs = 0) and 0..1 (throttle, 1000 µs = 0) in `web/app/radio/sticks.js`.
+
+## Intended Pocket SE mapping (flight software T9b, nothing to do in the ground station)
+
+Planned for the vehicle (not implemented yet, flight-software task T9b): **SE single press = reset system state** (the `SystemReset` effect), **SE held longer than 1 s = zero the estimators while held**. The ground station needs no change for the Pocket: its SE state already arrives in `RC_STATE` and is displayed; the GS's own `SE` momentary control (master mode) sends the same channel 9 value. Until T9b lands, the temporary telecommands `SystemReset` and `ZeroEstimators` ([telecommands.md](telecommands.md)) cover both actions.

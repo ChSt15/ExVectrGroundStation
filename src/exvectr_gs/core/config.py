@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -108,6 +109,12 @@ class TelecommandEntry:
     param_max: int | None = None
     confirm: str = "hold"
     note: str = ""  # shown next to the button (for example "toggles on the vehicle")
+    # Optional client-settable float parameter (ZeroEstimators duration in s). `param_float` is the fixed value, or
+    # the default when `param_float_min`/`param_float_max` are given. Sent as the frame's float32, nothing else.
+    param_float: float = 0.0
+    param_float_min: float | None = None
+    param_float_max: float | None = None
+    param_float_name: str = ""  # label of the float field in the GUI/CLI (for example "duration_s")
 
 
 @dataclass
@@ -216,10 +223,16 @@ def _telecommands(data: dict) -> TelecommandsSection:
             raise ConfigError(f"{where}: {key} must be an integer within the int16 range")
         return v
 
+    def num(where: str, key: str, v: object) -> float:
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or abs(v) > 3e38:
+            raise ConfigError(f"{where}: {key} must be a finite number")
+        return float(v)
+
     for i, d in enumerate(raw):
         where = f"[[telecommands.command]] #{i + 1}"
         unknown = set(d) - {
             "name", "type", "label", "group", "subsystem", "param_int", "param_min", "param_max", "confirm", "note",
+            "param_float", "param_float_min", "param_float_max", "param_float_name",
         }  # fmt: skip
         if unknown:
             raise ConfigError(f"{where}: unknown key(s) {sorted(unknown)}")
@@ -244,13 +257,29 @@ def _telecommands(data: dict) -> TelecommandsSection:
             lo, hi = i16(where, "param_min", lo), i16(where, "param_max", hi)
             if not lo <= param <= hi:
                 raise ConfigError(f"{where}: param_int (the default) must lie within param_min..param_max")
+
+        fval = num(where, "param_float", d.get("param_float", 0.0))
+        flo, fhi = d.get("param_float_min"), d.get("param_float_max")
+        if (flo is None) != (fhi is None):
+            raise ConfigError(f"{where}: param_float_min and param_float_max go together")
+        if flo is not None:
+            flo, fhi = num(where, "param_float_min", flo), num(where, "param_float_max", fhi)
+            if not flo <= fval <= fhi:
+                raise ConfigError(
+                    f"{where}: param_float (the default) must lie within param_float_min..param_float_max"
+                )
+        fname = d.get("param_float_name", "")
+        if not isinstance(fname, str):
+            raise ConfigError(f"{where}: param_float_name must be a string")
         confirm = d.get("confirm", "hold")
         if confirm not in TELECOMMAND_CONFIRM_LEVELS:
             raise ConfigError(f"{where}: confirm must be one of {TELECOMMAND_CONFIRM_LEVELS}")
         label, group, note = d.get("label", name), d.get("group", "Other"), d.get("note", "")
         if not all(isinstance(x, str) for x in (label, group, note)) or not label or not group:
             raise ConfigError(f"{where}: label and group must be non-empty strings, note a string")
-        sec.commands.append(TelecommandEntry(name, typ, label, group, sub, param, lo, hi, confirm, note))
+        sec.commands.append(
+            TelecommandEntry(name, typ, label, group, sub, param, lo, hi, confirm, note, fval, flo, fhi, fname)
+        )
     return sec
 
 

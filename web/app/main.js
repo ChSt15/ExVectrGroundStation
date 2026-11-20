@@ -50,6 +50,7 @@ applyTheme(lsGet("exgs.theme") || "dark");
 // ---------------------------------------------------------------- connections
 const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
 let allApi = null;
+let tcPush = null; // last `telecommands` push (TEMPORARY, docs/telecommands.md)
 
 const api = new Api({
   url: wsUrl,
@@ -108,6 +109,8 @@ function onMainMessage(msg) {
       for (const m of mounted) m.inst.onRequests?.(msg);
       break;
     case "telecommands":
+      tcPush = msg;
+      statusBar?.render(); // the status bar shows "ZeroEstimators sent N s ago" from this record
       for (const m of mounted) m.inst.onTelecommands?.(msg);
       break;
     case "rc":
@@ -159,6 +162,7 @@ function makeCtx(entry, getM) {
     status: () => status,
     rc: () => rcState,
     rates: () => ratesData,
+    telecommands: () => tcPush,
     now: () => store.now(view),
     switchView,
     addViewGuard: (fn) => {

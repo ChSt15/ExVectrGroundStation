@@ -12,16 +12,16 @@ The vehicle accepts the old 8-byte `Telecommand` on ExVectrNetwork **port 0x7F**
 
 | Byte | Field | Notes |
 |---|---|---|
-| 0 | `type` | `TelecommandType`: 0 CalibStart, 1 CalibApply, 2 Load (not handled by the vehicle), 3 Save, 4 SystemReset, 5 Arm, 6 SimulationMode, 7 MissionBegin, 8 MissionSelect, 9 MissionAbort |
+| 0 | `type` | `TelecommandType`: 0 CalibStart, 1 CalibApply, 2 Load (not handled by the vehicle), 3 Save, 4 SystemReset, 5 Arm, 6 SimulationMode, 7 MissionBegin, 8 MissionSelect, 9 MissionAbort, 10 ZeroEstimators |
 | 1 | `subsystem` | `Subsystem`: 0 Gyro, 1 Accel, 2 Magneto, 3 Baro, 4 GNSS, 5 AttFilter, 6 PosFilter |
 | 2-3 | `paramInt` | int16, little-endian |
-| 4-7 | `paramFloat` | float32, little-endian; unused by every handler, sent as 0 |
+| 4-7 | `paramFloat` | float32, little-endian; 0 for every command except `ZeroEstimators` (duration in s) |
 
 Network frame: CTRL `0x48` (DATA, QoS EVENT, not latest), TTL 3, DST 1, SRC 0, PORT 0x7F, SEQ (+1 per command), then the 8 bytes. A test checks these bytes against an independent decoder (`tools/fake_vehicle_net.py`). Vehicle semantics (magic values, preconditions) are the flight software's; the ground station knows only the whitelist below.
 
 ## Rules (enforced in `TelecommandController.send`)
 
-- **Whitelist only** (`[telecommands]`). A client names an entry; it cannot name a type or send a raw frame. The only value a client may choose is the int16 parameter of an entry that has a range (`param_min`/`param_max`, today `MissionBegin`), and only within that range.
+- **Whitelist only** (`[telecommands]`). A client names an entry; it cannot name a type or send a raw frame. The only values a client may choose are the int16 parameter of an entry that has a range (`param_min`/`param_max`, today `MissionBegin`) and the float parameter of an entry that has a float range (`param_float_min`/`param_float_max`, today `ZeroEstimators`), each only within its range (NaN and infinity are refused).
 - **One frame per confirmation. No retry, no repeat, no ACK.** The vehicle de-duplicates nothing, so a repeat would run the command twice. `SimulationMode` **toggles** on the vehicle; a second frame would switch back. There is no timer, no queue and no retry loop in the controller. A frame that no source accepts is refused with `no_route` and **nothing is queued** (a reconnecting source sends nothing).
 - **Result only from what the vehicle reports.** There is no acknowledgement packet. The GUI shows `sent <time> ago once via <source>` and nothing else about the outcome; the effect is read in the mission status bar from `VehicleStatus` (`simulation`, `armed`, `mode`, ...). The simulation state is never assumed: only `VehicleStatus.simulation` as reported.
 - **Control hosts only** (`server.control_hosts`, the same as RC control), checked in the API (`control_denied`) and again in the controller from the peer address.
@@ -45,11 +45,15 @@ param_int = 0xA5           # int16: fixed, or the default when a range is given
 # subsystem = 2            # Subsystem number, default 0
 # param_min = -3600        # with param_max: a client may choose the parameter within the range
 # param_max = 3600
+# param_float = 10.0       # float32 of the frame (ZeroEstimators: duration in s); fixed, or the default with a range
+# param_float_min = 1.0    # with param_float_max: a client may choose the float within the range
+# param_float_max = 60.0
+# param_float_name = "duration_s"
 # confirm = "hold"         # the only level
 # note = "shown next to the button"
 ```
 
-Validation (`ConfigError`, the core does not start): unknown `type`, duplicate or empty `name`, parameter outside int16, `param_min` without `param_max`, default outside the range, subsystem not 0..6, `confirm` not `hold`, unknown keys and unknown source ids. No `[telecommands]` section means an empty whitelist: nothing can be sent.
+Validation (`ConfigError`, the core does not start): unknown `type`, `param_float*` not finite numbers, `param_float_min` without `param_float_max`, a float default outside its range, duplicate or empty `name`, parameter outside int16, `param_min` without `param_max`, default outside the range, subsystem not 0..6, `confirm` not `hold`, unknown keys and unknown source ids. No `[telecommands]` section means an empty whitelist: nothing can be sent.
 
 Shipped in `config/gs.example.toml` and `config/gs.pocket.toml` (the values are the vehicle's, from the flight docs section 10):
 
@@ -57,7 +61,8 @@ Shipped in `config/gs.example.toml` and `config/gs.pocket.toml` (the values are 
 |---|---|---|
 | `Arm` | Arm, 0, `0xA5` | arms; any other value disarms |
 | `Disarm` | Arm, 0, `0` | disarms |
-| `SystemReset` | SystemReset, 0, `0xC5` | mode Startup, re-init, clears failures, **disarms**, resets the mission and position reference; does not leave simulation mode |
+| `SystemReset` | SystemReset, 0, `0xC5` | resets the system state only (failures, mode, mission); **no longer zeroes the estimators** (flight software change 2026-11-20, use `ZeroEstimators`). Label in the GUI: "Reset system state (does NOT zero estimators)" |
+| `ZeroEstimators` | ZeroEstimators, 0, `0x2E`, float `duration_s` default 10, range 1..60 | zeroes the estimators for the duration (0 = the vehicle's default 10 s; the vehicle clamps to 1..60 s) and reports it in `VEHICLE_STATUS.flags` bit 7 `ZEROING`. The vehicle also zeroes by itself for 10 s after boot. One frame per confirmation, no retry, no ACK |
 | `SimulationMode` | SimulationMode, 0, `0xA9` | **toggles** simulation mode |
 | `MissionBegin` | MissionBegin, 0, default -10, range -3600..3600 | `paramInt` = initial mission time in s (-10 or less gives the full countdown); needs mode Ready; arming is not required |
 | `MissionAbort` | MissionAbort | in a running mission: return to home; otherwise actuators off, mission reset |
@@ -69,12 +74,13 @@ Only the magnetometer is handled by the vehicle's calibration commands; `Load` a
 
 ## API and CLI
 
-`telecommand.send {name, confirm, param?}` replies with the record (`n`, `name`, `type`, `subsystem`, `param_int`, `client`, `source`, `t`): there is deliberately **no state or result field**. `telecommand.list` replies `{commands: [{name, type, label, group, subsystem, param_int, param_min, param_max, confirm, note, route}]}` (`route` is the id of the source a send would use now, display only). The core pushes `{"op": "telecommands", recent, route}` after hello and after every send; the 2 Hz `status` push carries `telecommand_route`. Error codes: `control_denied`, `not_whitelisted`, `confirm_required`, `rate_limited`, `no_route`, `invalid_value` ([api.md](api.md)).
+`telecommand.send {name, confirm, param?, param_float?}` replies with the record (`n`, `name`, `type`, `subsystem`, `param_int`, `param_float`, `client`, `source`, `t`): there is deliberately **no state or result field**. `telecommand.list` replies `{commands: [{name, type, label, group, subsystem, param_int, param_min, param_max, confirm, note, route}]}` (`route` is the id of the source a send would use now, display only). The core pushes `{"op": "telecommands", recent, route}` after hello and after every send; the 2 Hz `status` push carries `telecommand_route`. Error codes: `control_denied`, `not_whitelisted`, `confirm_required`, `rate_limited`, `no_route`, `invalid_value` ([api.md](api.md)).
 
 ```bash
 exgs tc list
 exgs tc send SimulationMode --confirm SimulationMode      # ONE frame; prints "no ACK exists"
 exgs tc send MissionBegin --confirm MissionBegin --param -30
+exgs tc send ZeroEstimators --confirm ZeroEstimators [--param-float 10]   # seconds, 1..60, default 10
 ```
 
 `send` prints that the frame was handed to a source once and that no ACK exists; check `exgs status --json` or the status bar for what the vehicle reports. Exit codes: 0 sent, 1 any error, 3 control denied.
@@ -87,3 +93,7 @@ Panel `telecommands` (`views = ["live"]`, shipped collapsed, next to the Request
 
 - `FakeSource` option `answer_telecommands = true`: accepts `Telecommand` packets (`received_telecommands`) and does nothing else.
 - The pty fake vehicle (`tools/fake_vehicle_pty.py`, `exvectrnet-1`): a frame on port 0x7F is parsed by the independent decoder in `tools/fake_vehicle_net.py` (`parse_telecommand`) into `received_telecommands` (type, subsystem, param, src, dst, seq, ctrl, ttl). As `vehicle` it also applies two effects to what it reports in `VEHICLE_STATUS`: `Arm` with `0xA5` arms (any other value disarms) and `SimulationMode` with `0xA9` toggles `simulation`, once per frame. These are test doubles, not vehicle logic.
+
+## ZeroEstimators and the ZEROING indicator (user request 2026-11-20)
+
+`SystemReset` no longer zeroes the estimators on the vehicle; `ZeroEstimators` (type 10, `paramInt` 0x2E validation value, `paramFloat` duration in s) does. Same rules as every entry: control hosts, 500 ms rate limit, hold 1 s, one frame, no retry, no ACK, never in replay, disabled without a route; the GS adds no vehicle-state gate. The vehicle reports the state in `VEHICLE_STATUS.flags` bit 7 `ZEROING`, mapped to `VehicleStatus.zeroing` (bool, optional). The mapping looks the constant (`FLAGS_ZEROING`) up by name and gives `None` ("n/s" in the GUI) while the pinned ExVectrPackets schema does not have it, the same pattern as every other flag; it starts working with the pin update, no code change needed. The mission status bar shows the amber **ZEROING** cell from that flag only, plus "ZeroEstimators sent N s ago" from the GS's own send record; no countdown is computed from the commanded duration. The pty fake vehicle decodes type 10 with the independent decoder and sets its reported ZEROING bit for the clamped duration (test double).

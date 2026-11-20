@@ -59,6 +59,7 @@ def _vehicle_status(p: xp.VehicleStatus, t: int, src: str, meta: dict) -> list[P
         motors_enabled=_flag(p.flags, xp.VehicleStatus, "FLAGS_MOTORS_ENABLED"),
         gs_present=_flag(p.flags, xp.VehicleStatus, "FLAGS_GS_PRESENT"),
         uart_peer_seen=_flag(p.flags, xp.VehicleStatus, "FLAGS_UART_PEER_SEEN"),
+        zeroing=_flag(p.flags, xp.VehicleStatus, "FLAGS_ZEROING"),  # None until the pinned schema has it
         incompatible=_flag(p.flags, xp.VehicleStatus, "FLAGS_INCOMPATIBLE"),
         failsafe=_flag(p.flags, xp.VehicleStatus, "FLAGS_FAILSAFE"),
         failure_bits=p.failure_bits,

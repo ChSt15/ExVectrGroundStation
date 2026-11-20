@@ -91,3 +91,17 @@ test("ship node UART chip: seen is ok, lost is amber (never red), not supplied i
   const { uart_peer_seen, ...without } = FULL;
   assert.deepEqual([cell(without).text, cell(without).tone], ["n/s", ""]);
 });
+
+test("ZEROING is shown only as the vehicle reports it, with the sent time as a plain record (no countdown)", () => {
+  const z = (f, sent) => byKey(describeVehicleStatus(entry({ ...FULL, ...f }), 100.2, undefined, sent)).zeroing;
+  assert.equal(z({ zeroing: true }).text, "ZEROING");
+  assert.equal(z({ zeroing: true }).tone, "warn");
+  assert.equal(z({ zeroing: true }).loud, true);
+  assert.equal(z({ zeroing: true }, 4.2).text, "ZEROING (ZeroEstimators sent 4.2 s ago)");
+  assert.equal(z({ zeroing: false }).text, "not zeroing");
+  assert.equal(z({ zeroing: false }, 12).tone, "");
+  assert.match(z({ zeroing: false }, 12).text, /^not zeroing \(ZeroEstimators sent/);
+  assert.equal(z({}).text, "zeroing n/s"); // flag not supplied by the wire profile: never shown as false
+  assert.equal(z({ zeroing: null }).tone, "");
+  assert.ok(!/remaining|left|countdown/i.test(z({ zeroing: true }, 1).text));
+});

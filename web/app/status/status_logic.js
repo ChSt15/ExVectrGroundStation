@@ -41,7 +41,7 @@ function item(key, label, text, tone = "", extra = {}) {
  * Returns { state: "missing"|"stale"|"fresh", age, items[] }. Booleans the wire profile did not supply
  * (null/undefined) are shown as "n/s", never as false.
  */
-export function describeVehicleStatus(entry, now, schemaType) {
+export function describeVehicleStatus(entry, now, schemaType, zeroSent = null) {
   if (!entry) return { state: "missing", age: null, items: [], src: "" };
   const f = entry.f || {};
   const stale = isStale(entry, now, schemaType);
@@ -53,6 +53,13 @@ export function describeVehicleStatus(entry, now, schemaType) {
   const [simText, simTone] =
     f.simulation === true ? ["SIMULATION", "sim"] : f.simulation === false ? ["REAL SENSORS", "real"] : ["SIM? (not supplied)", ""];
   items.push(item("simulation", "Sensors", simText, simTone, { loud: true }));
+
+  // ZEROING is the vehicle-reported flag only (VEHICLE_STATUS bit 7). "sent N s ago" is the ground station's own
+  // record of the one frame it sent (zeroSent: seconds since, live view only); no countdown is computed or assumed.
+  const sentText = typeof zeroSent === "number" ? ` (ZeroEstimators sent ${fmtAge(Math.max(0, zeroSent))} ago)` : "";
+  const zeroTitle = "VEHICLE_STATUS ZEROING flag (bit 7): the vehicle reports it is zeroing its estimators. Shown exactly as reported; no countdown is computed here.";
+  if (f.zeroing === true) items.push(item("zeroing", "Estimators", `ZEROING${sentText}`, "warn", { loud: true, title: zeroTitle }));
+  else items.push(item("zeroing", "Estimators", f.zeroing === false ? `not zeroing${sentText}` : `zeroing n/s${sentText}`, "", { title: zeroTitle }));
 
   items.push(item("mode", "Mode", f.mode === undefined ? "n/s" : String(f.mode), MODE_TONE[f.mode] || ""));
   items.push(item("mission", "Mission", f.mission_mode === undefined ? "n/s" : `${f.mission_mode} / ${f.mission_phase ?? "n/s"}`));

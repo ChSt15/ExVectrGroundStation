@@ -200,6 +200,10 @@ class VehicleStatus(Packet):
     uart_peer_seen: bool = f(
         desc="the vehicle heard the ship radio node (node 3) on its UART in the last 3 s; information only"
     )
+    zeroing: bool = f(
+        desc="the vehicle is zeroing its estimators (VEHICLE_STATUS flag ZEROING, bit 7); n/s until the pinned "
+        "ExVectrPackets schema has the flag; information only"
+    )
     incompatible: bool = f(desc="vehicle reports a version or schema mismatch")
     failsafe: bool = f()
     failure_bits: int = f()
