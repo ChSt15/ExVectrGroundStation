@@ -93,7 +93,8 @@ export function describeVehicleStatus(entry, now, schemaType) {
 
 /**
  * Health chip per source: connection state from the core's status, plus the age of its newest LinkStats
- * (receive rate packet) so that a connected but silent source shows as stale.
+ * (receive rate packet) so that a connected but silent source shows as stale. The rate is `LinkStats.rx_frames_s`: frames
+ * on the serial hop between the ground station and that device, NOT the radio rate (docs/gui.md "Data rates").
  */
 export function linkHealth(sources, lookupLinkStats, now, schemaOf = () => undefined) {
   return (sources || []).map((s) => {
@@ -108,7 +109,7 @@ export function linkHealth(sources, lookupLinkStats, now, schemaOf = () => undef
     }
     const tone = s.state === "connected" ? (e && stale ? "warn" : "ok") : s.state === "searching" ? "warn" : s.state === "error" ? "bad" : "";
     const text =
-      s.state === "connected" ? (rate === null ? "connected" : `${Math.round(rate)} pkt/s`)
+      s.state === "connected" ? (rate === null ? "connected" : `${Math.round(rate)} frames/s`)
         : s.state === "disabled" && s.disabled_by === "user" ? "DISABLED by user" : s.state;
     return { id: s.id, kind: s.kind, state: s.state, tone, text, stale: s.state === "connected" && !!e && stale, age };
   });

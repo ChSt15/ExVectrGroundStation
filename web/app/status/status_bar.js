@@ -4,6 +4,10 @@ import { h } from "../ui.js";
 import { compatibilityProblems, describeVehicleStatus, linkHealth } from "./status_logic.js";
 import { powerReport } from "../link/link_logic.js";
 import { isStale } from "../fmt.js";
+import { describeAir } from "../rates/rates_logic.js";
+
+export const SERIAL_HOP_HINT =
+  "Frames per second received on the serial connection between the ground station and that device (the vehicle USB, or the Router/Pocket USB). It is NOT the radio rate: for the Router it includes the Pocket's own RC_STATE copies, which never cross the air. See the Data rates tab.";
 
 export const STATUS_CONSUMES = ["VehicleStatus", "NetworkStatus", "LinkStats", "LinkConfig", "TxModuleStats", "RxModuleStats"];
 // The data-source tag at the start of the row shows VehicleStatus.simulation; the cells do not repeat it.
@@ -55,11 +59,15 @@ export function createStatusBar(ctx) {
     const status = ctx.status();
     const lookup = (id) => ctx.store.get(view, "LinkStats", id);
     const health = linkHealth(status ? status.sources : [], lookup, now, schema);
+    const air = describeAir(ctx.rates());
+    const airChip = h("span", { class: "sb-link sb-air", "data-testid": "air-rate", "data-tone": air.tone, "data-known": String(air.known), title: air.known ? `radio path: ${air.long}` : "Payload bytes per second that crossed the air (frames from node 1 or 3 through the Router). Not measured in this view or without a radio source." }, ` ${air.text}`);
     links.replaceChildren(
+      h("span", { class: "sb-link-label", "data-testid": "serial-hop-label", title: SERIAL_HOP_HINT, text: "frames/s on the serial hop:" }),
       ...health.map((x) =>
-        h("span", { class: "sb-link", "data-tone": x.tone, "data-stale": String(x.stale), title: `${x.id} (${x.kind}): ${x.state}` },
+        h("span", { class: "sb-link", "data-tone": x.tone, "data-stale": String(x.stale), title: `${x.id} (${x.kind}): ${x.state}. ${SERIAL_HOP_HINT}` },
           h("span", { class: "dot" }), ` ${x.id} ${x.text}${x.stale ? ` (silent ${x.age.toFixed(1)} s)` : ""}`),
       ),
+      airChip,
     );
     const problems = compatibilityProblems(ctx.store.all(view, "NetworkStatus"), now, schema("NetworkStatus"));
     banner.hidden = problems.length === 0;

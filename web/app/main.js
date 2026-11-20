@@ -20,6 +20,7 @@ let viewId = null; // layout view: bench, flight, tuning
 let dockMode = "open"; // open | rail | overlay
 let dockTab = null;
 let mounted = []; // {def, entry, el, body, inst, titleEl, badgeEl, area: "main"|"dock"|"fixed"}
+let ratesData = null; // newest `get_rates` reply for the current data view (polled once per second)
 let rcState = null; // newest `rc` push from the core (what it actually sends / mirrors); null while disconnected
 const viewGuards = new Set(); // async (nextView) => boolean; a panel can veto or prepare a view switch (radio: release prompt)
 
@@ -157,6 +158,7 @@ function makeCtx(entry, getM) {
     view: () => view,
     status: () => status,
     rc: () => rcState,
+    rates: () => ratesData,
     now: () => store.now(view),
     switchView,
     addViewGuard: (fn) => {
@@ -169,6 +171,19 @@ function makeCtx(entry, getM) {
       if (m) m.titleEl.textContent = t;
     },
   };
+}
+
+async function pollRates() {
+  if (api.state !== "open") return;
+  const v = view;
+  try {
+    const d = await api.request("get_rates", { view: v }, 5000);
+    if (v !== view) return; // the view changed meanwhile
+    ratesData = d;
+    for (const m of mounted) m.inst.onRates?.(d);
+  } catch (e) {
+    /* older core or busy: keep the last values */
+  }
 }
 
 async function switchView(next) {
@@ -184,11 +199,13 @@ async function switchView(next) {
   if (next === view) return;
   for (const a of [api, allApi]) a?.request("unsubscribe", { view }).catch(() => {});
   view = next;
+  ratesData = null;
   store.clear(view);
   applyViewVisibility();
   for (const a of [api, allApi]) if (a && a.state === "open") subscribe(a, a === api ? "latest" : "all");
   for (const m of mounted) m.inst.onViewChange?.(view);
   renderTop();
+  pollRates();
 }
 
 // ---------------------------------------------------------------- panels
@@ -459,6 +476,8 @@ async function main() {
   });
   api.start();
   setInterval(tick, TICK_MS);
+  setInterval(pollRates, 1000);
+  pollRates();
 }
 
 main();

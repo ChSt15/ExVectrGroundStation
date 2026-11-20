@@ -8,6 +8,8 @@ Spec: design sections 2.4, 3.6 and 6.1. Wire-format knowledge lives **only** in 
 - `WireProfile`: `name`, `make_framer()`, `decode(frame, src)` (never raises, undecodable frames become a `RawFrame` packet), `encode(packet)` (`None` if the profile cannot send that type), `supported_types()`. A profile may also offer `decode_many(frame, src) -> list[Packet]` (one wire packet feeding several semantic types, or none for a suppressed duplicate). Callers use `decode_frame(profile, frame, src)`, which falls back to `[decode(...)]`. `SerialSource` does.
 - `load_profile(name)` imports `exvectr_gs.wire.<name with dashes as underscores>` and calls its `make_profile()`. Unknown names raise `ProfileNotFound`.
 
+Optional profile extension for the data-rate view (docs/api.md "Data rates"): `describe_frame(frame) -> core.rates.FrameInfo` (wire packet name, origin node, whether the frame crossed the air, schema rate_air / rate_usb). `Frame.wire_len` is the frame's size on the stream including framing (0 when the framer does not know; `NetFramer` sets it, `provisional-1` does not, so its byte rates fall back to the payload size and it has no per-frame statistics).
+
 ## Profiles
 
 | Name | State |

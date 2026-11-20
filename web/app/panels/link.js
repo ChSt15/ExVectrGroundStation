@@ -44,7 +44,7 @@ registerPanel({
         for (const s of sources) {
           const sw = h("button", { class: "src-sw", role: "switch", "data-source": s.id, "aria-label": `source ${s.id} on or off` }, h("span", { class: "knob" }));
           const state = h("span", { class: "src-state" });
-          const rate = b2.cell({ type: "LinkStats", src: s.id, field: "rx_frames_s", unit: "pkt/s", digits: 0 }, { showSrc: false, class: "noage" });
+          const rate = b2.cell({ type: "LinkStats", src: s.id, field: "rx_frames_s", unit: "frames/s", digits: 0 }, { showSrc: false, class: "noage" });
           swBox.append(h("div", { class: "src-row", "data-source": s.id }, sw, h("b", { text: s.id }), h("span", { class: "dim", text: s.kind }), state, rate));
           sw.addEventListener("click", () => {
             const cur = (ctx.status()?.sources || []).find((x) => x.id === s.id);
@@ -95,9 +95,9 @@ registerPanel({
         const head = h("div", { class: "row" }, h("span", { class: "lbl", text: "State" }), stateEl);
         sec.append(head);
         blocks.push({ s, stateEl, id: s.id });
-        b.row(sec, "Receive rate", L("rx_frames_s", { unit: "pkt/s", digits: 0 }));
+        b.row(sec, "Receive rate (serial hop)", L("rx_frames_s", { unit: "frames/s", digits: 0 }));
         b.row(sec, "Receive data rate", L("rx_bytes_s", { unit: "B/s", digits: 0 }));
-        b.row(sec, "Transmit rate", L("tx_frames_s", { unit: "pkt/s", digits: 0 }));
+        b.row(sec, "Transmit rate (serial hop)", L("tx_frames_s", { unit: "frames/s", digits: 0 }));
         b.row(sec, "CRC errors", L("crc_errors", { digits: 0 }));
         b.row(sec, "Decode errors", L("decode_errors", { digits: 0 }));
         b.row(sec, "Reconnects", L("reconnects", { digits: 0 }));

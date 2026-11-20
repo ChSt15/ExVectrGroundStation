@@ -7,7 +7,7 @@ from exvectr_gs.core.app import CoreApp
 from exvectr_gs.core.config import parse_config
 
 from ..support_logs import T0_NS, make_log
-from ..support_pty import FakeVehiclePty, wait_for
+from ..support_pty import FakeVehiclePty
 from .test_api import Client, make_app, running
 
 S = 1_000_000_000
@@ -45,8 +45,10 @@ async def test_live_pty_sources_label_paths_and_count_wire_bytes(tmp_path):
                 "core": {"wire_profile": "exvectrnet-1", "source_priority": ["usb", "link"]},
                 "server": {"bind": "127.0.0.1", "port": 1},
                 "source": [
-                    {"id": "usb", "kind": "vehicle_usb", "match": {"device": str(usb.link)}, "rc_role": "none", "poll_s": 0.05},
-                    {"id": "link", "kind": "link_module", "match": {"device": str(radio.link)}, "rc_role": "mirror", "poll_s": 0.05},
+                    {"id": "usb", "kind": "vehicle_usb", "rc_role": "none", "poll_s": 0.05,
+                     "match": {"device": str(usb.link)}},
+                    {"id": "link", "kind": "link_module", "rc_role": "mirror", "poll_s": 0.05,
+                     "match": {"device": str(radio.link)}},
                 ],
                 "recorder": {"directory": tempfile.mkdtemp(prefix="exgs-test-rec-")},
             }
@@ -57,7 +59,7 @@ async def test_live_pty_sources_label_paths_and_count_wire_bytes(tmp_path):
             c = await Client.connect(rig)
 
             async def rows():
-                return (await c.ok("get_rates"))
+                return await c.ok("get_rates")
 
             async def have():
                 d = await rows()
@@ -102,7 +104,9 @@ async def test_replay_rates_are_in_replay_time_and_follow_a_seek():
         rows = {r["type"]: r for r in d["streams"] if r["source"] == "usb"}
         assert {"Attitude", "Position"} <= set(rows)
         assert rows["Attitude"]["rate_hz"][0] > 1 and rows["Attitude"]["bytes_s"] is None
-        assert rows["Attitude"]["path"] == "simulated" and rows["Attitude"]["age_s"] < 1.0  # a fake source in the log header
+        assert (
+            rows["Attitude"]["path"] == "simulated" and rows["Attitude"]["age_s"] < 1.0
+        )  # a fake source in the log header
         await c.ok("replay.seek", t=T0_NS / 1e9 + 1)
         d1 = await c.ok("get_rates", view="replay")
         assert abs(d1["now"] - (T0_NS / 1e9 + 1)) < 1e-6

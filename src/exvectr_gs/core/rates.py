@@ -179,15 +179,29 @@ class RateTracker:
                 payload.append(ps / span)
             out.append(
                 StreamRates(
-                    source, ptype, node, path, s.nominal_hz, s.bytes_known,
-                    max((now - s.last_t) / 1e9, 0.0), s.total, tuple(rate), tuple(wire), tuple(payload),
+                    source,
+                    ptype,
+                    node,
+                    path,
+                    s.nominal_hz,
+                    s.bytes_known,
+                    max((now - s.last_t) / 1e9, 0.0),
+                    s.total,
+                    tuple(rate),
+                    tuple(wire),
+                    tuple(payload),
                 )  # fmt: skip
             )
         return out
 
 
 def rates_to_json(
-    streams: Iterable[StreamRates], windows: tuple[float, ...], now_s: float, view: str, air_capacity: float, measure: str
+    streams: Iterable[StreamRates],
+    windows: tuple[float, ...],
+    now_s: float,
+    view: str,
+    air_capacity: float,
+    measure: str,
 ) -> dict:
     """The `get_rates` reply (docs/api.md). Sorted by path, then wire bytes/s (2 s window) descending."""
     rows = sorted(streams, key=lambda r: (PATH_ORDER.index(r.path), -r.bytes_s[0], -r.rate_hz[0], r.source, r.type))

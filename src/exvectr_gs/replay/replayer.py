@@ -172,7 +172,7 @@ class Replayer:
         return read_series(reader.path, idx, specs, t0, t1, max_points)
 
     def read_rates(self, windows: tuple[float, ...]) -> tuple[int, list[StreamRates]]:
-        """Per-type packet rates at the replay position, in replay time: the log lines of the last `max(windows)` seconds
+        """Per-type packet rates at the replay position, in replay time: the log lines of the last `max(windows)` s
         before `t` (stateless, so a seek needs no reset). Packet level only (a log holds no wire frames): no byte
         counts, paths from the `#source` kind and the type. Blocking, call it in a worker thread."""
         idx = self._need_open()

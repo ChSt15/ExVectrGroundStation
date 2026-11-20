@@ -74,7 +74,7 @@ test("link health per source: connection state, rate, and a silent connected sou
     [{ id: "usb", kind: "vehicle_usb", state: "connected" }, { id: "link", kind: "link_module", state: "connected" }, { id: "x", kind: "fake", state: "searching" }],
     (id) => stats[id], 101,
   );
-  assert.deepEqual(h.map((x) => [x.id, x.tone, x.text, x.stale]), [["usb", "ok", "50 pkt/s", false], ["link", "warn", "10 pkt/s", true], ["x", "warn", "searching", false]]);
+  assert.deepEqual(h.map((x) => [x.id, x.tone, x.text, x.stale]), [["usb", "ok", "50 frames/s", false], ["link", "warn", "10 frames/s", true], ["x", "warn", "searching", false]]);
 });
 
 test("compatibility banner appears for a fresh mismatch and clears when it is gone or stale", () => {

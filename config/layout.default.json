@@ -20,6 +20,10 @@
         "label": "Link & power"
       },
       {
+        "panel": "rates",
+        "label": "Data rates"
+      },
+      {
         "panel": "recording",
         "label": "Recordings"
       },

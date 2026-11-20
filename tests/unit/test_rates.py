@@ -77,7 +77,11 @@ def test_wire_size_falls_back_to_payload_and_unknown_sizes_are_null():
     tr2 = R.RateTracker()
     tr2.record("fake", "Attitude", None, R.PATH_SIM, 0)
     out = R.rates_to_json(tr2.snapshot(S), tr2.windows, 1.0, "live", 6100.0, "frames")
-    assert out["streams"][0]["bytes_s"] is None and out["paths"][0]["bytes_s"] is None and out["air"]["utilisation"] is None
+    assert (
+        out["streams"][0]["bytes_s"] is None
+        and out["paths"][0]["bytes_s"] is None
+        and out["air"]["utilisation"] is None
+    )
 
 
 def test_json_sorting_path_sums_and_air_utilisation():
@@ -91,7 +95,12 @@ def test_json_sorting_path_sums_and_air_utilisation():
         tr.record("usb", "POSE", 1, R.PATH_USB, t, 50, 60, 100.0)
     out = R.rates_to_json(tr.snapshot(2 * S), tr.windows, 2.0, "live", 6100.0, "frames")
     order = [(r["path"], r["type"]) for r in out["streams"]]
-    assert order == [("air", "AIR_POSE"), ("air", "VEHICLE_STATUS"), ("usb direct", "POSE"), ("router local", "RC_STATE")]
+    assert order == [
+        ("air", "AIR_POSE"),
+        ("air", "VEHICLE_STATUS"),
+        ("usb direct", "POSE"),
+        ("router local", "RC_STATE"),
+    ]
     air = next(p for p in out["paths"] if p["path"] == "air")
     assert air["streams"] == 2 and air["payload_s"][0] == pytest.approx(50 * 130, rel=0.03)
     assert out["air"]["utilisation"][0] == pytest.approx(50 * 130 / 6100, rel=0.03)

@@ -26,6 +26,8 @@ FakeSource ---------------------------------------------> Packet -^
 | Replayer | `exvectr_gs.replay` | implemented (T4) |
 | `SerialSource`, `provisional-1` profile, `tools/fake_vehicle_pty.py` | `exvectr_gs.sources.serial_source`, `exvectr_gs.wire.provisional_1` | implemented (T5), see [wire-profiles.md](wire-profiles.md) |
 | `exvectrnet-1` profile (real ExVectrNetwork wire format), fake vehicle `exvectrnet-1` mode | `exvectr_gs.wire.exvectrnet_1`, `tools/fake_vehicle_net.py` | implemented, see [wire-profiles.md](wire-profiles.md) |
+| Data-rate statistics (`RateTracker`, paths; fed per frame by `SerialSource`, per packet by `CoreApp` for the fake source and by `Replayer.read_rates` in replay) | `exvectr_gs.core.rates` | implemented (`feature/data-rates`), see [api.md](api.md) |
+| Data-rate statistics (`RateTracker`, paths; fed per frame by `SerialSource`, per packet by `CoreApp` for the fake source, `Replayer.read_rates` in replay) | `exvectr_gs.core.rates` | implemented (`feature/data-rates`), [api.md](api.md) |
 | RcController, radio config | `exvectr_gs.rc` | implemented (T6), `docs/radio.md` |
 | RequestController (whitelisted REQUEST sender, second uplink) | `exvectr_gs.requests` | implemented (`feature/request-sender`), `docs/requests.md` |
 | TelecommandController (TEMPORARY legacy telecommand sender, third uplink, delete at T9b) | `exvectr_gs.telecommand` | implemented (`feature/ops-and-telecommand`), `docs/telecommands.md` |

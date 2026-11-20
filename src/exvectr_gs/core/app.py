@@ -24,8 +24,8 @@ from ..wire import ProfileNotFound, WireProfile, load_profile
 from .bus import Bus
 from .clock import Clock, MonotonicClock
 from .config import ConfigError, GsConfig
-from .rates import SYNTHETIC_TYPES, RateTracker, packet_path
 from .history import PLOT_MAX_HZ, PLOT_TYPES, PLOT_WINDOW_S, History
+from .rates import SYNTHETIC_TYPES, RateTracker, packet_path
 from .state import StateStore
 
 log = logging.getLogger(__name__)
