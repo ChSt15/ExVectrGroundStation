@@ -12,7 +12,7 @@ exgs core --port 0                                    # any free port (printed a
 exgs core --no-api                                    # sources and state only
 ```
 
-HTTP routes: `GET /` (the GUI, docs/gui.md), `/static/...` (the `web/` folder), `/config/{radio|layout|model}.json`, `/models/...`, `GET /ws` (WebSocket).
+HTTP routes: `GET /` (the GUI, docs/gui.md), `/static/...` (the `web/` folder), `/config/{radio|layout|model|callouts}.json`, `/models/...`, `GET /ws` (WebSocket).
 
 ## Conventions
 

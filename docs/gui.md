@@ -152,6 +152,10 @@ Panel `radio` (`web/app/radio/`; first tab of the Operations dock). **Safety-rel
 - **Sticks (display only).** Under the handset two gimbal boxes show the stick channels with a dot, the axis values (−1..1, throttle 0..100 %) and the pulse widths: in slave the Pocket's sticks as received (stale after 0.5 s, greyed), in master what the core sends (the channel defaults: sticks neutral, throttle low; there is no stick sending), in replay the recorded `RcState`. The channel assignment comes from the radio config's `[sticks]` table (`radio/sticks.js`, unit tested in `web/test/sticks.test.js`; docs/radio.md). The same widget is in the Flight view's `rcsticks` panel.
 - **Debug hook** `window.exgs.radio.debug()`: banner text and tone, button states, and per control the displayed position, enabled, lock state, padlock visibility and the µs text.
 
+## Callouts
+
+Audio callouts and notifications (display only, `docs/callouts.md`): a rule engine over the vehicle-reported values, speech through the Web Speech API with severity styles and a WebAudio beep for failures, a toast stack top right (clear of the status bar and of the Operations dock) and a history. Settings are the Operations dock tab **Callouts** (master switch, volume slider 0 to 100 % default 80 %, categories with TEST buttons, altitude list, deviation limit, voice styles, voice, speak in replay, history); the header speaker icon shows muted / audio on / audio not enabled and opens the tab. Defaults come from `/config/callouts.json`.
+
 ## Adding a panel
 
 1. Create `web/app/panels/<name>.js` and call `registerPanel` (`id` unique and matching `[a-z_]+`, `title`, `consumes`, optional `mode: "all"`, optional `views: ["replay"]`, optional `inputs: true` for a panel that can make the core send something (it gets the dock lock line), `create(el, ctx)`).

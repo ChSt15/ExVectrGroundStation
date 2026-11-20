@@ -10,6 +10,9 @@ import { dockState, normalizeLayout, pickTab, pickView, subscriptionTypes, viewP
 import { createHeader, HEADER_CONSUMES } from "./header.js";
 import { createStatusBar, STATUS_CONSUMES } from "./status/status_bar.js";
 import { createSourceBanner, BANNER_CONSUMES } from "./status/source_banner.js";
+import { createCallouts, CALLOUT_CONSUMES } from "./callouts/controller.js";
+import { Notifier } from "./callouts/notify.js";
+import { Speaker } from "./callouts/speech.js";
 
 const TICK_MS = 100;
 const store = new Store();
@@ -50,6 +53,9 @@ applyTheme(lsGet("exgs.theme") || "dark");
 // ---------------------------------------------------------------- connections
 const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
 let allApi = null;
+let callouts = null; // callout controller (docs/callouts.md), display only
+let notifier = null;
+let speaker = null;
 let tcPush = null; // last `telecommands` push (TEMPORARY, docs/telecommands.md)
 
 const api = new Api({
@@ -76,7 +82,7 @@ function subscribe(a, mode) {
 }
 
 function neededPanels() {
-  return [...mounted.map((m) => m.def), { consumes: [...HEADER_CONSUMES, ...STATUS_CONSUMES, ...BANNER_CONSUMES], mode: "latest" }];
+  return [...mounted.map((m) => m.def), { consumes: [...HEADER_CONSUMES, ...STATUS_CONSUMES, ...BANNER_CONSUMES, ...CALLOUT_CONSUMES], mode: "latest" }];
 }
 
 function onMainMessage(msg) {
@@ -163,6 +169,9 @@ function makeCtx(entry, getM) {
     rc: () => rcState,
     rates: () => ratesData,
     telecommands: () => tcPush,
+    callouts: () => callouts,
+    notifier: () => notifier,
+    speaker: () => speaker,
     now: () => store.now(view),
     switchView,
     addViewGuard: (fn) => {
@@ -390,9 +399,26 @@ function renderDockBadges() {
   }
 }
 
+// ---------------------------------------------------------------- callouts: "Enable audio" in the notification area
+function renderAudioBar() {
+  const bar = notifier.bar;
+  const btn = h("button", { class: "toast-audio", "data-testid": "toast-audio-enable", onclick: () => callouts.enableAudio() }, "🔇 Enable audio");
+  bar.append(btn);
+  const sync = () => {
+    const s = callouts.audioState();
+    bar.hidden = s === "on" || s === "unsupported" || !callouts.settings().master;
+    btn.textContent = s === "blocked" ? "🔇 Audio blocked: click to enable" : "🔇 Enable audio";
+    bar.dataset.state = s;
+    header?.render();
+  };
+  callouts.onChange(sync);
+  sync();
+}
+
 // ---------------------------------------------------------------- tick
 store.onChange((kind, v, item) => {
   if (v !== view) return;
+  if (kind === "snapshot" && v === "replay") callouts?.onSeek(); // a seek: re-baseline silently
   for (const m of mounted) {
     if (m.def.mode === "all") continue;
     if (kind === "snapshot") m.inst.onReset?.(v);
@@ -426,6 +452,11 @@ function tick() {
   }
   renderTop();
   renderDockBadges();
+  try {
+    callouts?.tick();
+  } catch (e) {
+    console.error("callouts", e);
+  }
 }
 
 async function loadLayout() {
@@ -442,8 +473,22 @@ async function loadLayout() {
   return l;
 }
 
+async function loadCalloutDefaults() {
+  try {
+    const r = await fetch("/config/callouts.json");
+    if (r.ok) return await r.json();
+  } catch (e) {
+    /* built-in defaults */
+  }
+  return null;
+}
+
 async function main() {
   layout = await loadLayout();
+  notifier = new Notifier();
+  speaker = new Speaker({ getSettings: () => callouts.settings() });
+  callouts = createCallouts({ store, getView: () => view, getCoreStatus: () => status, ls: { get: lsGet, set: lsSet }, speaker, notifier, defaults: await loadCalloutDefaults() });
+  renderAudioBar();
   const base = makeCtx(null, null);
   banner = createSourceBanner({ ...base, connState: () => api.state });
   header = createHeader(
@@ -451,6 +496,7 @@ async function main() {
     {
       views: Object.entries(layout.views).map(([id, v]) => ({ id, label: v.label, hint: v.hint })),
       onLayoutView: (id) => mountView(id),
+      callouts: () => callouts,
       onTheme: () => applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"),
     },
   );
@@ -468,6 +514,7 @@ async function main() {
     dock: { open: openTab, mode: () => dockMode, tab: () => dockTab, set: (m) => setDockMode(m, false) },
     layout: { view: () => viewId, set: (id) => layout.views[id] && mountView(id), views: () => Object.keys(layout.views) },
     source: () => banner.state(),
+    callouts: () => callouts,
   });
   document.addEventListener("keydown", (e) => {
     if (!e.altKey || e.ctrlKey || e.metaKey) return;

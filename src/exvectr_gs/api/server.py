@@ -40,7 +40,7 @@ log = logging.getLogger(__name__)
 REPO_ROOT = Path(__file__).resolve().parents[3]
 STATUS_PERIOD_S = 0.5
 RC_PERIOD_S = 0.2
-CONFIG_NAMES = ("radio", "layout", "model")
+CONFIG_NAMES = ("radio", "layout", "model", "callouts")
 
 Handler = Callable[[Client, dict], Awaitable[Any]]
 
@@ -53,7 +53,7 @@ def _resolve(path: str) -> Path:
 
 
 class ApiServer:
-    """aiohttp application: GET / (GUI), /static/..., /config/{radio|layout|model}.json, /models/...,
+    """aiohttp application: GET / (GUI), /static/..., /config/{radio|layout|model|callouts}.json, /models/...,
     /ws (protocol section 4)."""
 
     @staticmethod
@@ -231,7 +231,14 @@ class ApiServer:
         if name not in CONFIG_NAMES:
             raise ProtocolError("not_found", f"unknown config {name!r}")
         cfg = self.ctx.cfg
-        path = _resolve({"radio": cfg.radio.config, "layout": cfg.gui.layout, "model": cfg.gui.model}[name])
+        path = _resolve(
+            {
+                "radio": cfg.radio.config,
+                "layout": cfg.gui.layout,
+                "model": cfg.gui.model,
+                "callouts": cfg.gui.callouts,
+            }[name]
+        )
         try:
             if path.suffix == ".toml":
                 with open(path, "rb") as fh:

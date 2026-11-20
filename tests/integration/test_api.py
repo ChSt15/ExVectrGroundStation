@@ -415,10 +415,13 @@ async def test_config_get_and_http():
         assert isinstance(await c.ok("config.get", name="layout"), dict)
         assert isinstance(await c.ok("config.get", name="radio"), dict)  # TOML served as JSON
         assert isinstance(await c.ok("config.get", name="model"), dict)
+        assert (await c.ok("config.get", name="callouts"))["categories"]["deviation"] is False
         assert await c.err("config.get", name="nope") == "not_found"
         async with aiohttp.ClientSession() as s:
             async with s.get(f"{rig.url()}/config/layout.json") as r:
                 assert r.status == 200 and isinstance(await r.json(), dict)
+            async with s.get(f"{rig.url()}/config/callouts.json") as r:
+                assert r.status == 200 and (await r.json())["volume"] == 0.8
             async with s.get(f"{rig.url()}/config/bogus.json") as r:
                 assert r.status == 404
             async with s.get(f"{rig.url()}/") as r:
@@ -432,7 +435,13 @@ async def test_gui_files_are_served_with_no_cache():
     """Browsers revalidate the GUI files on every load (a stale cached module mixed with new ones breaks the page)."""
     async with running() as rig:
         async with aiohttp.ClientSession() as s:
-            for path in ("/", "/static/app/main.js", "/static/app/style.css", "/config/layout.json"):
+            for path in (
+                "/",
+                "/static/app/main.js",
+                "/static/app/style.css",
+                "/config/layout.json",
+                "/config/callouts.json",
+            ):
                 async with s.get(f"{rig.url()}{path}") as r:
                     assert r.status == 200, path
                     assert r.headers.get("Cache-Control") == "no-cache", path

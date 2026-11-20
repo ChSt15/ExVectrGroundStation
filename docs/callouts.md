@@ -1,0 +1,53 @@
+# Audio callouts and notifications
+
+Branch `feature/callouts` (user decisions 2026-11-20). **Display only**: the GUI speaks and shows what the vehicle reports. Nothing is sent to the vehicle, no decision is made, nothing is inferred from what the ground station sent. Code: `web/app/callouts/` (`engine.js` rules, `queue.js` priority queue and suppression, `speech.js` Web Speech and WebAudio adapter, `notify.js` toasts and history, `settings.js` defaults, merge and volume maths, `controller.js` wiring), the settings page `web/app/panels/callouts.js` (Operations dock tab **Callouts**), defaults `config/callouts.default.json`.
+
+> **Limitation, read first.** Callouts come from the *displayed* data. They can be late or missing when the link drops or the browser, the audio device or the voice fails. **Never rely on them as the only warning.** A silent GUI does not mean the vehicle is fine.
+
+## Rules
+
+The engine reads the freshest `VehicleStatus`, `MissionState` and `Position` of the current view each 100 ms tick. Events are `{id, category, text, severity, priority}`; ordering priority: failures (0) > warnings (1) > state (2) > mission (3) > altitude (4) > countdown (5).
+
+| Category | Says | Details |
+|---|---|---|
+| countdown | `5` `4` `3` `2` `1`, `Mission start` | `MissionState.t_mission` crossing -5 s .. -1 s once each, `Mission start` at 0. If one step crosses several numbers only the last is spoken. A jump of more than 2 s or a reset backwards re-baselines without speaking. |
+| phase | phase names | Edge of `mission_phase` (MissionState, else VehicleStatus). The first observation is silent, `Idle` is not announced. Names are configurable (`phaseNames`): Hover = `Hover`, Ascent = `Ascent`, Descent = `Belly flop`, Deceleration = `Deceleration`, RTH = `Return to home`, Landing = `Landing`, Completed = `Landed`. The vehicle has no `Freefall` phase: say it by renaming `Descent` in `phaseNames` if wanted. |
+| altitude | `Altitude 50` | `Position.pos[2]` (NWU up, relative to the reset origin) crossing the list (default 25, 50, 100, 150, 200 m), rising and falling, once per crossing. Hysteresis (default 3 m): a level is said at threshold + 1.5 m and re-arms at threshold - 1.5 m, so noise does not repeat. Several levels in one step: only the last reached. Active only while the reported `mission_mode` is `Running` (not on the ground), the first fresh sample sets the baseline silently. |
+| failure | `Sensor failure`, `Attitude failure`, `Position failure`, `Position out of bounds`, `Attitude out of bounds`, `Radio connection loss`, `Failure bit n`, `Failsafe`, `Failure cleared` | One callout per set bit of `VehicleStatus.failure_bits` (names as `status_logic.js`), `Failsafe` when the flag rises, `Failure cleared` when the last failure ends or the failsafe flag falls. Repeated every 5 s, up to 3 repeats (4 announcements) while it persists. Existing failures at connect are announced. Failure toasts stay until cleared or dismissed. |
+| link | `Telemetry lost`, `Telemetry restored`, `Router link lost`, `Router link restored` | Live view only. Telemetry lost: the newest `VehicleStatus` is older than 3 s (also when the core connection is down: the view clock keeps running). Router: the source of kind `link_module` leaves `connected` (a user-disabled or absent Router says nothing). |
+| state | `Armed`, `Disarmed`, `Motors enabled`, `Zeroing`, `Zero complete`, `Simulation`, `Real sensors` | Edges of the vehicle flags. `Motors enabled` is failure style, priority 0, said twice (second time 3 s later while still reported). `Simulation` / `Real sensors` at the first status after connect and on every change. |
+| deviation | `Position deviation` | `Position.pos` against `MissionState.sp_pos` (3-D distance) above `deviation.limit_m` (5 m) for `hold_s` (2 s), once per excursion, re-armed below limit minus `hysteresis_m` (1 m). **Disabled by default**: `sp_pos` is the guidance setpoint (it comes from `AIR_MISSION`/`MISSION`, present live with the 53a7020 pin), which leads the vehicle by design (it is the current setpoint, not the final target) and has not been checked against a real flight, so a deviation alarm could be false or late. Enable it per category once checked. |
+
+**Stale data.** An entry older than 3 s (`stale_s`) never triggers mission, altitude or deviation callouts, and the baselines are reset, so the first fresh sample afterwards is silent. Failure and state callouts use VehicleStatus only while it is fresh.
+
+**Replay.** Callouts are **off in replay** (setting *Speak and notify in replay*, default off; the test buttons still work). When on, they follow the recorded timeline at normal speed. A seek (replay time jumping back, or forward by more than 2 s, or a new snapshot) re-baselines silently and cancels pending speech: nothing is said for what was skipped.
+
+**Queue and suppression.** One utterance at a time, best priority first. A failure (priority 0) cancels the speech in progress and drops every lower-priority pending item. Pending items expire (countdown after 1.5 s, others 6 s) so a late number is never spoken. Identical text inside a window is dropped, also from the notifications: 2 s normal, 8 s failures (repeats of a persisting failure are exempt).
+
+## Voice styles
+
+The Web Speech API has rate, pitch, volume and voice selection only, no emotion and no SSML, so urgency is emulated:
+
+| Style | Used for | rate | pitch | volume |
+|---|---|---|---|---|
+| normal | mission, altitude, countdown, ok messages | 1.0 | 1.0 | 0.9 |
+| warning | deviation, telemetry/link, armed | 1.15 | 0.9 | 1.0 |
+| failure | failures, failsafe, motors enabled | 1.3 | 0.7 | 1.0 |
+
+The failure style is preceded by a short two-tone beep (WebAudio, no audio files). All styles are editable in the settings. **Master volume** (0 to 100 %, default 80 %): the utterance volume is `min(1, style volume x master)` and the beep gain is `0.35 x master`; changes apply to the next callout, and *Test volume* speaks `Volume test` with the beep at the current setting.
+
+## Audio permission
+
+Browsers need a user gesture before sound. The notification area shows an **Enable audio** button (and the settings page has the same), the header speaker icon shows muted / audio on / audio not enabled. The choice is remembered in `localStorage` (`exgs.callouts.audio`); after a reload the state is **audio blocked** until the first click or key press anywhere on the page, which activates it. The test buttons enable audio as well. With no `speechSynthesis` or no voices (Linux without speech-dispatcher) notifications still work and the settings page says `no speech voices available: install speech-dispatcher / a voice, text notifications still shown`.
+
+## Notifications
+
+Every callout is shown as a toast (also with audio off or blocked), top right below the header and status area and left of the Operations dock (the stack re-positions itself with the dock width): info/mission blue, warning amber, failure red, ok green. Normal ones disappear after 5 s, failure ones stay until the failure clears or the user dismisses them, at most 5 are visible. The settings page lists the last 100 with time. Master off (checkbox, or volume 0 for speech only) silences: master off means no speech and no notifications.
+
+## Configuration
+
+`GET /config/callouts.json` serves `[gui] callouts` of the core config (default `config/callouts.default.json`), like the layout. The file may set any key of the built-in defaults (`settings.js`, unknown keys and bad values are dropped). The user's settings from the settings page are saved in full in `localStorage` (`exgs.callouts`) and override the file; **Reset to defaults** clears them. A later change of the defaults file therefore does not reach a browser that already saved settings until it resets.
+
+## Tests
+
+`web/test/callouts_*.test.js` (engine rules, seek and stale suppression, queue and suppression, speaker with a fake synth, settings merge, volume scaling), `tests/integration/test_callouts_gui.py` (headless browser with a fake `speechSynthesis` and `AudioContext` against the pty fake vehicle and a replay, including the 1366x768 position check of the toasts), `tests/integration/test_api.py` (`/config/callouts.json`). Real speech is not testable headless: listen once on the real browser and voice (docs/callouts.md checklist in the branch report).

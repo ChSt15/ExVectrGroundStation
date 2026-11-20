@@ -58,6 +58,7 @@ class RadioSection:
 class GuiSection:
     layout: str = "config/layout.default.json"
     model: str = "config/model.placeholder.json"
+    callouts: str = "config/callouts.default.json"
 
 
 REQUEST_CONFIRM_LEVELS = ("hold", "danger")

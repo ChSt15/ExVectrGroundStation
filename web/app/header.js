@@ -55,6 +55,8 @@ export function createHeader(ctx, opts) {
   stop.addEventListener("click", () => recOp("rec.stop"));
   // connection, theme
   const conn = h("span", { class: "chip conn", "data-testid": "conn" }, h("span", { class: "dot" }), h("span", { class: "conn-t" }));
+  const spk = h("button", { class: "chip spk", "data-testid": "callouts-icon", "aria-label": "callouts (audio notifications): open settings" });
+  spk.addEventListener("click", () => window.exgs?.dock?.open("callouts"));
   const theme = h("button", { class: "theme", title: "switch dark / light (high contrast)", "aria-label": "switch dark or light theme", onclick: () => opts.onTheme() }, "◐");
   const el = h(
     "header",
@@ -66,6 +68,7 @@ export function createHeader(ctx, opts) {
     rc,
     link,
     rec,
+    spk,
     conn,
     theme,
   );
@@ -104,6 +107,17 @@ export function createHeader(ctx, opts) {
     stop.hidden = !d.active;
     start.disabled = !open || !d.available;
     stop.disabled = !open;
+    const co = opts.callouts && opts.callouts();
+    if (co) {
+      const as = co.audioState();
+      const cfg = co.settings();
+      const muted = !cfg.master || cfg.volume <= 0;
+      spk.dataset.muted = String(muted);
+      spk.dataset.audio = as;
+      spk.dataset.tone = muted ? "" : as === "on" ? "ok" : "warn";
+      spk.textContent = muted ? "🔇" : as === "on" ? "🔊" : "🔈";
+      spk.title = muted ? "callouts muted (settings: Callouts tab)" : as === "on" ? `callouts audio on, volume ${Math.round(cfg.volume * 100)} %` : "callouts audio is not enabled: text notifications only (click to open settings)";
+    }
     const cs = ctx.connState();
     conn.dataset.tone = cs === "open" ? "ok" : "bad";
     conn.querySelector(".conn-t").textContent = cs === "open" ? "core" : "core offline";

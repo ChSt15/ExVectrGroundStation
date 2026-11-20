@@ -25,6 +25,7 @@ The example config enables only the fake source, which runs a scripted flight (S
 | [log-format.md](log-format.md) | `.exlog` format, recorder, reader, index, library, `exgs log` tools | written (T2) |
 | [legacy-logs.md](legacy-logs.md) | Import of the old ExVectrController CSV logs (`exgs log import-legacy`, `tools/convert_legacy_log.py`): layouts, conventions with evidence, `LegacyRow` | legacy import (2026-11-20) |
 | [api.md](api.md) | WebSocket protocol and CLI | T3 |
+| [callouts.md](callouts.md) | Audio callouts and notifications (rules, voice styles, volume, limits) | feature/callouts |
 | [gui.md](gui.md) | GUI shell, panels, adding a panel, 3D view (config-driven model), virtual radio widget | T7, T8, T9 |
 | [requests.md](requests.md) | Whitelisted one-shot REQUESTs (calibration, save, link upload): whitelist, ids and retry, routing, confirmation, API/CLI/GUI, test doubles | request sender (2026-11-19) |
 | [telecommands.md](telecommands.md) | **TEMPORARY** legacy telecommand uplink (port 0x7F: arm, simulation toggle, mission, magnetometer calibration): frame layout, rules (one frame, no retry, no ACK), config, API/CLI/GUI, test doubles, what to delete at T9b | third uplink (2026-11-20) |

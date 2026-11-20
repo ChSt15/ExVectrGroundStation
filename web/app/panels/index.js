@@ -20,3 +20,4 @@ import "./telecommands.js";
 import "./rcsticks.js";
 import "./tuning.js";
 import "./rates.js";
+import "./callouts.js";

@@ -269,6 +269,7 @@ config = "config/radio.pocket.toml"
 [gui]
 layout = "config/layout.default.json"
 model = "config/model.placeholder.json"
+callouts = "config/callouts.default.json"   # default callout settings (docs/callouts.md)
 
 # Data-rate view (docs/gui.md): air capacity PER DIRECTION in payload bytes/s, for the utilisation bars only.
 # Air profile v1 (docs/network-design.md) is time-division with a 1:1 split: 25 air packets/s in EACH direction

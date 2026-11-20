@@ -24,6 +24,10 @@
         "label": "Data rates"
       },
       {
+        "panel": "callouts",
+        "label": "Callouts"
+      },
+      {
         "panel": "recording",
         "label": "Recordings"
       },
