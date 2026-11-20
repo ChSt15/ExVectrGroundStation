@@ -19,6 +19,7 @@ import hashlib
 import json
 import math
 import os
+import statistics
 import struct
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
@@ -339,6 +340,7 @@ class Summary:
     position_jumps: int = 0  # consecutive rows more than 5 m apart
     invalid_enum_values: int = 0
     inferred_kind: str = ""
+    pad_altitude_std_m: float | None = None  # std of PositionZ on the pad (mission time -8..-1 s): 0 = simulation
 
     def as_dict(self) -> dict:
         return dataclasses.asdict(self)
@@ -395,7 +397,18 @@ def summarise(pf: ParsedFile) -> Summary:
     s.max_gnss_sats = max(sats) if sats else None
     s.gnss_position_changes = len({(r["GPSLat"], r["GPSLon"]) for r in rows}) > 1
     real_gnss = (s.max_gnss_sats or 0) >= 4 if sats else s.gnss_position_changes
-    if s.max_altitude_m is not None and s.max_altitude_m > 3.0:
+    # Owner's rule (2026-11-20): real sensors show altitude noise, a simulation has none. On the pad during the
+    # countdown (mission time -8 .. -1 s) the vehicle stands still: a simulated PositionZ is exactly constant, a
+    # real baro-based one is not.
+    pad = [float(r["PositionZ"]) for r in rows if -8.0 <= float(r["MissionTime"]) <= -1.0]  # type: ignore[arg-type]
+    if len(pad) >= 10:
+        s.pad_altitude_std_m = round(statistics.pstdev(pad), 4)
+        real = s.pad_altitude_std_m > 0.0
+        if real:
+            s.inferred_kind = "flight" if (s.max_altitude_m or 0) > 3.0 else "ground-test"
+        else:
+            s.inferred_kind = "simulation"
+    elif s.max_altitude_m is not None and s.max_altitude_m > 3.0:
         s.inferred_kind = "flight" if real_gnss else "simulation"
     else:
         s.inferred_kind = "bench"
@@ -510,8 +523,9 @@ def meta_toml(res: ConvertResult, layout: Layout, rel_source: str, bad_rows: Seq
         "date": res.date,
         "date_note": res.date_note,
         "kind": s.inferred_kind,
-        "kind_note": "inferred by the converter (altitude > 3 m and GNSS present -> flight, without GNSS -> "
-        "simulation, else bench); confirm",
+        "kind_note": "inferred by the converter from the altitude noise on the pad (mission time -8..-1 s): exactly "
+        "constant PositionZ -> simulation; noisy -> real sensors (flight above 3 m, else ground-test); "
+        "fallback without pad data: GNSS and altitude; confirm",
         "flight_id": "",
         "vehicle": "model Starship, old flight software (2025)",
         "firmware": "unknown (old ExVectrController handset logger, layout " + layout.name + ")",
