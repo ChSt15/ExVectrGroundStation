@@ -24,3 +24,20 @@ export function powerReport({ cmd, router, ship }) {
 
 /** Tone of one power value: bad above the limit. */
 export const powerTone = (v) => (typeof v === "number" && v > POWER_LIMIT_DBM ? "bad" : "");
+
+/**
+ * One row of the source switch block (link panel): the state text and tone as the core reports it, and whether the
+ * switch may be used. Disabling is a true disconnect in the core (docs/api.md `sources.enable`).
+ */
+export function describeSource(s, { view, connState, canControl }) {
+  const state =
+    s.state === "disabled"
+      ? s.disabled_by === "user" ? "DISABLED by user" : s.disabled_by === "config" ? "disabled (config)" : "disabled"
+      : s.state;
+  const tone = { connected: "ok", searching: "warn", error: "bad" }[s.state] || "";
+  let why = "";
+  if (view !== "live") why = "replay: inputs locked";
+  else if (connState !== "open") why = "no core connection";
+  else if (!canControl) why = "view-only host";
+  return { on: !!s.enabled, state, tone, usable: !why, why };
+}

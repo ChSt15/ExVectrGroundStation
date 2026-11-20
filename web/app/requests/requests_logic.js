@@ -42,6 +42,7 @@ export function describeRequest(r) {
   if (!r) return { tone: "dim", text: "" };
   const id = `id ${r.req_id}`;
   if (r.state === "sending") return { tone: "warn", text: `sending, attempt ${r.attempts}/${r.max_attempts} via ${r.source || "?"} (${id})` };
+  if (r.state === "aborted") return { tone: "bad", text: `ABORTED after ${r.attempts} attempt(s): ${r.abort_reason || "aborted"} (${id})` };
   if (r.state === "timeout") return { tone: "bad", text: `TIMEOUT: no ACK after ${r.attempts} attempts (${id})` };
   if (r.state === "acked") {
     const ok = r.status_name === "DONE" || r.status_name === "IN_PROGRESS";

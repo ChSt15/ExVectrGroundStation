@@ -100,6 +100,10 @@ The vehicle's own failsafes (link timeout, motor interlock, transition-based ena
 
 Details in [gui.md](gui.md) ("Virtual radio"). The rules that matter here: the widget shows the state the core reports in its `rc` pushes (labelled "sent"), never an optimistic local state, with a MASTER / SLAVE / IDLE indicator; a client holds control only through `rc.acquire {"kind": "connection"}` and heartbeats every 300 ms; `rc.set {"SE": 1}` repeats every 100 ms while the momentary control is pressed and the widget sends `SE=0` on pointerup, pointercancel, blur and when the page is hidden; a locked control is a padlock that needs a 1 s hold; switching to the replay view while holding control asks for the release first, and a client never holds control while it shows replay data.
 
+## Source disabled by the user
+
+`sources.enable {enabled: false}` (GUI switch in the Link & power tab, `exgs sources disable ID`) closes the source's port, so it is no longer `connected` and the sender skips it like any dropped source: with no connected control source left nothing is sent and every control returns to its default; when the source is enabled again it is a new connection with an empty queue and, under a lease, it first receives the safe defaults (tested in `tests/integration/test_source_enable.py`). A connection lease whose holder stops its heartbeat ends as usual.
+
 ## Stick display (GUI, display only)
 
 The radio panel and the Flight view's compact RC panel show the two sticks of the Pocket: in slave what arrives from the handset, in master what the core sends (the channel defaults, sticks neutral 1500 µs and throttle low 1000 µs: **the ground station has no stick sending and this display adds none**), in replay the recorded `RcState`. Which channels are shown comes from the optional `[sticks]` table of the radio config (`config/radio.pocket.toml`):

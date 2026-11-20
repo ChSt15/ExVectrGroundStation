@@ -34,3 +34,15 @@ test("missing values are never compared or guessed", () => {
   assert.equal(powerTone(10), "");
   assert.equal(powerTone(undefined), "");
 });
+
+test("source switch rows: states as reported, usable only live, connected and on a control host", async () => {
+  const { describeSource } = await import("../app/link/link_logic.js");
+  const live = { view: "live", connState: "open", canControl: true };
+  assert.deepEqual(describeSource({ enabled: true, state: "connected" }, live), { on: true, state: "connected", tone: "ok", usable: true, why: "" });
+  assert.equal(describeSource({ enabled: false, state: "disabled", disabled_by: "user" }, live).state, "DISABLED by user");
+  assert.equal(describeSource({ enabled: false, state: "disabled", disabled_by: "config" }, live).state, "disabled (config)");
+  assert.equal(describeSource({ enabled: true, state: "searching" }, live).tone, "warn");
+  assert.equal(describeSource({ enabled: true, state: "connected" }, { ...live, view: "replay" }).why, "replay: inputs locked");
+  assert.equal(describeSource({ enabled: true, state: "connected" }, { ...live, connState: "closed" }).usable, false);
+  assert.equal(describeSource({ enabled: true, state: "connected" }, { ...live, canControl: false }).why, "view-only host");
+});

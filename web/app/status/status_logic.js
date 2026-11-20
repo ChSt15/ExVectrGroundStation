@@ -107,7 +107,9 @@ export function linkHealth(sources, lookupLinkStats, now, schemaOf = () => undef
       rate = e.f && typeof e.f.rx_frames_s === "number" ? e.f.rx_frames_s : null;
     }
     const tone = s.state === "connected" ? (e && stale ? "warn" : "ok") : s.state === "searching" ? "warn" : s.state === "error" ? "bad" : "";
-    const text = s.state === "connected" ? (rate === null ? "connected" : `${Math.round(rate)} pkt/s`) : s.state;
+    const text =
+      s.state === "connected" ? (rate === null ? "connected" : `${Math.round(rate)} pkt/s`)
+        : s.state === "disabled" && s.disabled_by === "user" ? "DISABLED by user" : s.state;
     return { id: s.id, kind: s.kind, state: s.state, tone, text, stale: s.state === "connected" && !!e && stale, age };
   });
 }

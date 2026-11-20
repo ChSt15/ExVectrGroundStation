@@ -228,3 +228,27 @@ async def test_browser_replay_banner_names_the_log_and_locks_inputs():
             assert await b.eval("document.querySelector('[data-panel=radio] .rc-take').disabled") is True
             assert await b.eval("document.querySelector('[data-testid=radio-lock]').hidden") is False
             assert not [m for m in b.console if "EXCEPTION" in m], b.console
+
+
+@needs_browser
+async def test_browser_source_switch_disconnects_and_reconnects():
+    async with running(make_app()) as rig:
+        async with browser_check.Browser(1500, 1000, 9346) as b:
+            await b.goto(rig.url() + "/")
+            await b.sleep(1.5)
+            await b.eval("window.exgs.dock.open('link')")
+            sw = "[data-panel=link] .src-sw[data-source=fake]"
+            assert await b.eval(f"document.querySelector('{sw}').getAttribute('aria-checked')") == "true"
+            await b.eval(f"document.querySelector('{sw}').click()")
+            await b.sleep(0.3)
+            assert await b.eval("!!document.querySelector('.rc-modal')")  # disconnect needs a confirmation
+            await b.eval("document.querySelector('.rc-modal .rc-ok').click()")
+            await b.sleep(1.2)
+            row = "[data-panel=link] .src-row[data-source=fake] .src-state"
+            assert await b.eval(f"document.querySelector('{row}').textContent") == "DISABLED by user"
+            assert rig.app.sources[0].status().state == "disabled"
+            assert "DISABLED by user" in await b.eval("document.querySelector('#statusbar .sb-links').textContent")
+            await b.eval(f"document.querySelector('{sw}').click()")  # on: no confirmation
+            await b.sleep(1.5)
+            assert rig.app.sources[0].status().state == "connected"
+            assert not [m for m in b.console if "EXCEPTION" in m], b.console

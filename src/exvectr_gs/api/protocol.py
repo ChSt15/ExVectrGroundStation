@@ -189,6 +189,7 @@ def source_status_json(st: Any) -> dict:
         "since": secs(st.since),
         "reconnects": st.reconnects,
         "last_error": st.last_error,
+        "disabled_by": getattr(st, "disabled_by", None),
     }
 
 

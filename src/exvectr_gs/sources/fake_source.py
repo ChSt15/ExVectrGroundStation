@@ -144,6 +144,7 @@ class FakeSource(Source):
         self.received_rc: deque[RcState] = deque(maxlen=1000)  # test observation of what reached this source
         self._echo_idx: int | None = None
         self.enabled = cfg.enabled
+        self.disabled_by: str | None = None if cfg.enabled else "config"
         self._clock = clock or MonotonicClock()
         self._tick_s = 0.005
         self.reset(0)
@@ -320,6 +321,7 @@ class FakeSource(Source):
             id=self.id,
             kind=self.kind,
             enabled=self.enabled,
+            disabled_by=None if self.enabled else self.disabled_by,
             state=self._state,  # type: ignore[arg-type]
             device=f"fake:{self.profile_name}",
             since=self._since,

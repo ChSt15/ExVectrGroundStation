@@ -38,6 +38,7 @@ class SourceStatus:
     since: int
     reconnects: int
     last_error: str | None
+    disabled_by: str | None = None  # "user" (GUI / CLI, until the core restarts) or "config" (enabled = false)
 
 
 PacketSink = Callable[[Packet], None]

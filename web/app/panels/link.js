@@ -1,7 +1,8 @@
 import { registerPanel } from "./registry.js";
 import { Bindings, h, section } from "../ui.js";
 import { fmtAge } from "../fmt.js";
-import { POWER_LIMIT_DBM, powerReport, powerTone } from "../link/link_logic.js";
+import { POWER_LIMIT_DBM, describeSource, powerReport, powerTone } from "../link/link_logic.js";
+import { confirmDialog } from "../radio/radio_widget.js";
 
 const STATE_TONE = { connected: "ok", searching: "warn", error: "bad", disabled: "" };
 
@@ -14,6 +15,57 @@ registerPanel({
     let key = "";
     let blocks = [];
     const srcBox = h("div", { class: "sources" });
+    // Source switches (testing feature, SAFETY-RELEVANT: disabling is a true disconnect in the core: the port is
+    // closed, nothing is received or sent through it, in-flight requests are aborted). The state shown is the core's.
+    const swBox = h("div", { class: "src-switches", "data-testid": "source-switches" });
+    const swMsg = h("div", { class: "msg" });
+    const swSect = section(el, "Sources (on / off)");
+    swSect.append(swBox, swMsg, h("div", { class: "hint", text: "Off closes the port: nothing is received or sent through that source (no RC, requests, commands or heartbeat). Not kept over a core restart." }));
+    let swKey = "";
+    const swRows = new Map();
+    async function setEnabled(s, on) {
+      if (!on) {
+        const ok = await confirmDialog(`Disconnect source ${s.id}? Its port is closed: nothing is received from or sent to it (RC state, requests and commands through it stop) until you switch it on again.`, `Disconnect ${s.id}`, "Cancel");
+        if (!ok) return;
+      }
+      try {
+        await ctx.api.request("sources.enable", { source: s.id, enabled: on }, 10000);
+        swMsg.textContent = "";
+      } catch (e) {
+        swMsg.textContent = `sources.enable: ${e.message}`;
+      }
+    }
+    function renderSwitches(sources) {
+      const k = sources.map((s) => s.id).join(",");
+      if (k !== swKey) {
+        swKey = k;
+        swRows.clear();
+        swBox.replaceChildren();
+        for (const s of sources) {
+          const sw = h("button", { class: "src-sw", role: "switch", "data-source": s.id, "aria-label": `source ${s.id} on or off` }, h("span", { class: "knob" }));
+          const state = h("span", { class: "src-state" });
+          const rate = b2.cell({ type: "LinkStats", src: s.id, field: "rx_frames_s", unit: "pkt/s", digits: 0 }, { showSrc: false, class: "noage" });
+          swBox.append(h("div", { class: "src-row", "data-source": s.id }, sw, h("b", { text: s.id }), h("span", { class: "dim", text: s.kind }), state, rate));
+          sw.addEventListener("click", () => {
+            const cur = (ctx.status()?.sources || []).find((x) => x.id === s.id);
+            if (cur) setEnabled(cur, !cur.enabled);
+          });
+          swRows.set(s.id, { sw, state });
+        }
+      }
+      const opts = { view: ctx.view(), connState: ctx.api.state, canControl: !!(ctx.api.welcome && ctx.api.welcome.can_control) };
+      for (const s of sources) {
+        const r = swRows.get(s.id);
+        const d = describeSource(s, opts);
+        r.sw.setAttribute("aria-checked", String(d.on));
+        r.sw.disabled = !d.usable;
+        r.sw.title = d.usable ? (d.on ? "switch off (disconnect)" : "switch on (connect)") : d.why;
+        r.state.textContent = d.state;
+        r.state.dataset.tone = d.tone;
+      }
+      b2.update();
+    }
+    const b2 = new Bindings(ctx);
     const radio = section(el, "Radio (Router)");
     const rb = new Bindings(ctx);
     const R = "RadioLinkStats";
@@ -55,6 +107,7 @@ registerPanel({
     function render() {
       const status = ctx.status();
       const sources = status ? status.sources : [];
+      renderSwitches(sources);
       const k = sources.map((s) => `${s.id}/${s.kind}`).join(",");
       if (k !== key) {
         key = k;

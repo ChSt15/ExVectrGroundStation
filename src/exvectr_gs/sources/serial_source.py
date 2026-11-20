@@ -87,6 +87,7 @@ class SerialSource(Source):
         reach = (1,) if self.kind is SourceKind.VEHICLE_USB else (1, 2, 3)
         self.caps = SourceCaps(rc_role=cfg.rc_role, can_send=True, request_targets=reach)  # type: ignore[arg-type]
         self.enabled = cfg.enabled
+        self.disabled_by: str | None = None if cfg.enabled else "config"
         self._match = {k: str(v) for k, v in cfg.match.items()}
         self._baud = int(cfg.baud or DEFAULT_BAUD)
         # ESP32 bridges (CP210x/CH34x) reset the module when DTR/RTS toggle, so keep both low.
@@ -120,6 +121,7 @@ class SerialSource(Source):
             id=self.id,
             kind=self.kind,
             enabled=self.enabled,
+            disabled_by=None if self.enabled else self.disabled_by,
             state=self._state,  # type: ignore[arg-type]
             device=self._device,
             since=self._since,
@@ -228,8 +230,14 @@ class SerialSource(Source):
             await asyncio.sleep(self._poll_s)
             return
         self._device = device
+        fut = asyncio.ensure_future(asyncio.to_thread(self._open, device))
         try:
-            conn = await asyncio.to_thread(self._open, device)
+            conn = await asyncio.shield(fut)
+        except asyncio.CancelledError:
+            # disabled (task cancelled) while the port was opening: close it as soon as the open returns,
+            # so a disabled source never keeps its port
+            fut.add_done_callback(lambda f: None if f.cancelled() or f.exception() else self._close(f.result()))
+            raise
         except (serial.SerialException, OSError, ValueError) as e:
             self._last_error = str(e)
             self._set_state("error")

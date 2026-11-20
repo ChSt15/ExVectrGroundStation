@@ -78,6 +78,9 @@ test("describeRequest shows only what the core reports: ACK status exactly, time
   const to = describeRequest({ ...base, attempts: 5, state: "timeout" });
   assert.equal(to.tone, "bad");
   assert.match(to.text, /^TIMEOUT: no ACK after 5 attempts/);
+  const ab = describeRequest({ ...base, attempts: 2, state: "aborted", abort_reason: "source usb disabled by user" });
+  assert.equal(ab.tone, "bad");
+  assert.match(ab.text, /^ABORTED after 2 attempt\(s\): source usb disabled by user/);
   assert.equal(describeRequest({ ...base, state: "sent-ok" }).tone, "dim"); // an unknown state is not shown as success
 });
 

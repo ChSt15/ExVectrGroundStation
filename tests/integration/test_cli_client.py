@@ -59,7 +59,9 @@ def test_status_json(core):
     r = exgs(core, "status", "--json")
     assert r.returncode == 0, r.stderr
     (d,) = jl(r)
-    assert d["ok"] is True and d["sources"][0]["id"] == "fake" and d["sources"][0]["state"] == "connected"
+    src = {x["id"]: x for x in d["sources"]}
+    assert d["ok"] is True and src["fake"]["state"] == "connected"
+    assert src["usb"]["state"] == "disabled" and src["usb"]["disabled_by"] == "config"  # enabled = false: built, off
     assert d["can_control"] is True and isinstance(d["clock"], float)
     assert "fake" in exgs(core, "status").stdout
 
@@ -121,17 +123,11 @@ def test_wait_bad_expression_and_usage_errors_exit_1(core):
     assert exgs(core, "bogus-command").returncode == 1  # usage errors are 1, not 2 (2 = timeout)
 
 
-@pytest.mark.parametrize(
-    "args",
-    [
-        ("sources", "enable", "fake"),
-    ],
-)
-def test_unimplemented_modules_report_not_implemented(core, args):
-    r = exgs(core, *args, "--json")
-    assert r.returncode == 1, (args, r.stdout, r.stderr)
-    (d,) = jl(r)
-    assert d["ok"] is False and d["error"]["code"] == "not_implemented"
+def test_sources_enable_and_disable(core):
+    (d,) = jl(exgs(core, "sources", "disable", "fake", "--json"))
+    assert d["enabled"] is False and d["state"] == "disabled" and d["disabled_by"] == "user"
+    (d,) = jl(exgs(core, "sources", "enable", "fake", "--json"))
+    assert d["enabled"] is True
 
 
 def test_rc_without_control_source_is_denied(core):
@@ -158,8 +154,8 @@ def test_replay_without_open_log(core, args, code):
 
 def test_sources_list(core):
     (d,) = jl(exgs(core, "sources", "list", "--json"))
-    assert d["sources"][0]["id"] == "fake"
-    assert exgs(core, "sources", "list").stdout.startswith("fake")
+    assert {x["id"] for x in d["sources"]} == {"usb", "link", "fake"}
+    assert "fake" in exgs(core, "sources", "list").stdout
 
 
 def test_core_not_running_exits_1_with_hint():

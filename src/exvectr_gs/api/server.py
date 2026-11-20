@@ -628,15 +628,23 @@ class ApiServer:
         return [P.source_status_json(s.status()) for s in self.ctx.sources]
 
     async def _op_sources_enable(self, client: Client, msg: dict) -> dict:
+        """Enable or disable a source (docs/api.md). Disabling is a true disconnect: the port is closed and
+        nothing is received or sent through it until it is enabled again. Control hosts only: it changes what
+        reaches the vehicle."""
         sid = P._req(msg, "source", str, "a string")  # not `id`: that is the request id
         enabled = P._req(msg, "enabled", bool, "a boolean")
         src = next((s for s in self.ctx.sources if s.id == sid), None)
         if src is None:
             raise ProtocolError("not_found", f"unknown source {sid!r}")
-        fn = getattr(src, "set_enabled", None)
+        if not client.can_control:
+            raise ProtocolError("control_denied", "only a control host may enable or disable a source")
+        fn = getattr(self.ctx, "set_source_enabled", None)
         if fn is None:
             raise ProtocolError("not_implemented", "run-time enable/disable of sources is not implemented")
-        await self._call(fn, enabled)
+        await self._call(fn, sid, enabled)
+        msg = self._status_msg()
+        self._check_source_events(msg)
+        self.hub.broadcast(msg)
         return P.source_status_json(src.status())
 
     async def _op_config_get(self, client: Client, msg: dict) -> Any:

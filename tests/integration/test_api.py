@@ -53,10 +53,17 @@ async def running(app: CoreApp | None = None, sources=True):
     app = app or make_app()
     api = ApiServer(app, "127.0.0.1", 0)
     await api.start()
-    tasks = [asyncio.create_task(s.run(app.bus.publish)) for s in app.sources] if sources else []
+    if sources:  # like CoreApp.run: enabled sources start, `sources.enable` can stop and restart them
+        app._running = True
+        for s in app.sources:
+            if getattr(s, "enabled", True):
+                app._start_source(s)
     try:
-        yield Rig(app, api, tasks)
+        yield Rig(app, api, list(app._source_tasks.values()))
     finally:
+        app._running = False
+        tasks = list(app._source_tasks.values())
+        app._source_tasks.clear()
         for t in tasks:
             t.cancel()
         for t in tasks:
@@ -458,7 +465,6 @@ async def test_replay_rc_are_not_implemented_without_modules():
             ("replay.speed", {"x": 2}),
             ("rc.acquire", {"kind": "connection"}),
             ("rc.set", {"values": {"SA": 1}}),
-            ("sources.enable", {"source": "fake", "enabled": False}),
         ]:
             assert await c.err(op, **f) == "not_implemented", op
         st = await c.expect("status")

@@ -449,3 +449,12 @@ body[data-layout="flight"] .hint { display: none; }
 .sticks.compact .gval { font-size: 10px; }
 body[data-layout="flight"] .tiles.t4 .val.big .v { font-size: calc(var(--fs-tile) - 4px); }
 .val.big .v { white-space: nowrap; }
+
+/* Link panel: source switches */
+.src-switches { display: flex; flex-direction: column; gap: 3px; }
+.src-row { display: grid; grid-template-columns: auto 4.5em 7.5em 1fr auto; gap: 8px; align-items: center; font-size: var(--fs-s); }
+.src-state { font-weight: 650; } .src-state[data-tone="ok"] { color: var(--ok); } .src-state[data-tone="warn"] { color: var(--warn); } .src-state[data-tone="bad"] { color: var(--bad); }
+.src-sw { position: relative; width: 38px; height: 20px; min-height: 0; padding: 0; border-radius: 10px; background: var(--surface-3); }
+.src-sw .knob { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--dim); transition: left .1s; }
+.src-sw[aria-checked="true"] { background: color-mix(in srgb, var(--ok) 35%, var(--surface-3)); border-color: var(--ok); }
+.src-sw[aria-checked="true"] .knob { left: 20px; background: var(--ok); }

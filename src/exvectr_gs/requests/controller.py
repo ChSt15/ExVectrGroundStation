@@ -74,7 +74,7 @@ class RequestState:
     group: str
     confirm: str
     client: str
-    state: Literal["sending", "acked", "timeout"]
+    state: Literal["sending", "acked", "timeout", "aborted"]
     attempts: int
     t_first: int  # ns
     next_at: int  # ns of the next retry (sending only)
@@ -83,6 +83,7 @@ class RequestState:
     status: int | None = None  # as reported in the ACK
     status_name: str | None = None
     detail: int | None = None
+    abort_reason: str | None = None
 
 
 class RequestController:
@@ -241,6 +242,7 @@ class RequestController:
             "status": s.status,
             "status_name": s.status_name,
             "detail": s.detail,
+            "abort_reason": s.abort_reason,
         }
 
     async def send(
@@ -333,7 +335,18 @@ class RequestController:
             )
             self._changed()
 
-    def _finish(self, key: tuple[str, int], st: RequestState, state: Literal["acked", "timeout"]) -> None:
+    def abort_inflight(self, why: str) -> int:
+        """Stop every request still waiting for its ACK (a source was disabled by the user): no further attempt is
+        sent, through that source or another one, even if a source comes back. Returns how many were aborted."""
+        n = 0
+        for key, st in list(self._inflight.items()):
+            if st.state == "sending":
+                st.abort_reason = why
+                self._finish(key, st, "aborted")
+                n += 1
+        return n
+
+    def _finish(self, key: tuple[str, int], st: RequestState, state: Literal["acked", "timeout", "aborted"]) -> None:
         self._inflight.pop(key, None)
         st.state = state
         st.t_done = self._clock.now()
@@ -342,6 +355,11 @@ class RequestController:
             self._event(
                 GsEventKind.request_timeout,
                 f"REQUEST {st.action} id {st.req_id}: no REQUEST_ACK after {st.attempts} attempts",
+            )
+        elif state == "aborted":
+            self._event(
+                GsEventKind.request_timeout,
+                f"REQUEST {st.action} id {st.req_id}: ABORTED after {st.attempts} attempt(s): {st.abort_reason}",
             )
         self._changed()
 

@@ -12,6 +12,7 @@ from pathlib import Path
 
 from .. import __version__
 from ..packets import REGISTRY
+from ..packets.defs.host import GsEvent, GsEventKind
 from ..packets.defs.vehicle import MissionState, VehicleState
 from ..rc import RadioConfigError, RcController, load_radio_config
 from ..recording import LogLibrary, Recorder
@@ -49,7 +50,12 @@ class CoreApp:
         self.bus.subscribe(self._on_packet)
         enabled = [s for s in cfg.sources if s.enabled]
         profile = self._profile(any(s.kind != "fake" for s in enabled))
-        self.sources: list[Source] = [build_source(s, profile) for s in enabled]
+        # Sources with `enabled = false` are built too and start disabled (the GUI / `exgs sources enable` can
+        # start them). Serial sources need the real wire profile: without it only the enabled ones exist.
+        usable = [s for s in cfg.sources if s.enabled or s.kind == "fake" or profile.name != "fake"]
+        self.sources: list[Source] = [build_source(s, profile) for s in usable]
+        self._source_tasks: dict[str, asyncio.Task] = {}
+        self._running = False
         # Recording starts only by explicit user action (decision 10.1-3): nothing is opened here.
         self.recorder = Recorder(
             Path(cfg.recorder.directory).expanduser(),
@@ -120,11 +126,16 @@ class CoreApp:
     def summary_line(self, period_s: float = 1.0) -> str:
         """One line: per-source rate and connection state plus the headline vehicle values."""
         parts = []
+        off = [s.id for s in self.sources if not getattr(s, "enabled", True)]
         for s in self.sources:
+            if s.id in off:
+                continue
             st = s.status()
             n = self.packet_counts[s.id]
             parts.append(f"{s.id}:{st.state} {(n - self._last_counts[s.id]) / period_s:.0f}pkt/s")
         self._last_counts = Counter(self.packet_counts)
+        if off:
+            parts.append(f"off:{','.join(off)}")
         vs = self.store.get(VehicleState.TYPE)
         ms = self.store.get(MissionState.TYPE)
         if vs is not None:
@@ -154,10 +165,56 @@ class CoreApp:
                     log.exception("heartbeat to %s failed", s.id)
             await asyncio.sleep(HEARTBEAT_PERIOD_S)
 
+    # ------------------------------------------------------------ run-time enable / disable (docs/api.md)
+
+    def _start_source(self, s: Source) -> None:
+        self._source_tasks[s.id] = asyncio.create_task(s.run(self.bus.publish), name=f"source-{s.id}")
+
+    async def set_source_enabled(self, sid: str, enabled: bool) -> None:
+        """Disable: a true disconnect. The source task is cancelled, which closes the port (nothing is received or
+        sent through it: no RC state, requests, telecommands or heartbeats), in-flight REQUESTs are aborted so no
+        retry goes out after a re-enable, and a GsEvent records it. Enable: the source starts again from scratch
+        (a fresh connection with an empty send queue; the RC controller sends safe defaults first to a source
+        that reappears). Not persisted: a core restart uses the config's `enabled`."""
+        src = next((s for s in self.sources if s.id == sid), None)
+        if src is None:
+            raise KeyError(sid)
+        running = sid in self._source_tasks and not self._source_tasks[sid].done()
+        if not enabled:
+            src.enabled = False  # type: ignore[attr-defined]
+            src.disabled_by = "user"  # type: ignore[attr-defined]
+            task = self._source_tasks.pop(sid, None)
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+            aborted = self.requests.abort_inflight(f"source {sid} disabled by user")
+            if running:
+                self.bus.publish(
+                    GsEvent(
+                        t=self.clock.now(), src="gs", kind=GsEventKind.source_down,
+                        detail=f"{sid}: DISABLED by user (port closed, nothing received or sent)"
+                        + (f"; {aborted} request(s) aborted" if aborted else ""),
+                    )
+                )  # fmt: skip
+            return
+        src.enabled = True  # type: ignore[attr-defined]
+        src.disabled_by = None  # type: ignore[attr-defined]
+        if not running:
+            self.bus.publish(
+                GsEvent(t=self.clock.now(), src="gs", kind=GsEventKind.source_up, detail=f"{sid}: enabled by user")
+            )
+            if self._running:
+                self._start_source(src)
+
     async def run(self, duration_s: float | None = None, summary=print, serve: bool = False) -> None:
-        """Run all sources until cancelled (or `duration_s`), printing a 1 Hz summary. With `serve`,
+        """Run all enabled sources until cancelled (or `duration_s`), printing a 1 Hz summary. With `serve`,
         also run the API server on cfg.server.bind:port."""
-        tasks = [asyncio.create_task(s.run(self.bus.publish), name=f"source-{s.id}") for s in self.sources]
+        self._running = True
+        for s in self.sources:
+            if getattr(s, "enabled", True):
+                self._start_source(s)
+        tasks = []
         tasks.append(asyncio.create_task(self._heartbeat_loop(), name="gs-heartbeat"))
         tasks.append(asyncio.create_task(self.requests.run(), name="requests"))
         api = None
@@ -175,8 +232,11 @@ class CoreApp:
                 await asyncio.sleep(1.0)
                 summary(self.summary_line())
         finally:
+            self._running = False
             if api is not None:
                 await api.stop()
+            tasks.extend(self._source_tasks.values())
+            self._source_tasks.clear()
             for t in tasks:
                 t.cancel()
             for t in tasks:

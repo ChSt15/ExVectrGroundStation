@@ -85,7 +85,7 @@ Tokens in `style.css` (`:root[data-theme=dark|light]`): surfaces, lines, text, t
 | `radio` | dock | `RcState`, `rc` push | Virtual radio, see below; now also the two sticks. Safety-relevant. |
 | `requests` | dock | `requests` push, `status` | See "Requests panel". Safety-relevant. Disabled (not hidden) in replay. |
 | `telecommands` | dock | `telecommands` push, `status`, `VehicleStatus` | TEMPORARY, see [telecommands.md](telecommands.md). Safety-relevant. Disabled (not hidden) in replay. |
-| `link` | dock | `LinkStats`, `RadioLinkStats`, `LinkConfig`, `TxModuleStats`, `RxModuleStats`, `status` | Sources, the Router's radio link, transmit power block. |
+| `link` | dock | `LinkStats`, `RadioLinkStats`, `LinkConfig`, `TxModuleStats`, `RxModuleStats`, `status` | Source switches (see "Source on / off"), per-source statistics, the Router's radio link, transmit power block. |
 | `recording` | dock | `status`, `logs.list` | Start with a label, notes, log list with Open (switches to REPLAY). Quick start/stop is in the header. |
 | `rawsensors`, `console`, `inspector` | dock | | Unchanged. |
 | `transport` | replay strip | `status` | Replay transport, mounted in the replay strip under the status bar, visible in REPLAY only. |
@@ -177,6 +177,10 @@ Panel `radio` (`web/app/radio/`; first tab of the Operations dock). **Safety-rel
 | Sensor state (raw) | `sensor_state` | raw hex; the tooltip decodes the six 2-bit fields (Init, Calib, Ready, Failure) |
 
 Below the cells: one **link health** chip per source (connection state from `status`, packets per second from its `LinkStats`; a connected source that has been silent shows `silent <age>` in the stale colour). A red banner appears above the bar for a fresh `NetworkStatus.incompatible` (schema hash or network version mismatch, with the detail text) and disappears by itself when it clears or when that source goes quiet. **Stale data** (the `VehicleStatus` older than its stale limit) greys the whole line out and the label reads `STALE <age>`; with no `VehicleStatus` in the view it reads `no VehicleStatus received`.
+
+### Source on / off (link panel)
+
+Testing feature (user request 2026-11-20), **safety-relevant** because it changes what reaches the vehicle. The block "Sources (on / off)" at the top of the Link & power tab has one row per configured source: a switch, the id and kind, the state as the core reports it (`connected`, `searching`, `error`, **`DISABLED by user`**, `disabled (config)`) and the receive rate. Switching off asks for a confirmation (in-page dialog), switching on does not. The switch is disabled in replay ("replay: inputs locked"), without a core connection and on a view-only host. Off is a true disconnect in the core (`sources.enable`, docs/api.md): the port is closed, nothing is received or sent through the source, in-flight requests are aborted (shown as `ABORTED` in the Requests tab), and the log records `<id>: DISABLED by user`. The status bar's link chips show `DISABLED by user` too. Logic in `link/link_logic.js` (`describeSource`, unit tested), browser test `test_browser_source_switch_disconnects_and_reconnects`.
 
 ### Transmit power (link panel)
 
