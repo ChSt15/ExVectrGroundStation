@@ -58,6 +58,34 @@ export function describeAir(data) {
   };
 }
 
+/** Both directions of the air link (data.air.down measured, data.air.up ESTIMATED), each with its own capacity and
+ * the measured air packets per second (air_rx_ok counters) against the 25 packets/s maximum. */
+export function describeAirDirections(data) {
+  const air = data && data.air;
+  const max = (air && air.packets_max_s) || 25;
+  const one = (d, label, what) => {
+    const pay = d && d.payload_s;
+    const pk = d && d.packets_s !== null && d.packets_s !== undefined ? `${d.packets_s.toFixed(1)} / ${max} packets/s` : `packets/s n/a (max ${max})`;
+    if (!d || !pay) return { known: false, frac: 0, tone: "", estimated: !!(d && d.estimated), packets: pk, items: [], long: `${label}: n/a`, text: `${label}: n/a` };
+    const frac = d.utilisation ? d.utilisation[0] : 0;
+    const est = d.estimated ? " (estimated)" : "";
+    return {
+      known: true,
+      estimated: !!d.estimated,
+      frac,
+      tone: frac > 1 ? "bad" : frac > UTIL_WARN ? "warn" : "",
+      packets: pk,
+      items: d.items || [],
+      text: `${label}${est}: ${fmtBytes(pay[0])} of ${fmtBytes(d.capacity_bytes_s)} (${(frac * 100).toFixed(0)} %), ${pk}`,
+      long: what,
+    };
+  };
+  return {
+    down: one(air && air.down, "Downlink", "payload from the vehicle side (nodes 1 and 3, received through the Router): measured"),
+    up: one(air && air.up, "Uplink", "ESTIMATE from the known uplink types at their nominal air rates (RC_STATE 25 Hz while RC flows, LINK_CONFIG) plus what this ground station sent through a Router; the uplink bytes are not measured"),
+  };
+}
+
 export function describeRates(data) {
   if (!data) return { rows: [], paths: [], air: describeAir(null), measure: "frames" };
   return {

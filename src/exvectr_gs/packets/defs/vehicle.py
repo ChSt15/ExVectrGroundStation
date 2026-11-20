@@ -148,6 +148,9 @@ class MissionState(Packet):
     mission_phase: MissionPhase = f()
     t_mission: int = f(unit="ns", kind="time_ns", desc="mission time, negative during countdown")
     mission_index: int = f()
+    waypoint: int = f(
+        desc="current waypoint of the waypoint mission; only AIR_MISSION carries it, None = not that mission"
+    )
 
 
 @packet(
@@ -201,8 +204,7 @@ class VehicleStatus(Packet):
         desc="the vehicle heard the ship radio node (node 3) on its UART in the last 3 s; information only"
     )
     zeroing: bool = f(
-        desc="the vehicle is zeroing its estimators (VEHICLE_STATUS flag ZEROING, bit 7); n/s until the pinned "
-        "ExVectrPackets schema has the flag; information only"
+        desc="the vehicle is zeroing its estimators (VEHICLE_STATUS flag ZEROING, bit 7); information only"
     )
     incompatible: bool = f(desc="vehicle reports a version or schema mismatch")
     failsafe: bool = f()
@@ -226,6 +228,7 @@ class Actuators(Packet):
     tvc: list[float] = f(unit="rad", labels=("x", "y"), desc="thrust vector deflection")
     thrust: float = f(unit="N")
     ground_distance: float = f(unit="m", desc="NaN if unavailable")
+    roll_torque: float = f(unit="N*m", desc="TVC twist (roll) torque about body Z; only AIR_ACTUATORS carries it")
 
 
 @packet(

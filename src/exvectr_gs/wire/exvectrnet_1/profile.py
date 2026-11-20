@@ -17,7 +17,7 @@ from . import _deps  # noqa: F401
 
 import exvectr_packets as xp  # noqa: E402  isort: skip
 
-from ...core.rates import FrameInfo
+from ...core.rates import FrameInfo, UplinkItem
 from ...packets import REGISTRY, Direction, Packet
 from ...packets.defs.host import GsEvent, GsEventKind, RawFrame
 from ...packets.defs.link import NetworkStatus, RcOrigin, RcState
@@ -42,6 +42,7 @@ GS_RC_PORT_HANDSET = GS_RC_PORT  # the same port carries the Pocket's copy (hand
 # the packet schema. 8 bytes little-endian: type u8, subsystem u8, paramInt i16, paramFloat f32. DATA frame,
 # QoS EVENT (2), not latest, TTL 3, DST 1, SRC 0 (CTRL byte 0x48). Remove with the flight software's T9b.
 TELECOMMAND_PORT = 0x7F
+RC_AIR_HZ = 25.0  # air profile v1: one RC_STATE in every uplink air packet
 TELECOMMAND_QOS = 2
 
 
@@ -172,6 +173,17 @@ class ExVectrNet1Profile:
         else:
             remote = None
         return FrameInfo(name, node if node >= 0 else None, remote, float(air), float(usb))
+
+    def uplink_air_items(self) -> list[UplinkItem]:
+        """What the Router sends to the ship radio node (for the ESTIMATED uplink usage): the Pocket's RC_STATE once per
+        air packet (25 Hz, air profile v1; the schema rate is 0 because the Router offers copies on its USB), the
+        Router's LINK_CONFIG and its heartbeat, at their schema air rates and sizes."""
+        items = [UplinkItem("RC_STATE", RC_AIR_HZ, xp.RcState.MAX_SIZE, needs_rc=True)]
+        for cls in (xp.LinkConfig, xp.Heartbeat):
+            if cls.AIR_RATE_HZ:
+                name = re.sub(r"(?<!^)(?=[A-Z])", "_", cls.__name__).upper()
+                items.append(UplinkItem(name, float(cls.AIR_RATE_HZ), cls.MAX_SIZE))
+        return items
 
     # ---- send
 

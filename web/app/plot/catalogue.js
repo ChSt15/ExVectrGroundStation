@@ -55,6 +55,7 @@ function build() {
   FLAPS.forEach((n, i) => s.push(sig(`act.flap.${n}`, `Flap ${n} (Actuators)`, "Actuators", "deg", "Actuators", (f) => at(f.flaps, i, D))));
   ["x", "y"].forEach((a, i) => s.push(sig(`act.tvc.${a}`, `TVC ${a}`, "Actuators", "deg", "Actuators", (f) => at(f.tvc, i, D))));
   s.push(sig("act.thrust", "Thrust", "Actuators", "N", "Actuators", (f) => num(f.thrust)));
+  s.push(sig("act.roll_torque", "Roll torque (air set only)", "Actuators", "N*m", "Actuators", (f) => num(f.roll_torque)));
   FLAPS.forEach((n, i) => {
     s.push(sig(`flap.${n}`, `Flap ${n} angle (FlapState)`, "Flaps", "deg", "FlapState", (f) => at(f.angle, i, D)));
     s.push(sig(`flap.cmd.${n}`, `Flap ${n} command (FlapState)`, "Flaps", "deg", "FlapState", (f) => at(f.cmd, i, D)));
@@ -240,7 +241,7 @@ export const HISTORY_FIELDS = {
   Attitude: ["q", "omega"],
   Position: ["pos", "vel"],
   MissionState: ["sp_pos", "sp_vel"],
-  Actuators: ["flaps", "tvc", "thrust"],
+  Actuators: ["flaps", "tvc", "thrust", "roll_torque"],
   FlapState: ["angle", "cmd"],
   TvcState: ["vane", "motor"],
   VehicleState: ["tvc_thrust"],

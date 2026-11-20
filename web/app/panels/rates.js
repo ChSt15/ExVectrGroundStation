@@ -1,6 +1,6 @@
 import { registerPanel } from "./registry.js";
 import { Bindings, h, section } from "../ui.js";
-import { PATH_HINT, describeRates } from "../rates/rates_logic.js";
+import { PATH_HINT, describeAirDirections, describeRates } from "../rates/rates_logic.js";
 
 registerPanel({
   id: "rates",
@@ -9,8 +9,10 @@ registerPanel({
   create(el, ctx) {
     const note = h("div", { class: "hint", "data-testid": "rates-note" });
     const bar = h("div", { class: "rt-bar", "data-testid": "air-bar", role: "meter", "aria-valuemin": "0", "aria-valuemax": "100" }, h("div", { class: "rt-fill" }), h("span", { class: "rt-bar-t" }));
-    const airSec = section(el, "Air path utilisation");
-    airSec.append(bar);
+    const mkBar = (id) => h("div", { class: "rt-bar", "data-testid": id, role: "meter", "aria-valuemin": "0", "aria-valuemax": "100" }, h("div", { class: "rt-fill" }), h("span", { class: "rt-bar-t" }));
+    const upBar = mkBar("air-bar-up");
+    const airSec = section(el, "Air path utilisation (per direction)");
+    airSec.append(bar, upBar);
     const rb = new Bindings(ctx);
     rb.row(airSec, "Router LINK_STATS: air packets up / down", { type: "RadioLinkStats", kind: "vec", unit: "Hz", digits: 1, derive: (e) => (e.f.up_hz === undefined && e.f.down_hz === undefined ? undefined : [e.f.up_hz ?? null, e.f.down_hz ?? null]) });
     rb.row(airSec, "Router link quality", { type: "RadioLinkStats", field: "lq_pct", unit: "%", digits: 0 });
@@ -31,6 +33,16 @@ registerPanel({
       bar.querySelector(".rt-fill").style.width = `${Math.min(100, air.frac * 100)}%`;
       bar.querySelector(".rt-bar-t").textContent = air.known ? air.long : "no air payload bytes measured (replay has no byte counts, or no radio source)";
       bar.setAttribute("aria-valuenow", String(Math.round(air.frac * 100)));
+      const dirs = describeAirDirections(data);
+      for (const [el2, x, name] of [[bar, dirs.down, "Downlink"], [upBar, dirs.up, "Uplink"]]) {
+        el2.dataset.tone = x.tone;
+        el2.dataset.known = String(x.known);
+        el2.dataset.estimated = String(x.estimated);
+        el2.title = x.long;
+        el2.querySelector(".rt-fill").style.width = `${Math.min(100, x.frac * 100)}%`;
+        el2.querySelector(".rt-bar-t").textContent = x.known ? x.text : name === "Downlink" ? "Downlink: no air payload bytes measured (replay has no byte counts, or no radio source)" : "Uplink (estimated): no estimate (no radio source)";
+        el2.setAttribute("aria-valuenow", String(Math.round(x.frac * 100)));
+      }
       const rows = [];
       let path = null;
       const flush = () => {

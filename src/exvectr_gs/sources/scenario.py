@@ -227,6 +227,7 @@ class Scenario:
             "tvc": [0.05 * math.sin(1.1 * t), 0.04 * math.cos(0.9 * t)] if running else [0.0, 0.0],
             "thrust": (G + az * 10) * 0.9 if running else 0.0,
             "ground_distance": min(self.pos(t)[2], 2.0),
+            "roll_torque": 0.02 * math.sin(0.5 * t) if running else 0.0,
         }
 
     def _f_ImuRaw(self, t: float) -> dict[str, Any]:

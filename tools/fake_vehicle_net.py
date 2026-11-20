@@ -14,7 +14,7 @@ import struct
 PORT_LINK_STATS, PORT_LOG_TEXT, PORT_HANDSET, PORT_RC_STATE = 0x01, 0x02, 0x03, 0x10
 PORT_LINK_CONFIG, PORT_TELECOMMAND = 0x04, 0x7F  # the latter is the TEMPORARY legacy telecommand port
 PORT_REQUEST, PORT_REQUEST_ACK = 0x11, 0x12
-PORT_VEHICLE_STATUS, PORT_AIR_POSE = 0x20, 0x21
+PORT_VEHICLE_STATUS, PORT_AIR_POSE, PORT_AIR_ACTUATORS, PORT_AIR_MISSION = 0x20, 0x21, 0x22, 0x23
 PORT_POSE, PORT_ACTUATORS, PORT_MISSION, PORT_GNSS = 0x80, 0x81, 0x82, 0x83
 PORT_IMU, PORT_ESTIMATOR, PORT_TIMING, PORT_CALIBRATION = 0x90, 0x91, 0x92, 0x93
 QOS = {PORT_RC_STATE: 0, PORT_VEHICLE_STATUS: 1, PORT_HANDSET: 1, PORT_LINK_STATS: 1, PORT_LOG_TEXT: 2}
@@ -137,6 +137,46 @@ def pack_air_pose(t_us: int, a: dict, p: dict) -> bytes:
 
 def pack_actuators(t_us: int, flaps: list[float], tvc: list[float], thrust: float, ground: float) -> bytes:
     return struct.pack("<I4f2fff", t_us, *flaps, *tvc, thrust, ground)
+
+
+def u16(v: float, scale: float) -> int:
+    return _fx(v, scale, 0, 65534, 65535)
+
+
+def pack_air_actuators(t_us: int, prev_age: float, new: dict, old: dict | None) -> bytes:
+    """AIR_ACTUATORS (38 B): two samples, newest then previous. Each sample dict: tvc[2], roll_torque, thrust,
+    flaps[4]. `old` None = no previous sample (prev_age and all its values are the invalid sentinels)."""
+    nan = float("nan")
+    age = prev_age if old is not None else nan
+    old = old or {"tvc": [nan, nan], "roll_torque": nan, "thrust": nan, "flaps": [nan] * 4}
+    return struct.pack(
+        "<IH4h2h2H8h",
+        t_us,
+        u16(age, 1e-6),
+        *(i16(x, 1e-4) for x in (*new["tvc"], *old["tvc"])),
+        i16(new["roll_torque"], 1e-5),
+        i16(old["roll_torque"], 1e-5),
+        u16(new["thrust"], 1e-3),
+        u16(old["thrust"], 1e-3),
+        *(i16(x, 1e-4) for x in (*new["flaps"], *old["flaps"])),
+    )
+
+
+def pack_air_mission(t_us: int, m: dict, waypoint: int = 255) -> bytes:
+    ms = _fx(m["t_mission"] / 1e9, 0.001, -(2**31) + 1, 2**31 - 1, -(2**31))
+    pos = [_fx(x, 0.001, -(2**31) + 1, 2**31 - 1, -(2**31)) for x in m["sp_pos"]]
+    vel = [i16(x, 0.01) for x in m["sp_vel"]]
+    return struct.pack(
+        "<IiBBBB3i3h",
+        t_us,
+        ms,
+        int(m["mission_mode"]),
+        int(m["mission_phase"]),
+        m["mission_index"],
+        waypoint,
+        *pos,
+        *vel,
+    )
 
 
 def pack_mission(t_us: int, m: dict) -> bytes:

@@ -82,6 +82,45 @@ def nominal_for(path: str, info: FrameInfo) -> float:
     return info.nominal_usb_hz
 
 
+AIR_PACKETS_MAX_HZ = 25.0  # air profile v1: one air packet per 20 ms slot, in each direction
+RC_TYPES = frozenset({"RC_STATE", "RcState"})  # received (router local) or sent by the ground station
+
+
+@dataclass(frozen=True)
+class UplinkItem:
+    """A packet type the Router sends to the ship radio node: wire packet name, air rate in Hz, payload bytes.
+    `needs_rc`: counted only while RC state is flowing (Pocket copies received or sent by the ground station)."""
+
+    type: str
+    hz: float
+    payload_bytes: int
+    needs_rc: bool = False
+
+
+class _Counter:
+    """Cumulative u16 counter (wraps) sampled over time, for packets per second."""
+
+    def __init__(self) -> None:
+        self.samples: deque = deque()  # (t_ns, unwrapped value)
+        self._last: int | None = None
+        self._total = 0
+
+    def add(self, t: int, raw: int) -> None:
+        if self._last is not None:
+            self._total += (raw - self._last) % 65536
+        self._last = raw
+        self.samples.append((t, self._total))
+        while self.samples and t - self.samples[0][0] > 12 * 10**9:
+            self.samples.popleft()
+
+    def rate(self, now: int, span_s: float = 10.0, max_age_s: float = 5.0) -> float | None:
+        win = [x for x in self.samples if now - x[0] <= span_s * 1e9]
+        if len(win) < 2 or now - win[-1][0] > max_age_s * 1e9:
+            return None
+        dt = (win[-1][0] - win[0][0]) / 1e9
+        return (win[-1][1] - win[0][1]) / dt if dt > 0 else None
+
+
 StreamKey = tuple[str, str, int | None, str]  # source id, type, origin node, path
 
 
@@ -116,10 +155,63 @@ class RateTracker:
         self.windows = windows
         self._streams: dict[StreamKey, _Stream] = {}
         self._t0: int | None = None
+        self.uplink_items: list[UplinkItem] = []  # set by the app from the wire profile (empty: no estimate)
+        self._tx: dict[tuple[str, str], deque] = {}  # (source, type) -> (t_ns, payload bytes) the GS sent via a Router
+        self._counters: dict[str, _Counter] = {"down": _Counter(), "up": _Counter()}
 
     def reset(self) -> None:
         self._streams.clear()
         self._t0 = None
+        self._tx.clear()
+        self._counters = {"down": _Counter(), "up": _Counter()}
+
+    def record_tx(self, source: str, ptype: str, t: int, payload: int) -> None:
+        """One frame the ground station queued towards a Router (it will cross the air going up)."""
+        self._tx.setdefault((source, ptype), deque()).append((t, payload))
+
+    def record_air_counter(self, direction: str, t: int, raw: int) -> None:
+        """`air_rx_ok` of a link module: "down" = the Router's (telemetry received from the air), "up" = the ship
+        radio node's (uplink received)."""
+        self._counters[direction].add(t, raw)
+
+    def uplink_estimate(self, now: int) -> dict:
+        """ESTIMATED uplink payload per window: nominal rate x size of the known uplink types, plus what the ground
+        station sent through a Router (measured on send). The ground station cannot see the uplink bytes."""
+        longest = max(self.windows)
+        observed = 0.0 if self._t0 is None else max((now - self._t0) / 1e9, 0.0)
+        for dq in self._tx.values():
+            while dq and dq[0][0] < now - int(longest * 1e9):
+                dq.popleft()
+        n_w = len(self.windows)
+        payload = [0.0] * n_w
+        items: list[dict] = []
+        for it in self.uplink_items:
+            on = [self._rc_flowing(now, w) if it.needs_rc else True for w in self.windows]
+            vals = [it.hz * it.payload_bytes if o else 0.0 for o in on]
+            items.append({"type": it.type, "hz": it.hz, "payload_s": vals, "source": "nominal"})
+            payload = [a + b for a, b in zip(payload, vals, strict=True)]
+        types = sorted({k[1] for k in self._tx if k[1] not in RC_TYPES})
+        for ptype in types:  # RC_STATE is the 25 Hz item: a GS-sent copy takes the same slot, never adds to it
+            vals = []
+            for w in self.windows:
+                span = min(w, max(observed, MIN_SPAN_S))
+                tot = sum(p for (src, ty), dq in self._tx.items() if ty == ptype for t, p in dq if now - t <= w * 1e9)
+                vals.append(tot / span)
+            items.append({"type": ptype, "hz": None, "payload_s": vals, "source": "sent by the ground station"})
+            payload = [a + b for a, b in zip(payload, vals, strict=True)]
+        return {"payload_s": payload, "items": items}
+
+    def _rc_flowing(self, now: int, window_s: float) -> bool:
+        lo = now - window_s * 1e9
+        for (_, ty), dq in self._tx.items():
+            if ty in RC_TYPES and any(t >= lo for t, _ in dq):
+                return True
+        return any(
+            s.last_t >= lo and ptype in RC_TYPES for (_, ptype, _, path), s in self._streams.items() if path != PATH_AIR
+        )
+
+    def air_packets_s(self, direction: str, now: int) -> float | None:
+        return self._counters[direction].rate(now)
 
     def begin(self, t: int) -> None:
         """Declare that observation started at `t` (ns), before the first event: a window then averages over the
@@ -200,8 +292,10 @@ def rates_to_json(
     windows: tuple[float, ...],
     now_s: float,
     view: str,
-    air_capacity: float,
+    air_capacity: float | tuple[float, float],
     measure: str,
+    tracker: RateTracker | None = None,
+    now_ns: int | None = None,
 ) -> dict:
     """The `get_rates` reply (docs/api.md). Sorted by path, then wire bytes/s (2 s window) descending."""
     rows = sorted(streams, key=lambda r: (PATH_ORDER.index(r.path), -r.bytes_s[0], -r.rate_hz[0], r.source, r.type))
@@ -243,7 +337,16 @@ def rates_to_json(
             paths.append(p)
     air = next((p for p in paths if p["path"] == PATH_AIR), None)
     pay = air["payload_s"] if air else None
-    util = None if pay is None or air_capacity <= 0 else [x / air_capacity for x in pay]
+    cap_down, cap_up = air_capacity if isinstance(air_capacity, tuple) else (air_capacity, air_capacity)
+    util = None if pay is None or cap_down <= 0 else [x / cap_down for x in pay]
+    up_pay = up_items = None
+    pk_down = pk_up = None
+    if tracker is not None and now_ns is not None and view == "live":
+        pk_down, pk_up = tracker.air_packets_s("down", now_ns), tracker.air_packets_s("up", now_ns)
+        if tracker.uplink_items:
+            est = tracker.uplink_estimate(now_ns)
+            up_pay, up_items = est["payload_s"], est["items"]
+    up_util = None if up_pay is None or cap_up <= 0 else [x / cap_up for x in up_pay]
     return {
         "view": view,
         "now": now_s,
@@ -251,5 +354,25 @@ def rates_to_json(
         "measure": measure,
         "streams": out_rows,
         "paths": paths,
-        "air": {"capacity_bytes_s": air_capacity, "payload_s": pay, "utilisation": util},
+        "air": {
+            "capacity_bytes_s": cap_down,  # compatibility: the downlink figures, as before
+            "payload_s": pay,
+            "utilisation": util,
+            "packets_max_s": AIR_PACKETS_MAX_HZ,
+            "down": {
+                "capacity_bytes_s": cap_down,
+                "payload_s": pay,
+                "utilisation": util,
+                "packets_s": pk_down,  # measured: air_rx_ok of the Router, per second over 10 s
+                "estimated": False,
+            },
+            "up": {
+                "capacity_bytes_s": cap_up,
+                "payload_s": up_pay,
+                "utilisation": up_util,
+                "packets_s": pk_up,  # measured: air_rx_ok of the ship radio node
+                "estimated": True,
+                "items": up_items,
+            },
+        },
     }

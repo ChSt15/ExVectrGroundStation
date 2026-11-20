@@ -41,7 +41,10 @@ RADIO_RATES: dict[str, float] = {
     "Attitude": 10,
     "Position": 10,
     "VehicleState": 5,
-    "MissionState": 2,
+    "MissionState": 5,  # AIR_MISSION
+    # AIR_ACTUATORS: 25 frames/s with two samples each = 50 samples/s
+    "Actuators": 50,
+    "FlapState": 50,
     "RadioLinkStats": 2,
     "RcState": 10,
 }
@@ -52,7 +55,11 @@ RADIO_UNSUPPLIED: dict[str, set[str]] = {
     "Attitude": {"tilt_acc", "north_acc"},
     "Position": {"h_acc", "v_acc"},
     "VehicleState": {"tvc_thrust", "tvc_torque", "ground_dist", "ground_dist_cov"},
+    "Actuators": {"ground_distance"},
+    "FlapState": {"cmd", "enabled"},
 }
+# Fields only the radio set carries (AIR_ACTUATORS roll torque): None on the usb profile.
+USB_UNSUPPLIED: dict[str, set[str]] = {"Actuators": {"roll_torque"}}
 
 FAULT_KINDS = ("dropout", "rate", "disconnect", "nan", "unknown_enum", "failure_flag")
 
@@ -192,6 +199,9 @@ class FakeSource(Source):
         fields = self.scenario.fields(type_name, td)
         if self.profile_name == "radio":
             for name in RADIO_UNSUPPLIED.get(type_name, ()):
+                fields[name] = None
+        if self.profile_name == "usb":
+            for name in USB_UNSUPPLIED.get(type_name, ()):
                 fields[name] = None
         if type_name == "Position" and fields.get("pos") is not None:
             for f in self.faults:  # fires once, at the first Position at or after `at`

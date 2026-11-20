@@ -133,7 +133,8 @@ NET_VEHICLE_RATES = {
     "IMU_RAW": 20.0, "ESTIMATOR": 10.0, "TASK_TIMING": 5.0, "CALIBRATION": 0.5,
 }  # fmt: skip
 NET_TX_RATES = {
-    "VEHICLE_STATUS": 5.0, "AIR_POSE": 10.0, "HANDSET_TELEM": 2.0, "LINK_STATS_TX": 2.0, "LINK_STATS_RX": 2.0,
+    "VEHICLE_STATUS": 5.0, "AIR_POSE": 10.0, "AIR_ACTUATORS": 25.0, "AIR_MISSION": 5.0,
+    "HANDSET_TELEM": 2.0, "LINK_STATS_TX": 2.0, "LINK_STATS_RX": 2.0,
     "POCKET_RC": 25.0,
 }  # fmt: skip
 
@@ -348,6 +349,16 @@ class FakeVehiclePty:
             return self._data(src, 0, net.PORT_POSE, net.pack_pose(t_us, att, pos))
         if name == "AIR_POSE":
             return self._data(src, 0, net.PORT_AIR_POSE, net.pack_air_pose(t_us, att, pos))
+        if name == "AIR_ACTUATORS":
+
+            def sample(tt: float) -> dict:
+                a = sc.fields("Actuators", tt)
+                return {"tvc": a["tvc"], "roll_torque": a["roll_torque"], "thrust": a["thrust"], "flaps": a["flaps"]}
+
+            pl = net.pack_air_actuators(t_us, 0.020, sample(t), sample(t - 0.020))
+            return self._data(src, 0, net.PORT_AIR_ACTUATORS, pl)
+        if name == "AIR_MISSION":
+            return self._data(src, 0, net.PORT_AIR_MISSION, net.pack_air_mission(t_us, ms))
         if name == "ACTUATORS":
             flaps = sc.fields("FlapState", t)["angle"]
             vane = sc.fields("TvcState", t)["vane"]

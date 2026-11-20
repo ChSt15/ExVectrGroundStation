@@ -140,3 +140,53 @@ def test_framer_reports_the_wire_size_of_a_frame():
     wire = build_stream_frame(net)
     (f,) = NetFramer().feed(wire, 5)
     assert f.wire_len == len(wire) > len(f.payload) + 6
+
+
+def _uplink_tracker():
+    tr = R.RateTracker()
+    tr.uplink_items = load_profile("exvectrnet-1").uplink_air_items()
+    tr.begin(0)
+    return tr
+
+
+def test_uplink_items_come_from_the_profile_with_the_air_rate_of_rc_state():
+    items = {i.type: i for i in _uplink_tracker().uplink_items}
+    assert items["RC_STATE"].hz == 25.0 and items["RC_STATE"].payload_bytes == 34 and items["RC_STATE"].needs_rc
+    assert items["LINK_CONFIG"].hz == 2.0
+
+
+def test_uplink_estimate_counts_rc_only_while_it_flows_and_adds_gs_sends_but_not_rc_twice():
+    tr = _uplink_tracker()
+    est = tr.uplink_estimate(2 * S)
+    assert est["payload_s"][0] == 2.0 * tr.uplink_items[1].payload_bytes  # only LINK_CONFIG without RC
+    for i in range(50):  # the Pocket's RC_STATE copies on the Router's USB (about 200/s there, never 25 on the air)
+        tr.record("link", "RC_STATE", 2, R.PATH_LOCAL, i * S // 25, 34, 40)
+    for i in range(4):
+        tr.record_tx("link", "Request", 2 * S - i * S // 4, 12)
+        tr.record_tx("link", "RcState", 2 * S - i * S // 4, 34)  # GS master: same slot, not additive
+    est = tr.uplink_estimate(2 * S)
+    rc = 25 * 34
+    cfg = 2 * tr.uplink_items[1].payload_bytes
+    assert est["payload_s"][0] == pytest.approx(rc + cfg + 4 * 12 / 2.0)
+    assert [i["type"] for i in est["items"]] == ["RC_STATE", "LINK_CONFIG", "Request"]
+    assert est["items"][2]["source"] == "sent by the ground station"
+
+
+def test_air_packet_counter_rate_handles_wrap_and_staleness():
+    tr = R.RateTracker()
+    for i, v in enumerate([65530, 6, 19, 31]):  # +12 or +13 per 0.5 s across the wrap
+        tr.record_air_counter("down", i * S // 2, v)
+    assert tr.air_packets_s("down", 2 * S) == pytest.approx(25.0, rel=0.1)
+    assert tr.air_packets_s("down", 30 * S) is None and tr.air_packets_s("up", 2 * S) is None
+
+
+def test_json_has_per_direction_capacity_and_marks_the_uplink_estimated():
+    tr = _uplink_tracker()
+    tr.record("link", "AIR_POSE", 1, R.PATH_AIR, S, 100, 110, 10.0)
+    out = R.rates_to_json(tr.snapshot(2 * S), tr.windows, 2.0, "live", (6100.0, 3000.0), "frames", tr, 2 * S)["air"]
+    assert (
+        out["capacity_bytes_s"] == out["down"]["capacity_bytes_s"] == 6100.0 and out["up"]["capacity_bytes_s"] == 3000.0
+    )
+    assert out["down"]["estimated"] is False and out["up"]["estimated"] is True and out["packets_max_s"] == 25.0
+    assert out["up"]["payload_s"][0] > 0 and out["up"]["utilisation"][0] == out["up"]["payload_s"][0] / 3000.0
+    assert out["down"]["packets_s"] is None

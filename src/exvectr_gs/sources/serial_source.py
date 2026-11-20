@@ -156,7 +156,10 @@ class SerialSource(Source):
         frame = self._profile.encode(pkt)
         if frame is None:
             return False
-        return self._enqueue(conn, self._framer.encode(frame), drop_oldest=True)
+        ok = self._enqueue(conn, self._framer.encode(frame), drop_oldest=True)
+        if ok and self.rate_tracker is not None and self.kind.value == "link_module":
+            self.rate_tracker.record_tx(self.id, pkt.TYPE, self._clock.now(), len(frame.payload))  # uplink estimate
+        return ok
 
     async def send_heartbeat(self, uptime_s: float) -> bool:
         """Queue the ground station's heartbeat (any rc_role: it is presence information, not control).

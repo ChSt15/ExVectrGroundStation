@@ -166,7 +166,7 @@ def zeroing(app):
     return None if e is None else e.packet.zeroing
 
 
-async def test_zero_estimators_frame_decodes_and_the_reported_zeroing_flag_sets_then_clears(tmp_path, zeroing_mask):
+async def test_zero_estimators_frame_decodes_and_the_reported_zeroing_flag_sets_then_clears(tmp_path):
     v1, v2 = make_vehicle(tmp_path, "usb"), make_vehicle(tmp_path, "radio", role="txmodule")
     try:
         app = make_app(v1, v2)

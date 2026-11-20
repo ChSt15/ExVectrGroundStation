@@ -27,6 +27,9 @@ async def test_live_fake_source_is_packet_level_and_simulated():
         assert "LinkStats" not in rows and "GsEvent" not in rows
         assert d["paths"][0]["path"] == "simulated" and d["air"]["utilisation"] is None
         assert d["air"]["capacity_bytes_s"] == 6100.0
+        a = d["air"]
+        assert a["down"]["capacity_bytes_s"] == a["up"]["capacity_bytes_s"] == 6100.0 and a["up"]["estimated"] is True
+        assert a["packets_max_s"] == 25.0 and a["up"]["payload_s"] is None  # fake profile: no uplink items
         assert await c.err("get_rates", view="nope") == "bad_request"
         await c.close()
 

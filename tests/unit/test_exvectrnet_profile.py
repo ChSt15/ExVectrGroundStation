@@ -53,6 +53,8 @@ def by_type(pkts):
 EXPECTED = {
     "VEHICLE_STATUS": {"VehicleStatus", "VehicleState"},
     "AIR_POSE": {"Attitude", "Position"},
+    "AIR_ACTUATORS": {"Actuators", "FlapState"},
+    "AIR_MISSION": {"MissionState"},
     "POSE": {"Attitude", "Position"},
     "ACTUATORS": {"Actuators", "FlapState"},
     "MISSION": {"MissionState"},
@@ -77,7 +79,8 @@ def test_every_vector_maps_to_gs_types_and_round_trips_the_text_codec(case):
     pkts = PROFILE.decode_many(frame(port, bytes.fromhex(case["hex"]), src=2), "usb")
     assert {p.TYPE for p in pkts} == EXPECTED[case["packet"]]
     for p in pkts:
-        assert REGISTRY.get(p.TYPE) and (p.t, p.src) == (S, "usb")
+        assert REGISTRY.get(p.TYPE) and p.src == "usb" and p.t <= S  # AIR_ACTUATORS: older sample
+        assert p.t == S or case["packet"] == "AIR_ACTUATORS"
         assert decode_line(encode_line(p)) == p  # logs stay readable
 
 
@@ -125,16 +128,79 @@ def test_uart_peer_seen_flag_is_bit_6_and_information_only():
         assert d["VehicleStatus"].armed is False and d["VehicleStatus"].motors_enabled is False  # nothing else follows
 
 
-def test_zeroing_flag_is_none_without_the_constant_and_bit_7_with_it(monkeypatch):
+def test_zeroing_flag_is_bit_7_of_the_generated_constant():
     X = xp.VehicleStatus
-    monkeypatch.delattr(X, "FLAGS_ZEROING", raising=False)  # the currently pinned schema has no such flag
-    pl = X(flags=128).encode()
-    assert by_type(PROFILE.decode_many(frame(0x20, pl), "usb"))["VehicleStatus"].zeroing is None
-    monkeypatch.setattr(X, "FLAGS_ZEROING", 1 << 7, raising=False)  # fake mask, as after the pin update
+    assert X.FLAGS_ZEROING == 1 << 7
     for on in (True, False):
-        pl = X(flags=128 if on else 0).encode()
+        pl = X(flags=X.FLAGS_ZEROING if on else 0).encode()
         vs = by_type(PROFILE.decode_many(frame(0x20, pl), "usb"))["VehicleStatus"]
         assert vs.zeroing is on and vs.armed is False and vs.simulation is False  # nothing else follows
+
+
+def _air_actuator_samples(name):
+    vals, pl = case_payload(name)
+    pkts = PROFILE.decode_many(frame(0x22, pl, t=S), "radio")
+    return vals, [p for p in pkts if p.TYPE == "Actuators"], [p for p in pkts if p.TYPE == "FlapState"]
+
+
+def test_air_actuators_maps_to_two_samples_with_their_own_timestamps():
+    vals, acts, flaps = _air_actuator_samples("air_actuators")
+    dec = next(c for c in packet_vectors()["cases"] if c["name"] == "air_actuators")["decoded"]
+    assert [a.t for a in acts] == [S - 20_000_000, S] and [f.t for f in flaps] == [S - 20_000_000, S]  # older first
+    old, new = acts
+    assert new.tvc == pytest.approx(dec["tvc"][:2]) and old.tvc == pytest.approx(dec["tvc"][2:])
+    assert new.flaps == pytest.approx(dec["flaps"][:4]) and old.flaps == pytest.approx(dec["flaps"][4:])
+    assert (new.thrust, old.thrust) == pytest.approx((12.5, 0.0))
+    assert (new.roll_torque, old.roll_torque) == pytest.approx(tuple(dec["roll_torque"]))
+    assert new.ground_distance is None and flaps[1].angle == new.flaps and flaps[0].cmd is None
+    assert new.src == "radio" and new.t - old.t == round(vals["prev_age"] * 1e9)
+    for p in acts + flaps:
+        assert decode_line(encode_line(p)).t == p.t  # logs stay readable
+
+
+def test_independent_fake_vehicle_encoder_matches_the_air_vectors():
+    v, pl = case_payload("air_actuators")
+
+    def s(i):
+        return {
+            "tvc": v["tvc"][2 * i : 2 * i + 2],
+            "roll_torque": v["roll_torque"][i],
+            "thrust": v["thrust"][i],
+            "flaps": v["flaps"][4 * i : 4 * i + 4],
+        }
+
+    assert net.pack_air_actuators(v["t_us"], v["prev_age"], s(0), s(1)) == pl
+    v, pl = case_payload("air_actuators_no_previous")
+    new = {"tvc": [0.0, 0.0], "roll_torque": 0.0, "thrust": 1.0, "flaps": [0.5] * 4}
+    assert net.pack_air_actuators(1, 0.02, new, None) == pl
+    v, pl = case_payload("air_mission")
+    m = {"t_mission": -9.5e9, "mission_mode": 1, "mission_phase": 1, "mission_index": 1}
+    m |= {"sp_pos": v["setpoint_pos"], "sp_vel": v["setpoint_vel"]}
+    assert net.pack_air_mission(77, m) == pl
+
+
+def test_air_actuators_without_previous_sample_gives_only_the_newest():
+    _, acts, flaps = _air_actuator_samples("air_actuators_no_previous")
+    assert len(acts) == len(flaps) == 1 and acts[0].t == S
+    assert acts[0].thrust == 1.0 and acts[0].roll_torque == 0.0
+
+
+def test_air_mission_maps_to_mission_state_and_waypoint_255_is_none():
+    vals, pl = case_payload("air_mission")
+    m = PROFILE.decode_many(frame(0x23, pl), "radio")[0]
+    assert m.TYPE == "MissionState" and m.t == S
+    assert m.t_mission == -9_500_000_000 and m.mission_index == 1 and m.mission_phase == 1 and m.mission_mode == 1
+    assert m.sp_pos == pytest.approx(vals["setpoint_pos"]) and m.sp_vel == pytest.approx(vals["setpoint_vel"])
+    assert m.waypoint is None
+    pl = bytearray(pl)
+    pl[11] = 3
+    assert PROFILE.decode_many(frame(0x23, bytes(pl)), "radio")[0].waypoint == 3
+
+
+def test_describe_frame_labels_air_packets_with_the_schema_rates():
+    for port, hz in ((0x22, 25.0), (0x23, 5.0)):
+        info = PROFILE.describe_frame(frame(port, b"", src=1))
+        assert info.remote is True and (info.nominal_air_hz, info.nominal_usb_hz) == (hz, 0.0)
 
 
 def test_unknown_enum_values_stay_plain_integers():

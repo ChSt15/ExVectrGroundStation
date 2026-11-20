@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { describeAir, describeRates, describeRow, fmtBytes, fmtHz } from "../app/rates/rates_logic.js";
+import { describeAir, describeAirDirections, describeRates, describeRow, fmtBytes, fmtHz } from "../app/rates/rates_logic.js";
 
 const row = (o = {}) => ({ source: "usb", type: "POSE", node: 1, path: "usb direct", nominal_hz: 100, age_s: 0.02, count: 5, rate_hz: [99, 100], bytes_s: [6000, 6000], payload_s: [5000, 5000], ...o });
 
@@ -56,4 +56,21 @@ test("describeRates keeps the core's order and formats the path totals", () => {
   assert.deepEqual(d.rows.map((r) => r.path), ["air", "usb direct"]);
   assert.deepEqual([d.paths[0].rateText, d.paths[0].bytesText, d.paths[0].payloadText], ["10", "1100 B/s", "1000 B/s"]);
   assert.equal(describeRates(null).rows.length, 0);
+});
+
+test("air directions: separate capacity, estimated uplink and packets per second", () => {
+  const d = describeAirDirections({
+    air: {
+      packets_max_s: 25,
+      down: { capacity_bytes_s: 6100, payload_s: [3050, 3000], utilisation: [0.5, 0.49], packets_s: 24.6, estimated: false },
+      up: { capacity_bytes_s: 6100, payload_s: [900, 900], utilisation: [0.148, 0.148], packets_s: null, estimated: true, items: [{ type: "RC_STATE" }] },
+    },
+  });
+  assert.equal(d.down.frac, 0.5);
+  assert.equal(d.down.estimated, false);
+  assert.match(d.down.packets, /24\.6 \/ 25 packets\/s/);
+  assert.equal(d.up.estimated, true);
+  assert.match(d.up.text, /Uplink \(estimated\)/);
+  assert.match(d.up.packets, /n\/a/);
+  assert.equal(describeAirDirections(null).up.known, false);
 });

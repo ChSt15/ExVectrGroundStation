@@ -92,6 +92,7 @@ Version 1, direction `down`, nominal rate 2 Hz, history: no.
 | `mission_phase` | enum (MissionPhase: Idle=0, Hover=1, Ascent=2, Descent=3, Deceleration=4, RTH=5, Landing=6, Completed=7) | - |  |
 | `t_mission` | time_ns | ns | mission time, negative during countdown |
 | `mission_index` | int | - |  |
+| `waypoint` | int | - | current waypoint of the waypoint mission; only AIR_MISSION carries it, None = not that mission |
 
 ## FlapState
 
@@ -136,7 +137,7 @@ Version 1, direction `down`, nominal rate 5 Hz, history: no.
 | `motors_enabled` | bool | - | the hard motor gate is currently open |
 | `gs_present` | bool | - |  |
 | `uart_peer_seen` | bool | - | the vehicle heard the ship radio node (node 3) on its UART in the last 3 s; information only |
-| `zeroing` | bool | - | the vehicle is zeroing its estimators (VEHICLE_STATUS flag ZEROING, bit 7); n/s until the pinned ExVectrPackets schema has the flag; information only |
+| `zeroing` | bool | - | the vehicle is zeroing its estimators (VEHICLE_STATUS flag ZEROING, bit 7); information only |
 | `incompatible` | bool | - | vehicle reports a version or schema mismatch |
 | `failsafe` | bool | - |  |
 | `failure_bits` | int | - |  |
@@ -157,6 +158,7 @@ Version 1, direction `down`, nominal rate 10 Hz, history: yes.
 | `tvc` | float_array[2] | rad | thrust vector deflection Elements: x, y. |
 | `thrust` | float | N |  |
 | `ground_distance` | float | m | NaN if unavailable |
+| `roll_torque` | float | N*m | TVC twist (roll) torque about body Z; only AIR_ACTUATORS carries it |
 
 ## HandsetTelem
 

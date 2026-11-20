@@ -46,7 +46,12 @@ def test_radio_profile_is_reduced():
     pkts = src.step(5.0)
     types = {p.TYPE for p in pkts}
     assert {"Attitude", "Position", "VehicleState", "MissionState", "RadioLinkStats", "RcState", "LinkStats"} <= types
-    assert not types & {"FlapState", "TvcState", "ConsoleText"}
+    assert {"Actuators", "FlapState"} <= types  # AIR_ACTUATORS: two samples per frame, 50 samples/s
+    assert not types & {"TvcState", "ConsoleText"}
+    act = next(p for p in pkts if p.TYPE == "Actuators")
+    assert act.ground_distance is None and act.roll_torque is not None
+    assert next(p for p in pkts if p.TYPE == "FlapState").cmd is None
+    assert Counter(p.TYPE for p in pkts)["MissionState"] == pytest.approx(25, abs=2)
     att = next(p for p in pkts if p.TYPE == "Attitude")
     assert att.tilt_acc is None and att.omega is not None  # not supplied on the radio set
     vs = next(p for p in pkts if p.TYPE == "VehicleState")

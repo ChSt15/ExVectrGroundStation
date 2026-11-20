@@ -47,6 +47,14 @@ async def test_rates_panel_and_status_bar_label_the_paths(tmp_path):
         # air utilisation bar and the Router's LINK_STATS next to it
         assert await b.eval("document.querySelector('[data-testid=air-bar]').dataset.known") == "true"
         assert float(await b.eval("document.querySelector('.rt-fill').style.width.replace('%','')")) > 0
+        # both directions are drawn: the downlink measured, the uplink labelled as an estimate
+        await until(
+            lambda: b.eval("document.querySelector('[data-testid=air-bar-up]')?.dataset.known === 'true'"),
+            what="uplink bar",
+        )
+        assert await b.eval("document.querySelector('[data-testid=air-bar-up]').dataset.estimated") == "true"
+        assert await b.eval("document.querySelector('[data-testid=air-bar]').dataset.estimated") == "false"
+        assert "estimated" in await b.eval("document.querySelector('[data-testid=air-bar-up] .rt-bar-t').textContent")
         # ship node UART chip (VEHICLE_STATUS UART_PEER_SEEN, information only): the fake vehicle reports it seen
         await until(
             lambda: b.eval(

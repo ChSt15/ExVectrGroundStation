@@ -62,6 +62,8 @@ class CoreApp:
         for s in self.sources:
             if hasattr(s, "rate_tracker"):
                 s.rate_tracker = self.rates  # type: ignore[attr-defined]
+        uplink = getattr(profile, "uplink_air_items", None)
+        self.rates.uplink_items = list(uplink()) if uplink is not None else []
         self._source_tasks: dict[str, asyncio.Task] = {}
         self._running = False
         # Recording starts only by explicit user action (decision 10.1-3): nothing is opened here.
@@ -130,6 +132,8 @@ class CoreApp:
         self.history.update(pkt)
         self.plot_history.update(pkt)
         self.packet_counts[pkt.src] += 1
+        if pkt.TYPE in ("TxModuleStats", "RxModuleStats") and getattr(pkt, "air_rx_ok", None) is not None:
+            self.rates.record_air_counter("down" if pkt.TYPE == "TxModuleStats" else "up", pkt.t, pkt.air_rx_ok)
         kind = self._packet_level.get(pkt.src)
         if kind is not None and pkt.TYPE not in SYNTHETIC_TYPES:
             path = packet_path(kind, pkt.TYPE)

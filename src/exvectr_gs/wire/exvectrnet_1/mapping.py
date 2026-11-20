@@ -59,7 +59,7 @@ def _vehicle_status(p: xp.VehicleStatus, t: int, src: str, meta: dict) -> list[P
         motors_enabled=_flag(p.flags, xp.VehicleStatus, "FLAGS_MOTORS_ENABLED"),
         gs_present=_flag(p.flags, xp.VehicleStatus, "FLAGS_GS_PRESENT"),
         uart_peer_seen=_flag(p.flags, xp.VehicleStatus, "FLAGS_UART_PEER_SEEN"),
-        zeroing=_flag(p.flags, xp.VehicleStatus, "FLAGS_ZEROING"),  # None until the pinned schema has it
+        zeroing=_flag(p.flags, xp.VehicleStatus, "FLAGS_ZEROING"),
         incompatible=_flag(p.flags, xp.VehicleStatus, "FLAGS_INCOMPATIBLE"),
         failsafe=_flag(p.flags, xp.VehicleStatus, "FLAGS_FAILSAFE"),
         failure_bits=p.failure_bits,
@@ -90,6 +90,46 @@ def _actuators(p: xp.Actuators, t: int, src: str, meta: dict) -> list[Packet]:
             t=t, src=src, flaps=_fl(p.flaps), tvc=_fl(p.tvc), thrust=p.thrust, ground_distance=p.ground_distance
         ),
         V.FlapState(t=t, src=src, angle=_fl(p.flaps)),
+    ]
+
+
+def _air_actuators(p: xp.AirActuators, t: int, src: str, meta: dict) -> list[Packet]:
+    """One AIR_ACTUATORS frame carries two samples, the previous one `prev_age` older. Both become an Actuators and a
+    FlapState packet (the older pair first), so panels, plots and recordings see 50 samples/s. The frame's host
+    receive time stamps the newest sample. NaN `prev_age` = no previous sample: only the newest is emitted."""
+    out: list[Packet] = []
+    prev_ok = math.isfinite(p.prev_age)
+    for k in (1, 0) if prev_ok else (0,):
+        ts = t - round(p.prev_age * 1e9) if k else t
+        flaps = _fl(p.flaps[4 * k : 4 * k + 4])
+        out.append(
+            V.Actuators(
+                t=ts,
+                src=src,
+                flaps=flaps,
+                tvc=_fl(p.tvc[2 * k : 2 * k + 2]),
+                thrust=float(p.thrust[k]),
+                roll_torque=float(p.roll_torque[k]),
+            )
+        )
+        out.append(V.FlapState(t=ts, src=src, angle=flaps))
+    return out
+
+
+def _air_mission(p: xp.AirMission, t: int, src: str, meta: dict) -> list[Packet]:
+    t_mission = None if not math.isfinite(p.mission_time) else round(p.mission_time * 1e9)
+    return [
+        V.MissionState(
+            t=t,
+            src=src,
+            sp_vel=_fl(p.setpoint_vel),
+            sp_pos=_fl(p.setpoint_pos),
+            mission_mode=_enum(V.MissionMode, p.mission_mode),
+            mission_phase=_enum(V.MissionPhase, p.phase),
+            t_mission=t_mission,
+            mission_index=p.index,
+            waypoint=None if p.waypoint == 255 else p.waypoint,
+        )
     ]
 
 
@@ -262,6 +302,8 @@ MAPPERS: dict[type, Callable[..., list[Packet] | str]] = {
     xp.AirPose: _air_pose,
     xp.Pose: _pose,
     xp.Actuators: _actuators,
+    xp.AirActuators: _air_actuators,
+    xp.AirMission: _air_mission,
     xp.Mission: _mission,
     xp.Gnss: _gnss,
     xp.HandsetTelem: _handset_telem,

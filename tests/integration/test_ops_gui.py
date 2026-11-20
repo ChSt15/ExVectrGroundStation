@@ -142,7 +142,7 @@ async def test_status_bar_shows_only_reported_values_and_follows_a_simulation_to
 
 
 @needs_browser
-async def test_zero_estimators_panel_float_field_and_the_zeroing_indicator(tmp_path, zeroing_mask):
+async def test_zero_estimators_panel_float_field_and_the_zeroing_indicator(tmp_path):
     async with rig_with(tmp_path) as rig, browser_check.Browser(1500, 1300, 9372) as b:
         await open_page(b, rig, ["telecommands"])
         await until(

@@ -150,7 +150,32 @@ async def test_tx_module_forwards_vehicle_pocket_and_link_stats(tmp_path):
         assert rcs[0].ch_us[2] == 1000  # throttle channel of the scenario handset
         # a window of consecutive sequence numbers: nothing lost or reordered by the framing
         assert [(b.seq - a.seq) % 256 for a, b in zip(rcs, rcs[1:], strict=False)] == [1] * (len(rcs) - 1)
-        assert "RawFrame" not in types(pkts) and "Actuators" not in types(pkts)  # debug set is USB only
+        assert "RawFrame" not in types(pkts) and "ImuRaw" not in types(pkts)  # debug set is USB only
+    finally:
+        v.stop()
+
+
+async def test_radio_path_air_actuators_and_air_mission_give_two_samples_per_frame(tmp_path):
+    v = make_vehicle(tmp_path, "air", role="txmodule")
+    try:
+        src = SerialSource(cfg(v.link, "link", "link_module", "mirror"), profile())
+        async with running(src) as pkts:
+            await wait_for(
+                lambda: sum(p.TYPE == "Actuators" for p in pkts) >= 10 and "MissionState" in types(pkts),
+                what="air actuators and mission",
+            )
+        acts = [p for p in pkts if p.TYPE == "Actuators"]
+        flaps = [p for p in pkts if p.TYPE == "FlapState"]
+        assert len(acts) == len(flaps) and all(a.roll_torque is not None and a.ground_distance is None for a in acts)
+        assert all(len(a.tvc) == 2 and len(a.flaps) == 4 and math.isfinite(a.thrust) for a in acts)
+        # each frame gives (previous, newest) 20 ms apart; the previous sample of one frame is older than the next
+        # frame's previous sample: the stream is time ordered with 50 samples per second
+        pairs = list(zip(acts[0::2], acts[1::2], strict=False))
+        assert all(round((new.t - old.t) / 1e6) == 20 for old, new in pairs)
+        assert [a.t for a in acts] == sorted(a.t for a in acts)
+        m = next(p for p in pkts if p.TYPE == "MissionState")
+        assert m.sp_pos is not None and m.t_mission is not None and m.mission_index == 0 and m.waypoint is None
+        assert "RawFrame" not in types(pkts)
     finally:
         v.stop()
 

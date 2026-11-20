@@ -129,9 +129,22 @@ class TelecommandsSection:
 class RatesSection:
     """`[rates]`: reference for the data-rate view (display only)."""
 
-    # Air capacity per direction in payload bytes per second. From docs/network-design.md, air profile v1: 25 air
-    # packets per second each way (20 ms FHSS slot interval) of 255 bytes, about 6.1 kB/s of frame bytes each way.
-    air_capacity_bytes_s: float = 6100.0
+    # Air profile v1 (docs/network-design.md) is time-division with a 1:1 split: 25 air packets per second in EACH
+    # direction (20 ms slots), 253 payload bytes per air packet, so 25 x 253 = about 6.1 kB/s of payload per direction,
+    # downlink and uplink at the same time (the total is not shared). Display reference only.
+    air_capacity_down_bytes_s: float | None = None
+    air_capacity_up_bytes_s: float | None = None
+    air_capacity_bytes_s: float | None = None  # compatibility alias: sets whichever direction is not given
+
+    def __post_init__(self) -> None:
+        base = 6100.0 if self.air_capacity_bytes_s is None else float(self.air_capacity_bytes_s)
+        self.air_capacity_bytes_s = base
+        self.air_capacity_down_bytes_s = (
+            base if self.air_capacity_down_bytes_s is None else float(self.air_capacity_down_bytes_s)
+        )
+        self.air_capacity_up_bytes_s = (
+            base if self.air_capacity_up_bytes_s is None else float(self.air_capacity_up_bytes_s)
+        )
 
 
 @dataclass
@@ -327,8 +340,9 @@ def validate(cfg: GsConfig) -> None:
         raise ConfigError('recorder.raw_frames: only "unknown" is supported')
     if not 0 < cfg.server.port < 65536:
         raise ConfigError("server.port out of range")
-    if cfg.rates.air_capacity_bytes_s <= 0:
-        raise ConfigError("rates.air_capacity_bytes_s must be > 0")
+    for k in ("air_capacity_bytes_s", "air_capacity_down_bytes_s", "air_capacity_up_bytes_s"):
+        if getattr(cfg.rates, k) <= 0:
+            raise ConfigError(f"rates.{k} must be > 0")
     if cfg.core.stale_min_s <= 0:
         raise ConfigError("core.stale_min_s must be > 0")
 

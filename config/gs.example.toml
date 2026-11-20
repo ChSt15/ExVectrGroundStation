@@ -270,7 +270,10 @@ config = "config/radio.pocket.toml"
 layout = "config/layout.default.json"
 model = "config/model.placeholder.json"
 
-# Data-rate view (docs/gui.md): air capacity per direction in payload bytes/s, for the utilisation bar only.
-# From docs/network-design.md air profile v1: 25 air packets/s each way of 255 B, about 6.1 kB/s.
+# Data-rate view (docs/gui.md): air capacity PER DIRECTION in payload bytes/s, for the utilisation bars only.
+# Air profile v1 (docs/network-design.md) is time-division with a 1:1 split: 25 air packets/s in EACH direction
+# (20 ms slots) of 253 payload bytes = about 6.1 kB/s, downlink and uplink at the same time (not shared).
 [rates]
-air_capacity_bytes_s = 6100
+air_capacity_down_bytes_s = 6100
+air_capacity_up_bytes_s = 6100
+# air_capacity_bytes_s = 6100   # compatibility alias: sets the direction(s) not given above

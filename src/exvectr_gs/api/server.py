@@ -378,13 +378,16 @@ class ApiServer:
         "replay": packet rates in replay time from the open log (empty when none is open). Observe-only."""
         view = P.view_of(msg)
         cfg = getattr(self.ctx, "cfg", None)
-        cap = float(cfg.rates.air_capacity_bytes_s) if cfg is not None and hasattr(cfg, "rates") else 6100.0
+        if cfg is not None and hasattr(cfg, "rates"):
+            cap = (float(cfg.rates.air_capacity_down_bytes_s), float(cfg.rates.air_capacity_up_bytes_s))
+        else:
+            cap = (6100.0, 6100.0)
         windows = WINDOWS_S
         if view == "live":
             tracker = self._need("rates", "the rate statistics")
             now = self.ctx.clock.now()
             streams = tracker.snapshot(now)
-            return rates_to_json(streams, windows, now / 1e9, "live", cap, "frames")
+            return rates_to_json(streams, windows, now / 1e9, "live", cap, "frames", tracker, now)
         replayer = self._mod("replayer")
         streams, now = [], self._replay_clock()
         if replayer is not None:

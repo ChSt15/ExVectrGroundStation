@@ -19,6 +19,7 @@ registerPanel({
     b.tile(t, "Thrust", { type: "Actuators", field: "thrust", unit: "N", digits: 2 });
     b.tile(t, "TVC x", { type: "Actuators", kind: "num", unit: "°", digits: 1, derive: (e) => (Array.isArray(e.f.tvc) ? rad2deg(e.f.tvc[0] ?? null) : undefined) });
     b.tile(t, "TVC y", { type: "Actuators", kind: "num", unit: "°", digits: 1, derive: (e) => (Array.isArray(e.f.tvc) ? rad2deg(e.f.tvc[1] ?? null) : undefined) });
+    b.tile(t, "Roll torque", { type: "Actuators", field: "roll_torque", unit: "N·m", digits: 3 });
     const rows = [
       { label: "Command", key: "cmd_act", type: "Actuators", field: "flaps", unit: "°", digits: 1, scale: D },
       { label: "Angle", key: "angle", type: "FlapState", field: "angle", unit: "°", digits: 1, scale: D },
