@@ -77,7 +77,7 @@ async def open_page(b, rig, panels=()):
     await b.goto(rig.url() + "/")
     await b.sleep(1.5)
     for p in panels:
-        await b.eval(f"document.querySelector('[data-panel={p}]').dataset.collapsed = 'false'")
+        await b.eval(f"window.exgs.dock.open('{p}')")  # a tab of the Operations dock
 
 
 async def text(b, sel):
@@ -95,13 +95,15 @@ async def test_status_bar_shows_only_reported_values_and_follows_a_simulation_to
         await until(
             lambda: b.eval("document.querySelector('#statusbar').dataset.state === 'fresh'"), what="fresh status"
         )
-        sim0 = await text(b, cell("simulation"))
-        assert sim0 in ("SIMULATION", "REAL SENSORS")
+        # the simulation flag is in the data-source banner (the bar does not repeat it)
+        kind = "document.querySelector('[data-testid=source-banner]').dataset.kind"
+        sim0 = await b.eval(kind)
+        assert sim0 in ("sim", "real")
+        assert await b.eval("document.querySelector('#statusbar [data-key=simulation]')") is None
         labels = await b.eval(
             "[...document.querySelectorAll('#statusbar .sb-cell:not([hidden]) .sb-l')].map(e => e.textContent)"
         )
         for want in (
-            "Sensors",
             "Mode",
             "Mission",
             "Armed",
@@ -115,7 +117,6 @@ async def test_status_bar_shows_only_reported_values_and_follows_a_simulation_to
             "Sensor state (raw)",
         ):
             assert want in labels, want
-        assert await b.eval(f"document.querySelector({cell('simulation')!r}).parentElement.dataset.loud") == "true"
         assert await b.eval(f"document.querySelector({cell('motors_enabled')!r}).parentElement.dataset.loud") == "true"
         assert "0x" in await text(b, cell("failure_bits")) and "(" in await text(b, cell("failure_bits"))
         links = await b.eval("[...document.querySelectorAll('#statusbar .sb-link')].map(e => e.textContent)")
@@ -129,12 +130,9 @@ async def test_status_bar_shows_only_reported_values_and_follows_a_simulation_to
         await press(b, btn)
         await until(lambda: len(rig.v1.received_telecommands) == 1, timeout=3, what="telecommand after the hold")
         await let_go(b, btn)
-        want = "REAL SENSORS" if sim0 == "SIMULATION" else "SIMULATION"
-        await until(
-            lambda: b.eval(f"document.querySelector({cell('simulation')!r}).textContent === {want!r}"),
-            timeout=5,
-            what="reported flip",
-        )
+        want_kind = "real" if sim0 == "sim" else "sim"
+        want = "REAL SENSORS" if sim0 == "sim" else "SIMULATION"
+        await until(lambda: b.eval(f"{kind} === {want_kind!r}"), timeout=5, what="reported flip")
         rep = await text(b, "[data-testid=tc-sim]")
         assert rep == f"vehicle reports: {want}"
         sent = await text(b, "[data-panel=telecommands] .tc-row[data-name=SimulationMode] .rq-state")
@@ -144,7 +142,7 @@ async def test_status_bar_shows_only_reported_values_and_follows_a_simulation_to
 
 
 @needs_browser
-async def test_commands_panel_is_hidden_in_replay_and_buttons_need_a_route(tmp_path):
+async def test_commands_panel_is_locked_in_replay_and_buttons_need_a_route(tmp_path):
     async with rig_with(tmp_path, with_usb=False) as rig, browser_check.Browser(1500, 1300, 9372) as b:
         await open_page(b, rig, ["telecommands"])
         btn = "[data-panel=telecommands] .rq-btn[data-name=Arm]"
@@ -158,7 +156,8 @@ async def test_commands_panel_is_hidden_in_replay_and_buttons_need_a_route(tmp_p
         )
         await b.eval("document.querySelectorAll('header.top .toggle button')[1].click()")
         await b.sleep(0.5)
-        assert await b.eval("document.querySelector('[data-panel=telecommands]').hidden") is True
+        assert await b.eval("document.querySelector('[data-testid=dock-lock]').hidden") is False  # inputs locked
+        assert await b.eval(f"document.querySelector({btn!r}).disabled") is True
         assert len(rig.v1.received_telecommands) == 0 and len(rig.v2.received_telecommands) == 0
 
 

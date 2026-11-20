@@ -76,6 +76,7 @@ export class Scene3D {
     this.mq = window.matchMedia?.("(prefers-color-scheme: dark)");
     this._onTheme = () => this.applyTheme();
     this.mq?.addEventListener?.("change", this._onTheme);
+    window.addEventListener("exgs-theme", this._onTheme); // the GUI's own dark / light switch
     this.resize();
   }
 
@@ -329,6 +330,7 @@ export class Scene3D {
   dispose() {
     this.ro.disconnect();
     this.mq?.removeEventListener?.("change", this._onTheme);
+    window.removeEventListener("exgs-theme", this._onTheme);
     this.controls.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();

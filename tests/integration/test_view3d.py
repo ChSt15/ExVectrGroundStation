@@ -128,7 +128,7 @@ async def test_browser_flaps_default_to_45_degrees_without_flap_data():
                     flap_tip_expected(side, zc, w, math.pi / 4), abs=2e-3
                 )
             assert "flap data: none (default 45" in d["overlay"]
-            hint = await b.eval("document.querySelector('[data-panel=actuators] .hint:last-of-type')?.hidden")
+            hint = await b.eval("document.querySelector('[data-panel=actuators] [data-testid=noflaps]')?.hidden")
             assert hint is False
             assert not [m for m in b.console if "EXCEPTION" in m], b.console
 

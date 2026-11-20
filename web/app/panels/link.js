@@ -79,9 +79,12 @@ registerPanel({
       const rep = powerReport({ cmd: val("LinkConfig"), router: val("TxModuleStats"), ship: val("RxModuleStats") });
       warnBox.replaceChildren(...rep.warnings.map((w) => h("div", { class: "pw-warn", "data-tone": w.tone, text: w.text })));
       power.dataset.alarm = rep.over ? "bad" : rep.differs ? "warn" : "";
+      alarm = power.dataset.alarm;
       cfgNote.textContent = pb.describeSpec({ type: "LinkConfig", field: "tx_power_dbm" }).state === "missing" ? "LINK_CONFIG not received: the Router sends it to the ship radio node and drops it from USB, so it is shown only when a source carries it." : "";
     }
+    let alarm = "";
     return {
+      alert: () => alarm, // dock tab marker
       onTick: render,
       onStatus: render,
       onViewChange: render,

@@ -56,6 +56,49 @@ export class Bindings {
     return c.el;
   }
 
+  /** Stat tile: small caps label over a large value with its unit (and the age when stale). */
+  tile(parent, label, spec, opts = {}) {
+    const cell = this.cell(spec, { showSrc: false, ...opts, class: `big ${opts.class || ""}`.trim() });
+    const t = h("div", { class: `tile ${opts.tileClass || ""}`.trim(), "data-key": opts.key || null }, h("div", { class: "tile-l", text: label }), cell);
+    parent.append(t);
+    return cell;
+  }
+
+  /**
+   * Table of vectors: one row per quantity, one column per axis, the unit in the last column. `rows`:
+   * [{ label, type | types, field | vec(entry or entries) -> array, digits, scale, tone }]. Cells show no age
+   * (the panel badge does); stale rows are dimmed.
+   */
+  vecTable(parent, cols, rows) {
+    const table = h("table", { class: "vt" }, h("thead", {}, h("tr", {}, h("th", { text: "" }), ...cols.map((c) => h("th", { text: c })), h("th", { class: "u", text: "" }))));
+    const body = h("tbody");
+    for (const r of rows) {
+      const pick = r.vec || ((e) => (e && e.f ? e.f[r.field] : undefined));
+      const tr = h("tr", { "data-row": r.key || null }, h("th", { text: r.label }));
+      cols.forEach((_, i) => {
+        const spec = {
+          type: r.type,
+          types: r.types,
+          kind: "num",
+          digits: r.digits ?? 2,
+          scale: r.scale ?? 1,
+          derive: (e) => {
+            const v = pick(e);
+            if (v === undefined) return undefined;
+            if (!Array.isArray(v)) return null;
+            return v[i] === undefined ? null : v[i];
+          },
+        };
+        tr.append(h("td", {}, this.cell(spec, { showSrc: false, class: "noage", tone: r.tone })));
+      });
+      tr.append(h("td", { class: "u", text: r.unit || "" }));
+      body.append(tr);
+    }
+    table.append(body);
+    parent.append(table);
+    return table;
+  }
+
   /** Label + value row appended to `parent`. */
   row(parent, label, spec, opts = {}) {
     const cell = this.cell(spec, opts);
@@ -86,6 +129,13 @@ export class Bindings {
     const ages = ds.filter((d) => d.state === "stale").map((d) => d.age);
     return { state, age: ages.length ? Math.max(...ages) : null };
   }
+}
+
+/** Row of stat tiles. */
+export function tiles(parent, cls = "") {
+  const t = h("div", { class: `tiles ${cls}`.trim() });
+  parent.append(t);
+  return t;
 }
 
 /** Panel section with a small heading. */

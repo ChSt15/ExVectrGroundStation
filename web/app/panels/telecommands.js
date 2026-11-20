@@ -7,7 +7,7 @@ registerPanel({
   id: "telecommands",
   title: "Commands (temporary)",
   consumes: ["VehicleStatus"],
-  views: ["live"], // nothing is ever sent from the replay view
+  inputs: true, // locked in the replay view: the panel disables every button and says why (nothing is ever sent)
   create(el, ctx) {
     const inst = createTelecommandPanel(el, ctx);
     (window.exgs ??= {}).telecommands = inst;

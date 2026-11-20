@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -12,11 +12,17 @@
 } }</script>
 </head>
 <body data-view="live">
-<div id="topstack">
-<header id="header" class="top"><strong class="brand">ExVectr GS</strong> <span class="chip">loading...</span></header>
-<div id="statusbar"></div>
+<div id="app">
+  <div id="top">
+    <div id="sourcebanner" class="srcb" data-kind="offline"><span class="srcb-label">loading…</span></div>
+    <header id="header" class="top"><strong class="brand">ExVectr GS</strong></header>
+    <div id="statusbar"></div>
+  </div>
+  <div id="workspace">
+    <main id="panels"></main>
+    <aside id="dock" class="dock" aria-label="Operations"></aside>
+  </div>
 </div>
-<main id="panels"></main>
 <noscript>This page needs JavaScript.</noscript>
 <script type="module" src="/static/app/main.js"></script>
 </body>

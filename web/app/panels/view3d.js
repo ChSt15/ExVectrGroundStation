@@ -20,7 +20,8 @@ registerPanel({
     const buttons = new Map(MODES.map(([id, label]) => [id, h("button", { text: label, "aria-pressed": id === "follow" ? "true" : "false" })]));
     const axesBox = h("input", { type: "checkbox" });
     const toolbar = h("div", { class: "toolbar" }, h("span", { class: "toggle" }, ...buttons.values()), h("label", { class: "hint" }, axesBox, " body axes"));
-    el.append(toolbar, h("div", { class: "v3d" }, canvasBox, overlay));
+    const size = ctx.options && ctx.options.height ? ` v3d-${ctx.options.height}` : "";
+    el.append(toolbar, h("div", { class: `v3d${size}` }, canvasBox, overlay));
 
     let scene = null, cfg = null, failed = null;
     let trail = new Trail(60);

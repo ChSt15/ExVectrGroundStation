@@ -1,99 +1,159 @@
 {
-  "default": "default",
-  "presets": {
-    "default": {
-      "label": "Default",
-      "columns": "minmax(300px, 1fr) minmax(300px, 1fr) minmax(300px, 1fr)",
-      "areas": ["left middle right", "bottom bottom bottom"],
-      "panels": [
-        { "panel": "modes", "area": "left" },
-        { "panel": "mission", "area": "left" },
-        { "panel": "failures", "area": "left" },
-        { "panel": "position", "area": "left" },
-        { "panel": "view3d", "area": "middle" },
-        { "panel": "guidance", "area": "middle" },
-        { "panel": "actuators", "area": "middle" },
-        { "panel": "sensors", "area": "middle" },
-        { "panel": "rawsensors", "area": "middle", "collapsed": true },
-        { "panel": "radio", "area": "right" },
-        { "panel": "requests", "area": "right", "collapsed": true },
-        { "panel": "telecommands", "area": "right", "collapsed": true },
-        { "panel": "link", "area": "right" },
-        { "panel": "recording", "area": "right" },
-        { "panel": "console", "area": "right" },
-        { "panel": "inspector", "area": "right", "collapsed": true },
-        { "panel": "transport", "area": "bottom" }
-      ]
-    },
+  "default": "bench",
+  "dock": {
+    "title": "Operations",
+    "tabs": [
+      {
+        "panel": "radio",
+        "label": "Radio"
+      },
+      {
+        "panel": "requests",
+        "label": "Requests"
+      },
+      {
+        "panel": "telecommands",
+        "label": "Commands (temp)"
+      },
+      {
+        "panel": "link",
+        "label": "Link & power"
+      },
+      {
+        "panel": "recording",
+        "label": "Recordings"
+      },
+      {
+        "panel": "rawsensors",
+        "label": "Raw sensors"
+      },
+      {
+        "panel": "console",
+        "label": "Console"
+      },
+      {
+        "panel": "inspector",
+        "label": "Inspector"
+      }
+    ]
+  },
+  "views": {
     "bench": {
-      "label": "Bench (all values)",
-      "columns": "repeat(4, minmax(260px, 1fr))",
-      "areas": ["c1 c2 c3 c4", "bottom bottom bottom bottom"],
-      "panels": [
-        { "panel": "modes", "area": "c1" },
-        { "panel": "mission", "area": "c1" },
-        { "panel": "failures", "area": "c1" },
-        { "panel": "sensors", "area": "c1" },
-        { "panel": "rawsensors", "area": "c1", "collapsed": true },
-        { "panel": "view3d", "area": "c2" },
-        { "panel": "position", "area": "c2" },
-        { "panel": "guidance", "area": "c2" },
-        { "panel": "radio", "area": "c3" },
-        { "panel": "requests", "area": "c3", "collapsed": true },
-        { "panel": "telecommands", "area": "c3", "collapsed": true },
-        { "panel": "actuators", "area": "c3" },
-        { "panel": "link", "area": "c3" },
-        { "panel": "recording", "area": "c4" },
-        { "panel": "console", "area": "c4" },
-        { "panel": "inspector", "area": "c4" },
-        { "panel": "transport", "area": "bottom" }
+      "label": "Bench",
+      "hint": "everything: vehicle, guidance, mission and the full Operations dock",
+      "columns": "minmax(250px, 1fr) minmax(320px, 1.55fr) minmax(220px, 0.85fr)",
+      "dock": "open",
+      "groups": [
+        {
+          "id": "vehicle",
+          "title": "Vehicle",
+          "panels": [
+            {
+              "panel": "attitude"
+            },
+            {
+              "panel": "position"
+            },
+            {
+              "panel": "actuators"
+            },
+            {
+              "panel": "sensors"
+            },
+            {
+              "panel": "failures"
+            }
+          ]
+        },
+        {
+          "id": "guidance",
+          "title": "Guidance",
+          "panels": [
+            {
+              "panel": "view3d",
+              "options": {
+                "height": "large"
+              }
+            },
+            {
+              "panel": "guidance"
+            }
+          ]
+        },
+        {
+          "id": "mission",
+          "title": "Mission",
+          "panels": [
+            {
+              "panel": "mission"
+            }
+          ]
+        }
       ]
     },
     "flight": {
-      "label": "Flight (compact)",
-      "columns": "minmax(300px, 1fr) minmax(300px, 1fr)",
-      "areas": ["left right", "bottom bottom"],
-      "panels": [
-        { "panel": "modes", "area": "left" },
-        { "panel": "mission", "area": "left" },
-        { "panel": "failures", "area": "left" },
-        { "panel": "position", "area": "left" },
-        { "panel": "view3d", "area": "right" },
-        { "panel": "radio", "area": "right" },
-        { "panel": "requests", "area": "right", "collapsed": true },
-        { "panel": "telecommands", "area": "right", "collapsed": true },
-        { "panel": "guidance", "area": "right" },
-        { "panel": "actuators", "area": "right", "collapsed": true },
-        { "panel": "sensors", "area": "right", "collapsed": true },
-        { "panel": "rawsensors", "area": "right", "collapsed": true },
-        { "panel": "link", "area": "right" },
-        { "panel": "recording", "area": "right" },
-        { "panel": "console", "area": "right", "collapsed": true },
-        { "panel": "transport", "area": "bottom" }
-      ]
-    },
-    "phone": {
-      "label": "Phone (one column)",
-      "columns": "minmax(0, 1fr)",
-      "areas": ["main"],
-      "panels": [
-        { "panel": "view3d", "area": "main" },
-        { "panel": "modes", "area": "main" },
-        { "panel": "failures", "area": "main" },
-        { "panel": "mission", "area": "main" },
-        { "panel": "radio", "area": "main" },
-        { "panel": "requests", "area": "main", "collapsed": true },
-        { "panel": "telecommands", "area": "main", "collapsed": true },
-        { "panel": "transport", "area": "main" },
-        { "panel": "position", "area": "main" },
-        { "panel": "guidance", "area": "main", "collapsed": true },
-        { "panel": "actuators", "area": "main", "collapsed": true },
-        { "panel": "sensors", "area": "main", "collapsed": true },
-        { "panel": "rawsensors", "area": "main", "collapsed": true },
-        { "panel": "link", "area": "main", "collapsed": true },
-        { "panel": "recording", "area": "main", "collapsed": true },
-        { "panel": "console", "area": "main", "collapsed": true },
-        { "panel": "inspector", "area": "main", "collapsed": true }
+      "label": "Flight",
+      "hint": "large numbers, the 3D view and the mission; operations in the side rail",
+      "columns": "minmax(250px, 0.95fr) minmax(340px, 1.9fr) minmax(230px, 0.85fr)",
+      "dock": "rail",
+      "groups": [
+        {
+          "id": "vehicle",
+          "title": "Vehicle",
+          "panels": [
+            {
+              "panel": "attitude",
+              "options": {
+                "compact": true
+              }
+            },
+            {
+              "panel": "position",
+              "options": {
+                "compact": true
+              }
+            },
+            {
+              "panel": "actuators",
+              "options": {
+                "compact": true
+              }
+            }
+          ]
+        },
+        {
+          "id": "guidance",
+          "title": "Guidance",
+          "panels": [
+            {
+              "panel": "view3d",
+              "options": {
+                "height": "fill"
+              }
+            },
+            {
+              "panel": "guidance",
+              "options": {
+                "compact": true
+              }
+            }
+          ]
+        },
+        {
+          "id": "mission",
+          "title": "Mission",
+          "panels": [
+            {
+              "panel": "mission",
+              "options": {
+                "compact": true
+              }
+            },
+            {
+              "panel": "rcsticks"
+            }
+          ]
+        }
       ]
     }
   }

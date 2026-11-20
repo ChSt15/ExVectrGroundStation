@@ -40,6 +40,7 @@ window.__results = await runAll();
     app = web.Application()
     app.router.add_get("/", lambda r: web.Response(text=page, content_type="text/html"))
     app.router.add_static("/web/", WEB)
+    app.router.add_static("/config/", WEB.parent / "config")  # the shipped layout is checked by a test
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     site = web.TCPSite(runner, "127.0.0.1", 0)

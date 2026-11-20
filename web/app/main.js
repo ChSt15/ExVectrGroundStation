@@ -1,21 +1,25 @@
-// GUI shell: websocket connections, store, layout, panel mounting (design section 5).
+// GUI shell (design section 5, redesign 2026-11-20): connections, store, top area (data-source banner, header,
+// status bar), the view's groups and the Operations dock. docs/gui.md describes the structure.
 import { Api } from "./ws.js";
 import { Store } from "./store.js";
 import * as fmt from "./fmt.js";
 import { h, Bindings } from "./ui.js";
-import { allPanels } from "./panels/registry.js";
+import { allPanels, getPanel } from "./panels/registry.js";
 import "./panels/index.js";
-import { normalizeLayout, pickPreset, stacks, subscriptionTypes } from "./layout.js";
+import { dockState, normalizeLayout, pickTab, pickView, subscriptionTypes, viewPanels } from "./layout.js";
 import { createHeader, HEADER_CONSUMES } from "./header.js";
 import { createStatusBar, STATUS_CONSUMES } from "./status/status_bar.js";
+import { createSourceBanner, BANNER_CONSUMES } from "./status/source_banner.js";
 
 const TICK_MS = 100;
 const store = new Store();
-let view = "live";
+let view = "live"; // data view: live or replay (the core's views)
 let status = null;
 let layout = null;
-let presetName = null;
-let mounted = []; // {def, entry, el, body, inst, titleEl, badgeEl}
+let viewId = null; // layout view: bench, flight, tuning
+let dockMode = "open"; // open | rail | overlay
+let dockTab = null;
+let mounted = []; // {def, entry, el, body, inst, titleEl, badgeEl, area: "main"|"dock"|"fixed"}
 let rcState = null; // newest `rc` push from the core (what it actually sends / mirrors); null while disconnected
 const viewGuards = new Set(); // async (nextView) => boolean; a panel can veto or prepare a view switch (radio: release prompt)
 
@@ -34,6 +38,14 @@ const lsSet = (k, v) => {
   }
 };
 
+// ---------------------------------------------------------------- theme (dark control-room default, light high contrast)
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t === "light" ? "light" : "dark";
+  lsSet("exgs.theme", document.documentElement.dataset.theme);
+  window.dispatchEvent(new Event("exgs-theme"));
+}
+applyTheme(lsGet("exgs.theme") || "dark");
+
 // ---------------------------------------------------------------- connections
 const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
 let allApi = null;
@@ -46,7 +58,7 @@ const api = new Api({
       rcState = null; // the core ended our lease with the connection; never show the old state as current
       for (const m of mounted) m.inst.onRc?.(null);
     }
-    if (header) header.render();
+    renderTop();
   },
   onReady: () => {
     subscribe(api, "latest");
@@ -62,7 +74,7 @@ function subscribe(a, mode) {
 }
 
 function neededPanels() {
-  return [...mounted.map((m) => m.def), { consumes: [...HEADER_CONSUMES, ...STATUS_CONSUMES], mode: "latest" }];
+  return [...mounted.map((m) => m.def), { consumes: [...HEADER_CONSUMES, ...STATUS_CONSUMES, ...BANNER_CONSUMES], mode: "latest" }];
 }
 
 function onMainMessage(msg) {
@@ -86,8 +98,7 @@ function onMainMessage(msg) {
         store.setClock("replay", msg.replay.t, msg.replay.state === "playing" ? msg.replay.speed : 0);
       }
       for (const m of mounted) m.inst.onStatus?.(status);
-      header.render();
-      statusBar?.render();
+      renderTop();
       break;
     case "event":
       for (const m of mounted) m.inst.onEvent?.(msg);
@@ -101,16 +112,17 @@ function onMainMessage(msg) {
     case "rc":
       rcState = msg;
       for (const m of mounted) m.inst.onRc?.(msg);
+      header?.render();
       break;
     default:
   }
 }
 
-function startAllApi() {
-  if (!mounted.some((m) => m.def.mode === "all")) return;
+function ensureAllApi() {
+  if (allApi || !mounted.some((m) => m.def.mode === "all")) return;
   allApi = new Api({
     url: wsUrl,
-    name: "gui-console",
+    name: "gui-all",
     onReady: () => subscribe(allApi, "all"),
     onMessage(msg) {
       if (msg.op === "snapshot" && msg.view === view) {
@@ -127,14 +139,21 @@ function startAllApi() {
   allApi.start();
 }
 
+function resubscribe() {
+  if (api.state === "open") subscribe(api, "latest");
+  if (allApi && allApi.state === "open") subscribe(allApi, "all");
+  else ensureAllApi();
+}
+
 // ---------------------------------------------------------------- context
-function makeCtx(entryEl) {
+function makeCtx(entry, getM) {
   return {
     store,
     schema: store.schema,
     api,
     fmt,
     h,
+    options: (entry && entry.options) || {},
     view: () => view,
     status: () => status,
     rc: () => rcState,
@@ -146,12 +165,11 @@ function makeCtx(entryEl) {
     },
     Bindings,
     setTitle: (t) => {
-      const m = mounted.find((x) => x.el === entryEl);
+      const m = getM && getM();
       if (m) m.titleEl.textContent = t;
     },
   };
 }
-const ctxBase = () => makeCtx(null);
 
 async function switchView(next) {
   if (next === view || !["live", "replay"].includes(next)) return;
@@ -168,80 +186,190 @@ async function switchView(next) {
   view = next;
   store.clear(view);
   applyViewVisibility();
-  for (const a of [api, allApi]) if (a) a.state === "open" && subscribe(a, a === api ? "latest" : "all");
+  for (const a of [api, allApi]) if (a && a.state === "open") subscribe(a, a === api ? "latest" : "all");
   for (const m of mounted) m.inst.onViewChange?.(view);
-  header.render();
-  statusBar?.render();
+  renderTop();
 }
 
-// ---------------------------------------------------------------- layout and panels
+// ---------------------------------------------------------------- panels
 let header = null;
 let statusBar = null;
+let banner = null;
 const root = document.getElementById("panels");
+const dockEl = document.getElementById("dock");
 
 function applyViewVisibility() {
   document.body.dataset.view = view;
-  for (const m of mounted) m.el.hidden = !!(m.def.views && !m.def.views.includes(view));
+  for (const m of mounted) m.el.hidden = (m.def.views && !m.def.views.includes(view)) || (m.area === "dock" && m.def.id !== dockTab);
 }
 
-function mountPreset(name) {
-  for (const m of mounted) {
+/** Create a panel element and its instance. */
+function mountPanel(def, entry, parent, area, collapsedMap, collapsedKey) {
+  const titleEl = h("h2", { text: def.title, id: `pt-${def.id}` });
+  const badgeEl = h("span", { class: "badge-age" });
+  const collapsed = area === "main" && (def.id in collapsedMap ? collapsedMap[def.id] : entry.collapsed);
+  const body = h("div", { class: "body" });
+  const btn = h("button", { class: "fold", "aria-expanded": String(!collapsed), "aria-label": `collapse or expand ${def.title}`, title: "collapse / expand" }, "▾");
+  const head = h("header", {}, area === "main" ? btn : null, titleEl, badgeEl);
+  const el = h("section", { class: "panel", "data-panel": def.id, "data-area": area, "data-collapsed": String(!!collapsed), "aria-labelledby": `pt-${def.id}` }, head, body);
+  if (entry.options && entry.options.height === "fill") el.classList.add("fill");
+  if (area === "main") {
+    const toggle = () => {
+      const c = el.dataset.collapsed !== "true";
+      el.dataset.collapsed = String(c);
+      btn.setAttribute("aria-expanded", String(!c));
+      collapsedMap[def.id] = c;
+      lsSet(collapsedKey, JSON.stringify(collapsedMap));
+    };
+    btn.addEventListener("click", toggle);
+    titleEl.addEventListener("click", toggle);
+  }
+  parent.append(el);
+  const m = { def, entry, el, body, titleEl, badgeEl, area, inst: {} };
+  mounted.push(m);
+  try {
+    m.inst = def.create(body, makeCtx(entry, () => m)) || {};
+  } catch (e) {
+    console.error(`panel ${def.id} failed to start`, e);
+    body.textContent = `Panel failed to start: ${e.message}`;
+  }
+  return m;
+}
+
+function destroy(list) {
+  for (const m of list) {
     try {
       m.inst.destroy?.();
     } catch (e) {
       console.error(e);
     }
   }
-  mounted = [];
-  presetName = name;
-  lsSet("exgs.preset", name);
-  const preset = layout.presets[name];
-  const collapsedMap = JSON.parse(lsGet(`exgs.collapsed.${name}`) || "{}");
-  root.replaceChildren();
-  root.style.gridTemplateColumns = preset.columns;
-  root.style.gridTemplateAreas = preset.areas.map((r) => `"${r}"`).join(" ");
-  const defs = new Map(allPanels().map((d) => [d.id, d]));
-  for (const [area, entries] of stacks(preset)) {
-    const col = h("div", { class: "area", style: `grid-area: ${area}` });
-    root.append(col);
-    for (const entry of entries) {
-      const def = defs.get(entry.panel);
-      const titleEl = h("h2", { text: def.title });
-      const badgeEl = h("span", { class: "badge-age" });
-      const collapsed = entry.panel in collapsedMap ? collapsedMap[entry.panel] : entry.collapsed;
-      const body = h("div", { class: "body" });
-      const btn = h("button", { class: "fold", "aria-expanded": String(!collapsed), title: "collapse / expand" }, "▾");
-      const head = h("header", {}, btn, titleEl, badgeEl);
-      const el = h("section", { class: "panel", "data-panel": def.id, "data-collapsed": String(collapsed) }, head, body);
-      const toggle = () => {
-        const c = el.dataset.collapsed !== "true";
-        el.dataset.collapsed = String(c);
-        btn.setAttribute("aria-expanded", String(!c));
-        collapsedMap[entry.panel] = c;
-        lsSet(`exgs.collapsed.${name}`, JSON.stringify(collapsedMap));
-      };
-      btn.addEventListener("click", toggle);
-      titleEl.addEventListener("click", toggle);
-      col.append(el);
-      const m = { def, entry, el, body, titleEl, badgeEl, inst: {} };
-      mounted.push(m);
-      try {
-        m.inst = def.create(body, makeCtx(el)) || {};
-      } catch (e) {
-        console.error(`panel ${def.id} failed to start`, e);
-        body.textContent = `Panel failed to start: ${e.message}`;
-      }
-    }
-  }
-  applyViewVisibility();
-  // The subscription depends on the mounted panels
-  if (api.state === "open") subscribe(api, "latest");
-  if (allApi && allApi.state === "open") subscribe(allApi, "all");
-  else if (!allApi) startAllApi();
-  for (const m of mounted) m.inst.onViewChange?.(view);
 }
 
-// store -> panels
+/** Mount the groups of a layout view. Dock and fixed panels stay mounted (a held RC lease is not touched). */
+function mountView(id) {
+  destroy(mounted.filter((m) => m.area === "main"));
+  mounted = mounted.filter((m) => m.area !== "main");
+  viewId = id;
+  lsSet("exgs.view", id);
+  const v = layout.views[id];
+  document.body.dataset.layout = id;
+  const collapsedKey = `exgs.collapsed.${id}`;
+  let collapsedMap = {};
+  try {
+    collapsedMap = JSON.parse(lsGet(collapsedKey) || "{}") || {};
+  } catch (e) {
+    collapsedMap = {};
+  }
+  root.replaceChildren();
+  root.style.gridTemplateColumns = v.columns;
+  root.dataset.groups = String(v.groups.length);
+  for (const g of v.groups) {
+    const col = h("div", { class: "group", "data-group": g.id, role: "region", "aria-label": g.title || g.id });
+    if (g.title) col.append(h("div", { class: "group-title" }, h("span", { text: g.title })));
+    root.append(col);
+    for (const entry of g.panels) {
+      const def = getPanel(entry.panel);
+      if (def) mountPanel(def, entry, col, "main", collapsedMap, collapsedKey);
+    }
+  }
+  setDockMode(dockState(v, lsGet(`exgs.dock.${id}`)), false);
+  applyViewVisibility();
+  resubscribe();
+  for (const m of mounted) if (m.area === "main") m.inst.onViewChange?.(view);
+  header?.setLayoutView(id);
+  for (const m of mounted) if (m.area === "main") m.inst.onStatus?.(status);
+}
+
+// ---------------------------------------------------------------- Operations dock
+const dockTabs = new Map(); // panel id -> tab button
+let dockBody = null;
+let dockLock = null;
+
+function buildDock() {
+  const tabs = layout.dock.tabs;
+  if (!tabs.length) {
+    dockEl.hidden = true;
+    return;
+  }
+  const tablist = h("div", { class: "dock-tabs", role: "tablist", "aria-label": layout.dock.title, "aria-orientation": "vertical" });
+  const collapse = h("button", { class: "dock-collapse", title: "collapse the dock to the side rail", "aria-label": "collapse the Operations dock", onclick: () => setDockMode(dockMode === "open" ? "rail" : "open", true) }, "⟩");
+  const close = h("button", { class: "dock-close", title: "close (Escape)", "aria-label": "close the Operations dock", onclick: () => setDockMode("rail", false) }, "✕");
+  const head = h("div", { class: "dock-head" }, h("span", { class: "dock-title", text: layout.dock.title }), close, collapse);
+  dockLock = h("div", { class: "dock-lock", "data-testid": "dock-lock", hidden: true });
+  dockBody = h("div", { class: "dock-body" });
+  dockEl.replaceChildren(head, tablist, dockLock, dockBody);
+  for (const t of tabs) {
+    const def = getPanel(t.panel);
+    if (!def) continue;
+    const dot = h("span", { class: "tab-dot", hidden: true });
+    const b = h("button", { class: "dock-tab", role: "tab", "aria-selected": "false", "data-tab": t.panel, title: t.label }, h("span", { class: "tab-l", text: t.label }), dot);
+    b.addEventListener("click", () => openTab(t.panel));
+    tablist.append(b);
+    dockTabs.set(t.panel, { b, dot });
+    mountPanel(def, t, dockBody, "dock", {}, "");
+  }
+  tablist.addEventListener("keydown", (e) => {
+    const ids = [...dockTabs.keys()];
+    const i = ids.indexOf(dockTab);
+    if (e.key === "ArrowDown" || e.key === "ArrowRight") openTab(ids[(i + 1) % ids.length]);
+    else if (e.key === "ArrowUp" || e.key === "ArrowLeft") openTab(ids[(i - 1 + ids.length) % ids.length]);
+    else return;
+    e.preventDefault();
+    dockTabs.get(dockTab)?.b.focus();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && dockMode === "overlay" && !document.querySelector(".rc-modal")) setDockMode("rail", false);
+  });
+  selectTab(pickTab(layout, lsGet("exgs.dock.tab")));
+}
+
+function selectTab(id) {
+  dockTab = id;
+  lsSet("exgs.dock.tab", id);
+  for (const [pid, t] of dockTabs) {
+    t.b.setAttribute("aria-selected", String(pid === id));
+    t.b.tabIndex = pid === id ? 0 : -1;
+  }
+  applyViewVisibility();
+  renderDockLock();
+}
+
+/** Show a dock tab: in rail mode the dock opens as an overlay. */
+function openTab(id) {
+  if (!dockTabs.has(id)) return;
+  selectTab(id);
+  if (dockMode === "rail") setDockMode("overlay", false);
+}
+
+function setDockMode(mode, remember) {
+  dockMode = mode;
+  dockEl.dataset.mode = mode;
+  document.body.dataset.dock = mode;
+  if (remember && viewId) lsSet(`exgs.dock.${viewId}`, mode === "overlay" ? "rail" : mode);
+}
+
+function renderDockLock() {
+  if (!dockLock) return;
+  const m = mounted.find((x) => x.area === "dock" && x.def.id === dockTab);
+  const locked = banner ? banner.state() : null;
+  const show = !!(m && m.def.inputs && locked && locked.inputsLocked);
+  dockLock.hidden = !show;
+  dockLock.textContent = show ? `${locked.lockReason}: nothing can be sent from here` : "";
+}
+
+function renderDockBadges() {
+  for (const m of mounted) {
+    if (m.area !== "dock") continue;
+    const t = dockTabs.get(m.def.id);
+    const a = m.inst.alert?.();
+    t.dot.hidden = !a;
+    t.dot.dataset.tone = a || "";
+    t.b.dataset.alert = a || "";
+  }
+}
+
+// ---------------------------------------------------------------- tick
 store.onChange((kind, v, item) => {
   if (v !== view) return;
   for (const m of mounted) {
@@ -251,10 +379,19 @@ store.onChange((kind, v, item) => {
   }
 });
 
+const visible = (m) => !m.el.hidden && (m.area !== "dock" || dockMode !== "rail") && m.el.dataset.collapsed !== "true";
+
+function renderTop() {
+  banner?.render();
+  header?.render();
+  statusBar?.render();
+  renderDockLock();
+}
+
 function tick() {
   const now = store.now(view);
   for (const m of mounted) {
-    if (m.el.hidden) continue;
+    if (!visible(m) && m.def.id !== "radio") continue; // the radio keeps its own state rendering
     try {
       m.inst.onTick?.(now);
       const f = m.inst.freshness?.();
@@ -266,8 +403,8 @@ function tick() {
       console.error(`panel ${m.def.id} tick`, e);
     }
   }
-  header.render();
-  statusBar?.render();
+  renderTop();
+  renderDockBadges();
 }
 
 async function loadLayout() {
@@ -278,24 +415,47 @@ async function loadLayout() {
   } catch (e) {
     /* fall back below */
   }
-  const { layout: l, problems } = normalizeLayout(raw, allPanels().map((p) => p.id));
+  const ids = allPanels().map((p) => p.id).filter((id) => id !== "transport");
+  const { layout: l, problems } = normalizeLayout(raw, ids);
   for (const p of problems) console.warn("layout:", p);
   return l;
 }
 
 async function main() {
   layout = await loadLayout();
+  const base = makeCtx(null, null);
+  banner = createSourceBanner({ ...base, connState: () => api.state });
+  document.getElementById("sourcebanner").replaceWith(banner.el);
   header = createHeader(
-    { ...ctxBase(), view: () => view, status: () => status, store, switchView },
-    { onPreset: (n) => mountPreset(n), connState: () => api.state },
+    { ...base, connState: () => api.state, theme: () => document.documentElement.dataset.theme },
+    {
+      views: Object.entries(layout.views).map(([id, v]) => ({ id, label: v.label, hint: v.hint })),
+      onLayoutView: (id) => mountView(id),
+      onTheme: () => applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"),
+    },
   );
   document.getElementById("header").replaceWith(header.el);
-  header.setPresets(Object.entries(layout.presets).map(([id, p]) => ({ id, label: p.label })), "default");
-  const first = pickPreset(layout, lsGet("exgs.preset"), window.innerWidth);
-  header.setPresets(Object.entries(layout.presets).map(([id, p]) => ({ id, label: p.label })), first);
-  statusBar = createStatusBar({ ...ctxBase(), view: () => view, status: () => status, store });
+  statusBar = createStatusBar({ ...base });
   document.getElementById("statusbar").replaceWith(statusBar.el);
-  mountPreset(first);
+  // replay transport: a fixed panel inside the banner (visible in the replay view only)
+  const transport = getPanel("transport");
+  if (transport) mountPanel(transport, { panel: "transport", options: {} }, banner.transportSlot, "fixed", {}, "");
+  buildDock();
+  mountView(pickView(layout, lsGet("exgs.view")));
+  window.exgs = Object.assign(window.exgs || {}, {
+    dock: { open: openTab, mode: () => dockMode, tab: () => dockTab, set: (m) => setDockMode(m, false) },
+    layout: { view: () => viewId, set: (id) => layout.views[id] && mountView(id), views: () => Object.keys(layout.views) },
+    source: () => banner.state(),
+  });
+  document.addEventListener("keydown", (e) => {
+    if (!e.altKey || e.ctrlKey || e.metaKey) return;
+    const ids = Object.keys(layout.views);
+    const i = Number(e.key) - 1;
+    if (i >= 0 && i < ids.length) {
+      e.preventDefault();
+      mountView(ids[i]);
+    }
+  });
   api.start();
   setInterval(tick, TICK_MS);
 }

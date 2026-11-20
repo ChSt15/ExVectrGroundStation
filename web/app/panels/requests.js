@@ -6,7 +6,7 @@ registerPanel({
   id: "requests",
   title: "Requests",
   consumes: [],
-  views: ["live"], // nothing is ever sent from the replay view
+  inputs: true, // locked in the replay view: the panel disables every button and says why (nothing is ever sent)
   create(el, ctx) {
     const inst = createRequestsPanel(el, ctx);
     (window.exgs ??= {}).requests = inst;

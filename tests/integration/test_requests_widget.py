@@ -31,7 +31,7 @@ def row(action, target=1):
 async def open_panel(b, rig):
     await b.goto(rig.url() + "/")
     await b.sleep(1.0)
-    await b.eval("document.querySelector('[data-panel=requests]').dataset.collapsed = 'false'")  # shipped collapsed
+    await b.eval("window.exgs.dock.open('requests')")  # a tab of the Operations dock
     await until(lambda: b.eval(f"{DEBUG}.rows.length > 0"), what="whitelist loaded")
     await b.sleep(0.7)  # one status push for the routes
 
@@ -180,6 +180,6 @@ async def test_view_only_host_and_replay_view_cannot_send():
             ".find((x) => x.textContent === 'REPLAY').click()"
         )
         await until(lambda: b.eval("document.body.dataset.view === 'replay'"), what="replay view")
-        assert await b.eval("document.querySelector('[data-panel=requests]').hidden") is True
+        assert await b.eval("document.querySelector('[data-testid=dock-lock]').hidden") is False  # inputs locked
         assert await b.eval(f"document.querySelector({btn('CALIB_APPLY')!r}).disabled") is True
         assert "replay" in await b.eval(f"document.querySelector({btn('CALIB_APPLY')!r}).dataset.why")

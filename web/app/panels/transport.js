@@ -19,7 +19,7 @@ registerPanel({
     const speed = h("select", { title: "speed", onchange: () => send("replay.speed", { x: Number(speed.value) }) }, SPEEDS.map((s) => h("option", { value: String(s), text: `${s}×` })));
     speed.value = "1";
     const msg = h("div", { class: "msg" });
-    el.append(h("div", { class: "toolbar" }, play, back, slider, time, fwd, speed), msg);
+    el.append(h("div", { class: "toolbar transport" }, play, back, slider, time, fwd, speed), msg);
 
     let dragging = false;
     let lastSeek = 0;
@@ -93,7 +93,7 @@ registerPanel({
       const open = r.state !== "closed" && r.state !== "loading" && r.t_start != null;
       for (const c of [play, back, fwd, slider, speed]) c.disabled = !open;
       play.textContent = r.state === "playing" ? "❚❚" : "▶";
-      if (r.state === "closed") msg.textContent = "No log open. Open one from the Recording & replay panel.";
+      if (r.state === "closed") msg.textContent = "No log open: open one in Operations › Recordings.";
       else if (r.state === "loading") msg.textContent = "Loading log (indexing)...";
       else if (msg.textContent.startsWith("No log") || msg.textContent.startsWith("Loading")) msg.textContent = "";
       if (!open) {

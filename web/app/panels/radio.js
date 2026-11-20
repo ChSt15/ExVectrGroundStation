@@ -5,6 +5,7 @@ import { createRadioWidget } from "../radio/radio_widget.js";
 registerPanel({
   id: "radio",
   title: "Virtual radio",
+  inputs: true,
   consumes: ["RcState"], // the recorded RcState is what the widget shows in the replay view
   create(el, ctx) {
     const inst = createRadioWidget(el, ctx);

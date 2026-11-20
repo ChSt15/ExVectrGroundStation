@@ -1,6 +1,6 @@
 // Importing a panel module registers it. To add a panel: create the file, import it here,
 // add an entry to the layout JSON (docs/gui.md).
-import "./modes.js";
+import "./attitude.js";
 import "./mission.js";
 import "./failures.js";
 import "./position.js";
@@ -17,3 +17,4 @@ import "./rawsensors.js";
 import "./radio.js";
 import "./requests.js";
 import "./telecommands.js";
+import "./rcsticks.js";
