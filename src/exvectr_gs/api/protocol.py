@@ -23,6 +23,8 @@ RC_KINDS = ("connection", "keepalive")
 MAX_KEEPALIVE_IDLE_S = 9.0
 
 ERROR_CODES = (
+    "update_refused",  # self-update: a guard, a dirty tree, the wrong branch or a non-fast-forward (nothing changed)
+    "update_failed",  # self-update: a git or pip step failed
     "bad_request",
     "unknown_type",
     "not_found",

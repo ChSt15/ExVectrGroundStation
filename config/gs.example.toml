@@ -278,3 +278,12 @@ callouts = "config/callouts.default.json"   # default callout settings (docs/cal
 air_capacity_down_bytes_s = 6100
 air_capacity_up_bytes_s = 6100
 # air_capacity_bytes_s = 6100   # compatibility alias: sets the direction(s) not given above
+
+# Self-update from git (docs/updating.md). The core follows `branch` of `remote` with fast-forward merges only;
+# it refuses with local changes, a different branch, or while armed / recording / an RC lease is held.
+[update]
+enabled = true
+branch = "master"
+remote = "origin"
+auto_check_interval_s = 0       # 0 = only when asked (button, `exgs update check`); otherwise at least 60
+allow_switch = false            # true: also update when another branch is checked out (follows that branch)

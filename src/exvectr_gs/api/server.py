@@ -31,6 +31,7 @@ from ..packets import REGISTRY
 from ..rc.controller import ControlDenied, ControlLocked
 from ..requests import RequestError
 from ..telecommand import TelecommandError
+from ..update import UpdateError
 from . import protocol as P
 from .hub import Client, Hub, View
 from .protocol import ProtocolError
@@ -115,6 +116,9 @@ class ApiServer:
             "sources.list": self._op_sources_list,
             "sources.enable": self._op_sources_enable,
             "config.get": self._op_config_get,
+            "update.status": self._op_update_status,
+            "update.check": self._op_update_check,
+            "update.apply": self._op_update_apply,
         }
         self._setup_views()
 
@@ -148,6 +152,10 @@ class ApiServer:
         tc = self._mod("telecommands")
         if tc is not None:
             tc.on_change = self._push_telecommands
+        up = self._mod("update")
+        if up is not None:
+            up.on_change = self._push_update
+            up.on_progress = self._push_update_progress
         self._tasks = [
             asyncio.create_task(self._status_loop(), name="api-status"),
             asyncio.create_task(self._rc_loop(), name="api-rc"),
@@ -360,6 +368,9 @@ class ApiServer:
         tcm = self._telecommands_msg()
         if tcm is not None:
             client.post(tcm)
+        um = self._update_msg()
+        if um is not None:
+            client.post(um)
 
     async def _op_subscribe(self, client: Client, msg: dict) -> dict:
         req = P.parse_subscribe(msg)
@@ -575,6 +586,54 @@ class ApiServer:
         m = self._telecommands_msg()
         if m is not None:
             self.hub.broadcast(m)
+
+    # ------------------------------------------------------------ ops: self-update (docs/updating.md)
+
+    _UPDATE_CODES = {  # UpdateError.code -> protocol error code
+        "disabled": "not_implemented", "not_repo": "not_implemented", "busy": "busy", "git": "update_failed",
+    }  # fmt: skip
+
+    async def _update_call(self, fn: Callable[[], Awaitable[Any]]) -> Any:
+        try:
+            return await fn()
+        except UpdateError as e:
+            raise ProtocolError(self._UPDATE_CODES.get(e.code, "update_refused"), e.message) from None
+
+    def _update_svc(self) -> Any:
+        return self._need("update", "self-update")
+
+    async def _op_update_status(self, client: Client, msg: dict) -> dict:
+        """Read-only, open to every client."""
+        return await self._update_svc().status()
+
+    async def _op_update_check(self, client: Client, msg: dict) -> dict:
+        svc = self._update_svc()
+        if not client.can_control:
+            raise ProtocolError("control_denied", "only a control host may check for updates")
+        return await self._update_call(svc.check)
+
+    async def _op_update_apply(self, client: Client, msg: dict) -> dict:
+        """Control hosts only, `confirm: true` required. The guards (armed, motors, mission running, recording, RC
+        lease, request in flight) are checked in the service. On success the core restarts (exit code 42)."""
+        svc = self._update_svc()
+        if not client.can_control:
+            raise ProtocolError("control_denied", "only a control host may apply an update")
+        if msg.get("confirm") is not True:
+            raise ProtocolError("invalid_value", "update.apply needs confirm: true")
+        log.warning("update.apply requested by %s (%s)", client.name or client.id, client.addr)
+        return await self._update_call(svc.apply)
+
+    def _update_msg(self) -> dict | None:
+        up = self._mod("update")
+        return None if up is None else {"op": "update", **up.summary()}
+
+    def _push_update(self) -> None:
+        m = self._update_msg()
+        if m is not None:
+            self.hub.broadcast(m)
+
+    def _push_update_progress(self, step: str, text: str) -> None:
+        self.hub.broadcast({"op": "update_progress", "step": step, "text": text})
 
     # ------------------------------------------------------------ ops: RC (safety-relevant, thin pass-through)
 

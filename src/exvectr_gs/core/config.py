@@ -149,6 +149,17 @@ class RatesSection:
 
 
 @dataclass
+class UpdateSection:
+    """`[update]`: self-update from the git remote (docs/updating.md). Nothing here touches the vehicle."""
+
+    enabled: bool = True
+    branch: str = "master"
+    remote: str = "origin"
+    auto_check_interval_s: float = 0.0  # 0 = only on demand; > 0 = quiet periodic `git fetch` + compare
+    allow_switch: bool = False  # True: also update while another branch is checked out (follows that branch)
+
+
+@dataclass
 class GsConfig:
     core: CoreSection = field(default_factory=CoreSection)
     server: ServerSection = field(default_factory=ServerSection)
@@ -159,6 +170,7 @@ class GsConfig:
     requests: RequestsSection = field(default_factory=RequestsSection)
     telecommands: TelecommandsSection = field(default_factory=TelecommandsSection)
     rates: RatesSection = field(default_factory=RatesSection)
+    update: UpdateSection = field(default_factory=UpdateSection)
 
 
 def _section(cls: type, data: dict, where: str):
@@ -310,6 +322,7 @@ def parse_config(data: dict) -> GsConfig:
         requests=_requests(data.pop("requests", {})),
         telecommands=_telecommands(data.pop("telecommands", {})),
         rates=_section(RatesSection, data.pop("rates", {}), "rates"),
+        update=_section(UpdateSection, data.pop("update", {}), "update"),
     )
     if data:
         raise ConfigError(f"unknown top-level section(s) {sorted(data)}")
@@ -344,6 +357,17 @@ def validate(cfg: GsConfig) -> None:
     for k in ("air_capacity_bytes_s", "air_capacity_down_bytes_s", "air_capacity_up_bytes_s"):
         if getattr(cfg.rates, k) <= 0:
             raise ConfigError(f"rates.{k} must be > 0")
+    u = cfg.update
+    if (
+        not u.branch
+        or not u.remote
+        or any(c.isspace() or c == ":" for c in u.branch + u.remote)
+        or u.branch.startswith("-")
+        or u.remote.startswith("-")
+    ):
+        raise ConfigError("update.branch and update.remote must be plain names")
+    if u.auto_check_interval_s < 0 or 0 < u.auto_check_interval_s < 60:
+        raise ConfigError("update.auto_check_interval_s must be 0 (on demand only) or at least 60")
     if cfg.core.stale_min_s <= 0:
         raise ConfigError("core.stale_min_s must be > 0")
 

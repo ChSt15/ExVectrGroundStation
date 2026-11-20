@@ -4,3 +4,6 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 *.egg-info/
+
+# local machine config (docs/install-frame.md)
+config/gs.local.toml

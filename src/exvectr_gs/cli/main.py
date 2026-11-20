@@ -43,7 +43,7 @@ def _cmd_core(args: argparse.Namespace) -> int:
     except OSError as e:  # for example the port is in use
         print(f"exgs: cannot start the API server on port {app.cfg.server.port}: {e}", file=sys.stderr)
         return 1
-    return 0
+    return app.exit_code  # 42 after an applied update: start.sh restarts the core (docs/updating.md)
 
 
 def _cmd_schema(args: argparse.Namespace) -> int:

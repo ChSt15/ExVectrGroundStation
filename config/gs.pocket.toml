@@ -271,3 +271,12 @@ config = "config/radio.pocket.toml"
 [gui]
 layout = "config/layout.default.json"
 model = "config/model.placeholder.json"
+
+# Self-update from git (docs/updating.md). The core follows `branch` of `remote` with fast-forward merges only;
+# it refuses with local changes, a different branch, or while armed / recording / an RC lease is held.
+[update]
+enabled = true
+branch = "master"
+remote = "origin"
+auto_check_interval_s = 0       # 0 = only when asked (button, `exgs update check`); otherwise at least 60
+allow_switch = false            # true: also update when another branch is checked out (follows that branch)

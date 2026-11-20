@@ -20,6 +20,7 @@ from ..replay import Replayer
 from ..requests import RequestController
 from ..sources import Source, build_source
 from ..telecommand import TelecommandController
+from ..update import UpdateService, update_guards
 from ..wire import ProfileNotFound, WireProfile, load_profile
 from .bus import Bus
 from .clock import Clock, MonotonicClock
@@ -31,6 +32,8 @@ from .state import StateStore
 log = logging.getLogger(__name__)
 
 HEARTBEAT_PERIOD_S = 1.0
+RESTART_EXIT_CODE = 42  # `exgs core` exits with this after an applied update; start.sh restarts it (docs/updating.md)
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 class CoreApp:
@@ -114,6 +117,21 @@ class CoreApp:
         # Replay is a separate view (design 6.4): it publishes on replay_bus only, never on the live bus,
         # so replayed data is not recorded and live recording continues during replay.
         self.replayer = Replayer(self.library, self.replay_bus, self.replay_store, self.replay_history)
+
+        # Self-update (docs/updating.md): not a vehicle uplink, but a restart drops leases and recordings, so the
+        # guards are checked here, in the core. The restart is a clean exit with code 42.
+        self.exit_code = 0
+        self.restart_delay_s = 1.5  # lets the `update.apply` reply reach the client before the core exits
+        self._restart_reason = ""
+        self._restart_requested = False
+        self.api = None
+        self.update = UpdateService(cfg.update, REPO_ROOT, lambda: update_guards(self), self.request_restart)
+
+    def request_restart(self, reason: str) -> None:
+        """Ask `run` to exit with code 42 after a clean shutdown. The guards are re-checked right before exiting."""
+        self._restart_reason = reason
+        self._restart_requested = True
+        log.warning("restart requested: %s", reason)
 
     def _profile(self, needed: bool) -> WireProfile:
         try:
@@ -227,6 +245,37 @@ class CoreApp:
             if self._running:
                 self._start_source(src)
 
+    async def _restart_now(self, summary) -> bool:
+        """True when the core should exit for the restart. Waits a moment (the reply to the client), then re-checks
+        the guards: if one fails now, nothing restarts (the update stays on disk, `restart_pending`)."""
+        await asyncio.sleep(self.restart_delay_s)
+        why = self.update.guards()
+        if why:
+            self._restart_requested = False
+            msg = "restart cancelled, " + "; ".join(why) + ". The update is on disk: apply again when it is safe."
+            summary(msg)
+            log.warning(msg)
+            api = getattr(self, "api", None)
+            if api is not None:
+                api.event("warn", msg)
+            return False
+        self.exit_code = RESTART_EXIT_CODE
+        summary(f"exiting with code {RESTART_EXIT_CODE} for the restart ({self._restart_reason})")
+        return True
+
+    def _shutdown_cleanly(self) -> None:
+        """Release what must not outlive the core: a recording is closed (and fsynced) and an RC lease released.
+        Serial ports close when the source tasks are cancelled just after."""
+        with contextlib.suppress(Exception):
+            if self.recorder.status().active:
+                self.recorder.stop()
+        rc = self.rc
+        if rc is not None:
+            with contextlib.suppress(Exception):
+                lease = rc.status().lease
+                if lease is not None:
+                    rc.release(lease.id)
+
     async def run(self, duration_s: float | None = None, summary=print, serve: bool = False) -> None:
         """Run all enabled sources until cancelled (or `duration_s`), printing a 1 Hz summary. With `serve`,
         also run the API server on cfg.server.bind:port."""
@@ -240,19 +289,25 @@ class CoreApp:
         api = None
         if self.rc is not None:
             tasks.append(asyncio.create_task(self.rc.run(), name="rc"))
+        if self.cfg.update.auto_check_interval_s > 0:
+            tasks.append(asyncio.create_task(self.update.auto_check_loop(), name="update-check"))
         try:
             if serve:
                 from ..api import ApiServer
 
                 api = ApiServer(self, self.cfg.server.bind, self.cfg.server.port)
+                self.api = api
                 await api.start()
                 summary(f"api: listening on {self.cfg.server.bind}:{api.port}")
             end = None if duration_s is None else self.clock.now() + int(duration_s * 1e9)
             while end is None or self.clock.now() < end:
                 await asyncio.sleep(1.0)
                 summary(self.summary_line())
+                if self._restart_requested and await self._restart_now(summary):
+                    break
         finally:
             self._running = False
+            self._shutdown_cleanly()
             if api is not None:
                 await api.stop()
             tasks.extend(self._source_tasks.values())
