@@ -1,8 +1,10 @@
 """SerialSource: USB serial from the vehicle (Teensy) or from the Router (design section 6.1).
 
-Plain pyserial. The wire format is not known here: bytes go through the profile's Framer and
-`WireProfile.decode` only. Threads: one reader and one writer per connection; everything that touches
-the sink, the framer and the statistics runs on the event loop (the reader hands bytes over with
+Plain pyserial by default; `transport = "usb"` drives a CDC-ACM device in userspace with pyusb instead (for hosts
+without the kernel cdc_acm driver, `usb_cdc.py`), `"auto"` picks per connection attempt. The wire format is not
+known here: bytes go through the profile's Framer and `WireProfile.decode` only.
+Threads: one reader and one writer per connection; everything that
+touches the sink, the framer and the statistics runs on the event loop (the reader hands bytes over with
 `call_soon_threadsafe`).
 
 State machine: `searching` (poll for the device) -> `connected` (reader and writer threads running) ->
@@ -33,6 +35,8 @@ from ..packets.defs.host import ConsoleText as ConsoleTextPacket
 from ..packets.defs.host import GsEvent, GsEventKind, LinkStats
 from ..wire import ConsoleText, Frame, WireProfile, decode_frame
 from .base import PacketSink, Source, SourceCaps, SourceKind, SourceStatus
+from .transport import Transport, TransportError
+from .usb_cdc import UsbCdcTransport, usb_available
 
 log = logging.getLogger(__name__)
 
@@ -40,17 +44,50 @@ DEFAULT_BAUD = 115200
 READ_TIMEOUT_S = 0.05
 WRITE_TIMEOUT_S = 1.0
 TX_QUEUE_LEN = 8
-MATCH_KEYS = {"device", "vid", "pid", "serial"}
+MATCH_KEYS = {"device", "vid", "pid", "serial", "serial_number"}  # serial_number is an alias of serial
+TRANSPORTS = ("serial", "usb", "auto")
 
 
 @dataclass
 class _Conn:
-    ser: serial.Serial
+    tp: Transport
     device: str
     stop: threading.Event = field(default_factory=threading.Event)
     lost: asyncio.Event = field(default_factory=asyncio.Event)
     tx: queue.Queue[bytes] = field(default_factory=lambda: queue.Queue(TX_QUEUE_LEN))
     threads: list[threading.Thread] = field(default_factory=list)
+
+    @property
+    def ser(self) -> serial.Serial:  # pyserial transport only
+        return self.tp.ser  # type: ignore[attr-defined]
+
+
+class SerialTransport:
+    """pyserial port (the default transport). Reads whatever is waiting, blocks at most READ_TIMEOUT_S."""
+
+    def __init__(self, device: str, baud: int, deassert: bool):
+        self.ser = serial.Serial()
+        self.ser.port = device
+        self.ser.baudrate = baud
+        self.ser.timeout = READ_TIMEOUT_S
+        self.ser.write_timeout = WRITE_TIMEOUT_S
+        self.ser.exclusive = True
+        if deassert:  # set before open() so the port is never opened with them asserted by us
+            self.ser.dtr = False
+            self.ser.rts = False
+
+    def open(self) -> None:
+        self.ser.open()
+
+    def read(self) -> bytes:
+        return self.ser.read(max(1, self.ser.in_waiting))
+
+    def write(self, data: bytes) -> None:
+        self.ser.write(data)
+
+    def close(self) -> None:
+        with contextlib.suppress(Exception):
+            self.ser.close()
 
 
 def match_device(match: dict[str, str]) -> str | None:
@@ -83,6 +120,13 @@ class SerialSource(Source):
                 f"source {cfg.id}: match needs one or more of {sorted(MATCH_KEYS)} (got {sorted(cfg.match)})"
             )
         opts = dict(cfg.options)
+        self._transport = str(opts.pop("transport", "serial"))
+        if self._transport not in TRANSPORTS:
+            raise ConfigError(f"source {cfg.id}: transport must be one of {TRANSPORTS} (got {self._transport!r})")
+        if self._transport == "usb" and ("device" in cfg.match or not {"vid", "pid"} <= set(cfg.match)):
+            raise ConfigError(
+                f"source {cfg.id}: transport 'usb' needs match = {{ vid = ..., pid = ... }} (device paths do not apply)"
+            )
         self.id = cfg.id
         self.kind = SourceKind(cfg.kind)
         reach = (1,) if self.kind is SourceKind.VEHICLE_USB else (1, 2, 3)
@@ -90,10 +134,21 @@ class SerialSource(Source):
         self.enabled = cfg.enabled
         self.disabled_by: str | None = None if cfg.enabled else "config"
         self._match = {k: str(v) for k, v in cfg.match.items()}
+        if "serial_number" in self._match:
+            self._match["serial"] = self._match.pop("serial_number")
+        try:
+            if self._transport != "serial" and {"vid", "pid"} <= set(self._match):
+                UsbCdcTransport(self._match)  # validates the hex ids at construction
+        except ValueError as e:
+            raise ConfigError(f"source {cfg.id}: {e}") from None
         self._baud = int(cfg.baud or DEFAULT_BAUD)
         # ESP32 bridges (CP210x/CH34x) reset the module when DTR/RTS toggle, so keep both low.
         # The Teensy needs DTR asserted (many sketches wait for it), so the vehicle keeps pyserial's default.
-        self._deassert = bool(opts.get("deassert_dtr_rts", self.kind is SourceKind.LINK_MODULE))
+        # Not set: decided per connection (a native USB CDC device over the usb transport always gets DTR).
+        self._deassert_opt = opts.get("deassert_dtr_rts")
+        self._deassert = bool(
+            self._deassert_opt if self._deassert_opt is not None else self.kind is SourceKind.LINK_MODULE
+        )
         self._poll_s = float(opts.get("poll_s", 1.0))
         self._stats_period_s = float(opts.get("stats_period_s", 1.0))
         unknown = set(opts) - {"deassert_dtr_rts", "poll_s", "stats_period_s"}
@@ -226,8 +281,34 @@ class SerialSource(Source):
     def _event(self, kind: GsEventKind, detail: str) -> None:
         self._emit(GsEvent(t=self._clock.now(), src="gs", kind=kind, detail=f"{self.id}: {detail}"))
 
+    def _deassert_for(self, transport: str) -> bool:
+        return False if transport == "usb" and self._deassert_opt is None else self._deassert
+
+    def _pick_transport(self) -> str:
+        """`serial` or `usb` for this connection attempt. auto: serial when the matching tty exists, else usb
+        when the match has vid and pid and pyusb imports, else serial (which then keeps searching)."""
+        if self._transport != "auto":
+            return self._transport
+        if match_device(self._match) is None and {"vid", "pid"} <= set(self._match) and usb_available():
+            return "usb"
+        return "serial"
+
+    def _probe(self, transport: str) -> tuple[str | None, UsbCdcTransport | None]:  # thread
+        if transport == "usb":
+            tp = UsbCdcTransport(self._match)
+            return tp.probe(), tp
+        return match_device(self._match), None
+
     async def _session(self) -> None:
-        device = await asyncio.to_thread(match_device, self._match)
+        try:
+            transport = await asyncio.to_thread(self._pick_transport)
+            device, usb_tp = await asyncio.to_thread(self._probe, transport)
+        except (TransportError, OSError, ValueError) as e:
+            self._device = None
+            self._last_error = str(e)
+            self._set_state("error")
+            await asyncio.sleep(self._poll_s)
+            return
         if device is None:
             self._device = None
             if self._state != "searching":
@@ -235,7 +316,7 @@ class SerialSource(Source):
             await asyncio.sleep(self._poll_s)
             return
         self._device = device
-        fut = asyncio.ensure_future(asyncio.to_thread(self._open, device))
+        fut = asyncio.ensure_future(asyncio.to_thread(self._open, device, usb_tp, transport))
         try:
             conn = await asyncio.shield(fut)
         except asyncio.CancelledError:
@@ -243,7 +324,7 @@ class SerialSource(Source):
             # so a disabled source never keeps its port
             fut.add_done_callback(lambda f: None if f.cancelled() or f.exception() else self._close(f.result()))
             raise
-        except (serial.SerialException, OSError, ValueError) as e:
+        except (serial.SerialException, OSError, ValueError) as e:  # TransportError is an OSError
             self._last_error = str(e)
             self._set_state("error")
             await asyncio.sleep(self._poll_s)
@@ -265,18 +346,11 @@ class SerialSource(Source):
         self._emit_stats(connected=False, period_s=None)
         self._event(GsEventKind.source_down, f"disconnected: {self._last_error or 'closed'}")
 
-    def _open(self, device: str) -> _Conn:
-        ser = serial.Serial()
-        ser.port = device
-        ser.baudrate = self._baud
-        ser.timeout = READ_TIMEOUT_S
-        ser.write_timeout = WRITE_TIMEOUT_S
-        ser.exclusive = True
-        if self._deassert:  # set before open() so the port is never opened with them asserted by us
-            ser.dtr = False
-            ser.rts = False
-        ser.open()
-        return _Conn(ser=ser, device=device)
+    def _open(self, device: str, tp: Transport | None = None, transport: str = "serial") -> _Conn:
+        if tp is None:
+            tp = SerialTransport(device, self._baud, self._deassert_for(transport))
+        tp.open()
+        return _Conn(tp=tp, device=device)
 
     def _start_threads(self, conn: _Conn) -> None:
         conn.threads = [
@@ -289,8 +363,7 @@ class SerialSource(Source):
     @staticmethod
     def _close(conn: _Conn) -> None:
         conn.stop.set()
-        with contextlib.suppress(Exception):
-            conn.ser.close()
+        conn.tp.close()
         for th in conn.threads:
             if th is not threading.current_thread():
                 th.join(timeout=2.0)
@@ -307,10 +380,10 @@ class SerialSource(Source):
             conn.lost.set()
 
     def _reader(self, conn: _Conn) -> None:  # thread
-        ser = conn.ser
+        tp = conn.tp
         try:
             while not conn.stop.is_set():
-                data = ser.read(max(1, ser.in_waiting))
+                data = tp.read()
                 if data:
                     self._call(self._on_data, conn, data, self._clock.now())
         except (serial.SerialException, OSError, TypeError, ValueError) as e:
@@ -324,7 +397,7 @@ class SerialSource(Source):
                     data = conn.tx.get(timeout=READ_TIMEOUT_S)
                 except queue.Empty:
                     continue
-                conn.ser.write(data)
+                conn.tp.write(data)
         except (serial.SerialException, OSError, TypeError, ValueError) as e:
             if not conn.stop.is_set():
                 self._call(self._lost, conn, f"write failed: {e}")

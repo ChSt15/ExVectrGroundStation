@@ -27,13 +27,33 @@ Edit `config/gs.local.toml`: enable the sources that exist on the Frame, and set
 
 The Frame's kernel (6.18, custom, no module directory) is built **without `CONFIG_USB_ACM`**. The Router (ESP32-S3, Espressif `303a:1001`) and the Teensy (`16c0:0483`) show up in `lsusb` but there is **no `/dev/ttyACM*`**, so pyserial cannot open them. Group membership (`uucp`) and udev rules do not help.
 
-Userspace USB works without root: the user is in group `input` and `/dev/bus/usb/001/00x` is `root:input crw-rw----`. Install the library into the venv (libusb-1.0 is already at `/usr/lib/libusb-1.0.so.0`):
+Userspace USB works without root: the user is in group `input` and `/dev/bus/usb/001/00x` is `root:input crw-rw----`, so no sudo and no udev rule are needed. libusb-1.0 is already at `/usr/lib/libusb-1.0.so.0`. Install pyusb into the venv (optional extra `usb`):
 
 ```bash
-~/exvectr-gs/.venv/bin/pip install pyusb
+cd ~/exvectr-gs && .venv/bin/pip install -e '.[usb]'      # or:  .venv/bin/pip install pyusb
 ```
 
-**The pyusb CDC-ACM transport that would use it is not part of this feature and does not exist yet; it is a separate follow-up task.** Until then the Frame can run the fake source or view a core running on the PC (`http://gs.local:8765/`).
+Then select the userspace transport per source in `config/gs.local.toml` (details: `docs/usb-transport.md`):
+
+```toml
+[[source]]
+id = "link"
+kind = "link_module"                    # the Router (ESP32-S3 USB Serial/JTAG)
+transport = "usb"
+match = { vid = "303a", pid = "1001" }
+rc_role = "mirror"                      # or "control"; unchanged by the transport
+enabled = true
+
+[[source]]
+id = "usb"
+kind = "vehicle_usb"                    # the Teensy
+transport = "usb"
+match = { vid = "16c0", pid = "0483" }
+rc_role = "control"
+enabled = true
+```
+
+`transport = "auto"` uses `/dev/ttyACM*` when it exists and the userspace transport otherwise, so one config works on the PC and on the Frame.
 
 ## Update
 
