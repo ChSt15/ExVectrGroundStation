@@ -99,3 +99,18 @@ The vehicle's own failsafes (link timeout, motor interlock, transition-based ena
 ## GUI behaviour (T9)
 
 Details in [gui.md](gui.md) ("Virtual radio"). The rules that matter here: the widget shows the state the core reports in its `rc` pushes (labelled "sent"), never an optimistic local state, with a MASTER / SLAVE / IDLE indicator; a client holds control only through `rc.acquire {"kind": "connection"}` and heartbeats every 300 ms; `rc.set {"SE": 1}` repeats every 100 ms while the momentary control is pressed and the widget sends `SE=0` on pointerup, pointercancel, blur and when the page is hidden; a locked control is a padlock that needs a 1 s hold; switching to the replay view while holding control asks for the release first, and a client never holds control while it shows replay data.
+
+## Stick display (GUI, display only)
+
+The radio panel and the Flight view's compact RC panel show the two sticks of the Pocket: in slave what arrives from the handset, in master what the core sends (the channel defaults, sticks neutral 1500 µs and throttle low 1000 µs: **the ground station has no stick sending and this display adds none**), in replay the recorded `RcState`. Which channels are shown comes from the optional `[sticks]` table of the radio config (`config/radio.pocket.toml`):
+
+```toml
+[sticks]      # display only; all keys optional, these are the defaults
+mode = 2      # 2: left stick yaw (x) / throttle (y), right stick roll (x) / pitch (y); 1: left yaw / pitch, right roll / throttle
+roll = 1
+pitch = 2
+throttle = 3
+yaw = 4
+```
+
+The core validates it (`rc/radio_config.py`: known keys, mode 1 or 2, distinct channels within `channel_count`, no channel shared with a control when the table is given) and never uses it for sending. The GUI maps pulse widths to −1..1 (centred axes, 1500 µs = 0) and 0..1 (throttle, 1000 µs = 0) in `web/app/radio/sticks.js`.
