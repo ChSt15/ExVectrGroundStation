@@ -28,6 +28,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["browser: drives a headless Chromium (slow, occasionally flaky under load); skip with -m \"not browser\""]
 # exvectr_packets comes from the git submodule, never copied (docs/wire-profiles.md)
 pythonpath = ["lib/ExVectrPackets/python"]
 asyncio_mode = "auto"

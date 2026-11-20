@@ -41,3 +41,20 @@ Strategy: design section 8.2. The tests need the submodules (`git submodule upda
 `kind = "fake"` options: `echo_rc` (test only, see below), `profile` (`usb` full set, `radio` reduced set with handset `RcState`), `seed`, `speed` (simulated seconds per wall second), `rates` (per-type override, Hz; `0` switches a type off, for example `rates = { FlapState = 0 }` for a vehicle without flap data), `faults`. Fault entries: `{ kind, at, duration, types, scale }` with kinds `dropout` (no packets of `types`), `rate` (scale the rate), `disconnect` (no packets, `LinkStats connected=false`, `GsEvent` down/up), `nan` (one NaN in `Position.pos`), `unknown_enum` (`VehicleState.mode = #9`), `failure_flag` (`fail_sensor` from `at` on). Times are simulation seconds.
 
 `answer_requests = true` makes it answer whitelisted `REQUEST`s (options `request_status`, `request_detail`, `request_drop_first`, `request_targets`; [requests.md](requests.md)), also without `rc_role = "control"`. `rc_role = "control"` makes the fake source accept GS `RcState` through `send()` (what a control link does); it keeps the last ones in `received_rc` for tests. **`echo_rc = true`** (test only, design 6.5): the last received value of `echo_channel` (1-based, default 5, the SA channel of the Pocket config) is echoed as `MissionState.mission_index` = `round((us - 1000) / 500)`, so `exgs wait 'MissionState.mission_index == 2'` closes the radio loop. It implements no vehicle logic; a real vehicle never does this.
+
+## Running fewer tests (development loop)
+
+The full suite takes about 5 minutes, and most of that is the browser tests, which are also the only flaky ones
+(Chromium temp-dir cleanup, port reuse under load). Day to day:
+
+| Command | When |
+|---|---|
+| `python tools/test_relevant.py` | After a change: runs only the test files that relate to the changed files (and the JS tests if `web/` changed). Browser tests are skipped. |
+| `python tools/test_relevant.py --list` | Show which files it would run. |
+| `pytest tests/unit/test_x.py -q` | One file, while working on it. |
+| `pytest -m "not browser"` | Everything except the browser tests (about 20 s). |
+| `pytest -m browser` | Only the browser tests, for a GUI change. |
+| `pytest` and `python tools/run_js_tests.py` | The full suite: once, before a merge or a report, not after every edit. |
+
+The `browser` marker is added automatically to every test file that uses `browser_check` (`tests/conftest.py`). A
+browser test that fails once in a full run is re-run on its own before it is treated as a failure.
