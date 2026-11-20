@@ -52,7 +52,7 @@ def build_data_frame(
     return hdr + payload
 
 
-def parse_net_frame(frame: bytes, t: int) -> Frame | None:
+def parse_net_frame(frame: bytes, t: int, wire_len: int = 0) -> Frame | None:
     """Network frame to `Frame`. None for an unsupported version, reserved type or short frame."""
     if len(frame) < 4:
         return None
@@ -65,9 +65,9 @@ def parse_net_frame(frame: bytes, t: int) -> Frame | None:
         if len(frame) < 6:
             return None
         meta["seq"] = frame[5]
-        return Frame(channel=frame[4], payload=bytes(frame[6:]), t=t, meta=meta)
+        return Frame(channel=frame[4], payload=bytes(frame[6:]), t=t, meta=meta, wire_len=wire_len)
     if type_ == TYPE_HEARTBEAT:
-        return Frame(channel=HEARTBEAT_CHANNEL, payload=bytes(frame[4:]), t=t, meta=meta)
+        return Frame(channel=HEARTBEAT_CHANNEL, payload=bytes(frame[4:]), t=t, meta=meta, wire_len=wire_len)
     return None
 
 
@@ -120,7 +120,7 @@ class NetFramer:
         if dec[0] != SKIND_NETWORK_V1:
             self.stats.resyncs += 1
             return None
-        frame = parse_net_frame(dec[1:-2], t)
+        frame = parse_net_frame(dec[1:-2], t, len(self._buf) + 1)  # + the 0x00 delimiter
         if frame is None:
             self.stats.resyncs += 1
             return None

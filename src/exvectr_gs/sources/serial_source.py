@@ -27,6 +27,7 @@ import serial.tools.list_ports
 
 from ..core.clock import Clock, MonotonicClock
 from ..core.config import ConfigError, SourceConfig
+from ..core.rates import RateTracker, frame_path, nominal_for
 from ..packets import REGISTRY, Direction, Packet
 from ..packets.defs.host import ConsoleText as ConsoleTextPacket
 from ..packets.defs.host import GsEvent, GsEventKind, LinkStats
@@ -112,6 +113,7 @@ class SerialSource(Source):
         self._last_error: str | None = None
         self._tx_frames = 0
         self._decode_errors = 0
+        self.rate_tracker: RateTracker | None = None  # set by CoreApp: per-frame data-rate statistics
         self._last_stats = (0, 0, 0)  # framer bytes, frames and tx frames at the previous LinkStats
 
     # ---- Source interface
@@ -329,12 +331,28 @@ class SerialSource(Source):
             return
         for item in self._framer.feed(data, t):
             if isinstance(item, Frame):
+                self._observe(item)
                 for pkt in decode_frame(self._profile, item, self.id):
                     if pkt.TYPE == "RawFrame":
                         self._decode_errors += 1
                     self._emit(pkt)
             elif isinstance(item, ConsoleText):
                 self._emit(ConsoleTextPacket(t=item.t, src=self.id, text=item.text))
+
+    def _observe(self, frame: Frame) -> None:
+        """Count one received wire frame for the data-rate view (never affects decoding)."""
+        describe = getattr(self._profile, "describe_frame", None)
+        if self.rate_tracker is None or describe is None:
+            return
+        try:
+            info = describe(frame)
+            path = frame_path(self.kind.value, info.remote)
+            self.rate_tracker.record(
+                self.id, info.type, info.node, path, frame.t,
+                len(frame.payload), frame.wire_len, nominal_for(path, info),
+            )  # fmt: skip
+        except Exception:
+            log.exception("serial source %s: rate statistics failed", self.id)
 
     # ---- link statistics
 

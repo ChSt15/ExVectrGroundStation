@@ -119,6 +119,15 @@ class TelecommandsSection:
 
 
 @dataclass
+class RatesSection:
+    """`[rates]`: reference for the data-rate view (display only)."""
+
+    # Air capacity per direction in payload bytes per second. From docs/network-design.md, air profile v1: 25 air
+    # packets per second each way (20 ms FHSS slot interval) of 255 bytes, about 6.1 kB/s of frame bytes each way.
+    air_capacity_bytes_s: float = 6100.0
+
+
+@dataclass
 class GsConfig:
     core: CoreSection = field(default_factory=CoreSection)
     server: ServerSection = field(default_factory=ServerSection)
@@ -128,6 +137,7 @@ class GsConfig:
     gui: GuiSection = field(default_factory=GuiSection)
     requests: RequestsSection = field(default_factory=RequestsSection)
     telecommands: TelecommandsSection = field(default_factory=TelecommandsSection)
+    rates: RatesSection = field(default_factory=RatesSection)
 
 
 def _section(cls: type, data: dict, where: str):
@@ -256,6 +266,7 @@ def parse_config(data: dict) -> GsConfig:
         gui=_section(GuiSection, data.pop("gui", {}), "gui"),
         requests=_requests(data.pop("requests", {})),
         telecommands=_telecommands(data.pop("telecommands", {})),
+        rates=_section(RatesSection, data.pop("rates", {}), "rates"),
     )
     if data:
         raise ConfigError(f"unknown top-level section(s) {sorted(data)}")
@@ -287,6 +298,8 @@ def validate(cfg: GsConfig) -> None:
         raise ConfigError('recorder.raw_frames: only "unknown" is supported')
     if not 0 < cfg.server.port < 65536:
         raise ConfigError("server.port out of range")
+    if cfg.rates.air_capacity_bytes_s <= 0:
+        raise ConfigError("rates.air_capacity_bytes_s must be > 0")
     if cfg.core.stale_min_s <= 0:
         raise ConfigError("core.stale_min_s must be > 0")
 

@@ -25,6 +25,7 @@ from aiohttp import WSMsgType, web
 
 from .. import __version__
 from ..core.hosts import is_control_host  # noqa: F401  (re-exported)
+from ..core.rates import WINDOWS_S, rates_to_json
 from ..core.state import StateStore
 from ..packets import REGISTRY
 from ..rc.controller import ControlDenied, ControlLocked
@@ -88,6 +89,7 @@ class ApiServer:
             "unsubscribe": self._op_unsubscribe,
             "get_snapshot": self._op_get_snapshot,
             "get_history": self._op_get_history,
+            "get_rates": self._op_get_rates,
             "rec.start": self._op_rec_start,
             "rec.stop": self._op_rec_stop,
             "rec.note": self._op_rec_note,
@@ -370,6 +372,27 @@ class ApiServer:
         if src is not None and not isinstance(src, str):
             raise ProtocolError("bad_request", "src must be a string")
         return self.hub.snapshot(P.view_of(msg), P.check_types(msg.get("types", "*")), src, bool(msg.get("preferred")))
+
+    async def _op_get_rates(self, client: Client, msg: dict) -> dict:
+        """Per-stream data rates (docs/api.md). `view` "live" (default): frames measured on receive at host time;
+        "replay": packet rates in replay time from the open log (empty when none is open). Observe-only."""
+        view = P.view_of(msg)
+        cfg = getattr(self.ctx, "cfg", None)
+        cap = float(cfg.rates.air_capacity_bytes_s) if cfg is not None and hasattr(cfg, "rates") else 6100.0
+        windows = WINDOWS_S
+        if view == "live":
+            tracker = self._need("rates", "the rate statistics")
+            now = self.ctx.clock.now()
+            streams = tracker.snapshot(now)
+            return rates_to_json(streams, windows, now / 1e9, "live", cap, "frames")
+        replayer = self._mod("replayer")
+        streams, now = [], self._replay_clock()
+        if replayer is not None:
+            try:
+                now, streams = await asyncio.to_thread(replayer.read_rates, windows)
+            except (RuntimeError, NotImplementedError, OSError):
+                streams = []  # no log open
+        return rates_to_json(streams, windows, now / 1e9, "replay", cap, "packets")
 
     async def _op_get_history(self, client: Client, msg: dict) -> dict:
         """`buffer` (extension): "trail" (default, types with history=True at 20 Hz) or "plot" (the tuning

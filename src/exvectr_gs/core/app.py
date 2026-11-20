@@ -24,6 +24,7 @@ from ..wire import ProfileNotFound, WireProfile, load_profile
 from .bus import Bus
 from .clock import Clock, MonotonicClock
 from .config import ConfigError, GsConfig
+from .rates import SYNTHETIC_TYPES, RateTracker, packet_path
 from .history import PLOT_MAX_HZ, PLOT_TYPES, PLOT_WINDOW_S, History
 from .state import StateStore
 
@@ -54,6 +55,13 @@ class CoreApp:
         # start them). Serial sources need the real wire profile: without it only the enabled ones exist.
         usable = [s for s in cfg.sources if s.enabled or s.kind == "fake" or profile.name != "fake"]
         self.sources: list[Source] = [build_source(s, profile) for s in usable]
+        # Data-rate statistics (docs/api.md get_rates): serial sources report every wire frame themselves; sources
+        # without frames (the fake source) are counted per packet in _on_packet.
+        self.rates = RateTracker()
+        self._packet_level = {s.id: s.kind.value for s in self.sources if not hasattr(s, "rate_tracker")}
+        for s in self.sources:
+            if hasattr(s, "rate_tracker"):
+                s.rate_tracker = self.rates  # type: ignore[attr-defined]
         self._source_tasks: dict[str, asyncio.Task] = {}
         self._running = False
         # Recording starts only by explicit user action (decision 10.1-3): nothing is opened here.
@@ -122,6 +130,14 @@ class CoreApp:
         self.history.update(pkt)
         self.plot_history.update(pkt)
         self.packet_counts[pkt.src] += 1
+        kind = self._packet_level.get(pkt.src)
+        if kind is not None and pkt.TYPE not in SYNTHETIC_TYPES:
+            path = packet_path(kind, pkt.TYPE)
+            try:
+                nominal = REGISTRY.get(pkt.TYPE).nominal_rate_hz or 0.0
+            except KeyError:
+                nominal = 0.0
+            self.rates.record(pkt.src, pkt.TYPE, None, path, pkt.t, nominal_hz=nominal)
 
     def summary_line(self, period_s: float = 1.0) -> str:
         """One line: per-source rate and connection state plus the headline vehicle values."""

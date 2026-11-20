@@ -16,6 +16,7 @@ class Frame:
     payload: bytes
     t: int  # host time of the last byte
     meta: Mapping[str, Any]  # profile-specific (source/destination node, sequence, ...)
+    wire_len: int = 0  # bytes this frame took on the stream (framing overhead included); 0 = the framer does not know
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,8 @@ class WireProfile(Protocol):
 
     # Optional (looked up with getattr): `encode_heartbeat(uptime_s: float) -> Frame` builds the
     # ground station's own heartbeat. Profiles without one (provisional-1, fake) send nothing.
+    # Optional too: `describe_frame(frame) -> core.rates.FrameInfo` (type name, origin node, crossed the air) for
+    # the data-rate view; profiles without it are not measured per frame.
 
 
 def decode_frame(profile: WireProfile, frame: Frame, src: str) -> list[Packet]:

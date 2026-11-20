@@ -23,11 +23,12 @@ from typing import Literal
 
 from ..core.bus import Bus
 from ..core.history import History
+from ..core.rates import SYNTHETIC_TYPES, RateTracker, StreamRates, packet_path
 from ..core.state import StateStore
-from ..packets import Packet
+from ..packets import REGISTRY, Packet
 from ..packets.textcodec import decode_line
 from ..recording import LogInfo, LogLibrary, LogReader
-from ..recording.logfile import LogIndex, Marker, _open
+from ..recording.logfile import LogIndex, Marker, _open, scan_lines
 
 log = logging.getLogger(__name__)
 
@@ -169,6 +170,44 @@ class Replayer:
         reader = self._reader
         assert reader is not None
         return read_series(reader.path, idx, specs, t0, t1, max_points)
+
+    def read_rates(self, windows: tuple[float, ...]) -> tuple[int, list[StreamRates]]:
+        """Per-type packet rates at the replay position, in replay time: the log lines of the last `max(windows)` seconds
+        before `t` (stateless, so a seek needs no reset). Packet level only (a log holds no wire frames): no byte
+        counts, paths from the `#source` kind and the type. Blocking, call it in a worker thread."""
+        idx = self._need_open()
+        reader = self._reader
+        assert reader is not None
+        t = self._t
+        kinds = {s.get("id", ""): s.get("kind", "") for s in reader.sources()}
+        longest = int(max(windows) * 1e9)
+        n = bisect_right(idx.times, t)
+        end = idx.offsets[n] if n < len(idx.offsets) else idx.size
+        tr = RateTracker(windows)
+        tr.begin(max(self._t_start(), t - longest))
+        nominal: dict[str, float] = {}
+        for off, raw in scan_lines(reader.path, idx.offset_for(t - longest)):
+            if off >= end:
+                break
+            if raw.startswith(b"#"):
+                continue
+            parts = raw.split(b" ", 3)
+            if len(parts) < 3:
+                continue
+            try:
+                lt = int(parts[0])
+            except ValueError:
+                continue
+            src, ptype = parts[1].decode("utf-8", "replace"), parts[2].decode("utf-8", "replace")
+            if src == "gs" or ptype in SYNTHETIC_TYPES:
+                continue
+            if ptype not in nominal:
+                try:
+                    nominal[ptype] = REGISTRY.get(ptype).nominal_rate_hz or 0.0
+                except KeyError:
+                    nominal[ptype] = 0.0
+            tr.record(src, ptype, None, packet_path(kinds.get(src, ""), ptype), lt, nominal_hz=nominal[ptype])
+        return t, tr.snapshot(t)
 
     def markers(self) -> list[Marker]:
         """Event, note and mode-change markers of the open log (for the transport bar)."""

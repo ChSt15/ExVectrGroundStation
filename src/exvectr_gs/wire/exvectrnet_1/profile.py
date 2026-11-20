@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 import struct
 
 from . import _deps  # noqa: F401
 
 import exvectr_packets as xp  # noqa: E402  isort: skip
 
+from ...core.rates import FrameInfo
 from ...packets import REGISTRY, Direction, Packet
 from ...packets.defs.host import GsEvent, GsEventKind, RawFrame
 from ...packets.defs.link import NetworkStatus, RcOrigin, RcState
@@ -29,10 +31,13 @@ log = logging.getLogger(__name__)
 
 NODE_GS = 0
 NODE_VEHICLE = 1
+NODE_ROUTER = 2
+AIR_NODES = (1, 3)  # frames from these nodes seen through the Router crossed the air
 NODES = 4  # 0 ground station, 1 vehicle, 2 link TX, 3 link RX
 PRESENCE_S = 3.0  # network-design 3.3.4
 DUP_RESET_S = 1.0  # network-design 3.4: nothing on (src, port) for 1 s accepts the next frame
 GS_RC_PORT = xp.RcState.PORT
+GS_RC_PORT_HANDSET = GS_RC_PORT  # the same port carries the Pocket's copy (handset origin) towards the GS
 # TEMPORARY legacy telecommand (flight-software docs/project/hardware-and-drivers.md section 10): port 0x7F, not in
 # the packet schema. 8 bytes little-endian: type u8, subsystem u8, paramInt i16, paramFloat f32. DATA frame,
 # QoS EVENT (2), not latest, TTL 3, DST 1, SRC 0 (CTRL byte 0x48). Remove with the flight software's T9b.
@@ -146,6 +151,27 @@ class ExVectrNet1Profile:
             detail="; ".join(problems),
         )
         return [status, *out]
+
+    def describe_frame(self, frame: Frame) -> FrameInfo:
+        """For the data-rate view: wire packet name, origin node and whether the frame crossed the air when it
+        arrives through the Router (nodes 1 and 3 did; node 2 is the Router itself; the Pocket's RC_STATE copy is
+        Router-local whatever its SRC)."""
+        node = int(frame.meta.get("src", -1))
+        cls = xp.PACKETS_BY_PORT.get(frame.channel)
+        if frame.channel == HEARTBEAT_CHANNEL:
+            name, air, usb = "HEARTBEAT", 0, 0
+        elif cls is None:
+            name, air, usb = f"port 0x{frame.channel:02X}", 0, 0
+        else:
+            name = re.sub(r"(?<!^)(?=[A-Z])", "_", cls.__name__).upper()
+            air, usb = cls.AIR_RATE_HZ, cls.USB_RATE_HZ
+        if frame.channel == GS_RC_PORT_HANDSET or node == NODE_ROUTER:
+            remote: bool | None = False
+        elif node in AIR_NODES:
+            remote = True
+        else:
+            remote = None
+        return FrameInfo(name, node if node >= 0 else None, remote, float(air), float(usb))
 
     # ---- send
 
