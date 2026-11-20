@@ -1,4 +1,4 @@
-// Pure logic of the data-source banner and the top recorder block (docs/gui.md "Data-source banner").
+// Pure logic of the data-source tag and the top recorder block (docs/gui.md "Data-source banner").
 // The banner says whether the data on the page is REAL (live, VehicleStatus.simulation false), SIMULATION (live,
 // simulation true) or a REPLAY of a log (and what that recording was). Vehicle-reported values only: nothing is
 // assumed from what the ground station sent; a missing, stale or unsupplied flag is shown as unknown.
@@ -24,7 +24,7 @@ export function simulationFlag(entry, now, schemaType) {
  */
 export function describeSource({ connState, view, live, recorded, replay }) {
   if (connState !== "open") {
-    return { kind: "offline", label: "NO CORE CONNECTION", details: ["reconnecting", "values are frozen"], recorded: null, inputsLocked: true, lockReason: LOCK_OFFLINE };
+    return { kind: "offline", short: "NO CORE", label: "NO CORE CONNECTION", details: ["reconnecting", "values are frozen"], recorded: null, inputsLocked: true, lockReason: LOCK_OFFLINE };
   }
   if (view === "replay") {
     const r = replay || { state: "closed" };
@@ -42,17 +42,17 @@ export function describeSource({ connState, view, live, recorded, replay }) {
       else if (r.state === "ended") details.push("end of log");
       rec = !recorded || recorded.sim === null ? "unknown" : recorded.sim ? "SIMULATION" : "REAL";
     }
-    return { kind: "replay", label: "REPLAY", details, recorded: rec, inputsLocked: true, lockReason: LOCK_REPLAY };
+    return { kind: "replay", short: "REPLAY", label: "REPLAY", details, recorded: rec, inputsLocked: true, lockReason: LOCK_REPLAY };
   }
   const l = live || { sim: null, why: "no VehicleStatus received" };
-  if (l.sim === null) return { kind: "unknown", label: "LIVE · REAL OR SIMULATION UNKNOWN", details: [l.why], recorded: null, inputsLocked: false, lockReason: "" };
+  if (l.sim === null) return { kind: "unknown", short: "REAL / SIM ?", label: "LIVE · REAL OR SIMULATION UNKNOWN", details: [l.why], recorded: null, inputsLocked: false, lockReason: "" };
   const what = l.sim ? "SIMULATION" : "REAL";
   if (l.stale) {
-    return { kind: "unknown", label: `LIVE · last reported ${what}`, details: [`VehicleStatus stale ${fmtAge(l.age)}`], recorded: null, inputsLocked: false, lockReason: "" };
+    return { kind: "unknown", short: `${l.sim ? "SIM" : "REAL"}? stale`, label: `LIVE · last reported ${what}`, details: [`VehicleStatus stale ${fmtAge(l.age)}`], recorded: null, inputsLocked: false, lockReason: "" };
   }
   return l.sim
-    ? { kind: "sim", label: "LIVE · SIMULATION", details: ["the vehicle runs its on-board simulation"], recorded: null, inputsLocked: false, lockReason: "" }
-    : { kind: "real", label: "LIVE · REAL VEHICLE", details: ["real sensors and actuators"], recorded: null, inputsLocked: false, lockReason: "" };
+    ? { kind: "sim", short: "SIMULATION", label: "LIVE · SIMULATION", details: ["the vehicle runs its on-board simulation"], recorded: null, inputsLocked: false, lockReason: "" }
+    : { kind: "real", short: "REAL", label: "LIVE · REAL VEHICLE", details: ["real sensors and actuators"], recorded: null, inputsLocked: false, lockReason: "" };
 }
 
 export const FREE_WARN_BYTES = 5e9;

@@ -6,7 +6,7 @@ import { powerReport } from "../link/link_logic.js";
 import { isStale } from "../fmt.js";
 
 export const STATUS_CONSUMES = ["VehicleStatus", "NetworkStatus", "LinkStats", "LinkConfig", "TxModuleStats", "RxModuleStats"];
-// The data-source banner shows VehicleStatus.simulation loudly; the bar does not repeat it.
+// The data-source tag at the start of the row shows VehicleStatus.simulation; the cells do not repeat it.
 const IN_BANNER = new Set(["simulation"]);
 
 export function createStatusBar(ctx) {
@@ -38,7 +38,6 @@ export function createStatusBar(ctx) {
     el.dataset.state = d.state;
     el.dataset.view = view;
     state.textContent =
-      (view === "replay" ? "REPLAY  " : "") +
       (d.state === "missing" ? "no VehicleStatus received" : d.state === "stale" ? `STALE ${d.ageText}` : "vehicle status");
     state.title = d.src ? `from ${d.src}` : "";
     const seen = new Set();

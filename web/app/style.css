@@ -62,26 +62,25 @@ input[type="checkbox"] { min-height: 0; accent-color: var(--accent); }
   font-size: var(--fs-xs); font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
 .group-title::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 
-/* ------------------------------------------------------------------ data-source banner */
-.srcb { display: flex; align-items: center; gap: 6px 16px; flex-wrap: wrap; padding: 5px 14px; min-height: 38px; color: #fff; background: var(--b-offline); }
-.srcb[data-kind="real"] { background: var(--b-real); }
-.srcb[data-kind="sim"] { background: var(--b-sim); }
-.srcb[data-kind="unknown"] { background: var(--b-unknown); }
-.srcb[data-kind="replay"] { background: repeating-linear-gradient(135deg, var(--b-replay) 0 18px, color-mix(in srgb, var(--b-replay) 82%, #000) 18px 36px); }
-.srcb-label { font-weight: 800; font-size: 17px; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
-.srcb-details { font-size: var(--fs-m); opacity: .92; font-family: var(--mono); }
-.srcb-recorded { font-weight: 800; letter-spacing: .05em; padding: 1px 9px; border-radius: 4px; background: rgba(0, 0, 0, .35); border: 1px solid rgba(255, 255, 255, .5); }
-.srcb-recorded[data-rec="REAL"] { background: var(--b-real); } .srcb-recorded[data-rec="SIMULATION"] { background: var(--b-sim); }
-.srcb-lock { font-weight: 700; font-size: var(--fs-s); padding: 2px 9px; border-radius: 4px; background: rgba(0, 0, 0, .35); white-space: nowrap; }
-.srcb-transport { flex: 1 1 420px; min-width: 280px; }
-.srcb-transport .panel { background: transparent; border: 0; }
-.srcb-transport .panel > header { display: none; }
-.srcb-transport .body { padding: 0; overflow: visible; }
-.srcb-transport button, .srcb-transport select { background: rgba(0, 0, 0, .3); border-color: rgba(255, 255, 255, .45); color: #fff; min-height: 26px; padding: 1px 8px; }
-.srcb-transport .time { color: #fff; }
-.srcb-transport .msg { color: #fff; margin: 0; font-size: var(--fs-s); }
+/* ------------------------------------------------------------------ data-source tag and replay strip */
+.srctag { display: inline-flex; align-items: center; align-self: center; padding: 3px 10px; border-radius: 12px; font-weight: 800; font-size: var(--fs-s); letter-spacing: .08em; color: #fff; background: var(--b-offline); white-space: nowrap; cursor: default; }
+.srctag[data-kind="real"] { background: var(--b-real); }
+.srctag[data-kind="sim"] { background: var(--b-sim); }
+.srctag[data-kind="unknown"] { background: var(--b-unknown); }
+.srctag[data-kind="replay"] { background: var(--b-replay); }
+.replaystrip { display: flex; align-items: center; gap: 4px 12px; flex-wrap: wrap; padding: 3px 12px; background: var(--info-bg); border-bottom: 1px solid var(--line); border-left: 4px solid var(--b-replay); font-size: var(--fs-s); }
+.rs-title { font-weight: 800; letter-spacing: .08em; color: var(--info); }
+.rs-details { color: var(--fg); }
+.rs-rec { font-weight: 700; padding: 0 8px; border-radius: 10px; color: #fff; background: var(--b-unknown); }
+.rs-rec[data-rec="REAL"] { background: var(--b-real); } .rs-rec[data-rec="SIMULATION"] { background: var(--b-sim); }
+.rs-lock { font-size: var(--fs-xs); color: var(--dim); font-weight: 600; white-space: nowrap; }
+.rs-transport { flex: 1 1 360px; min-width: 260px; }
+.rs-transport .panel { background: transparent; border: 0; }
+.rs-transport .panel > header { display: none; }
+.rs-transport .body { padding: 0; overflow: visible; }
+.rs-transport button, .rs-transport select { min-height: 24px; padding: 0 8px; }
+.rs-transport .msg { margin: 0; font-size: var(--fs-xs); }
 .toolbar.transport { margin: 0; flex-wrap: nowrap; }
-.toolbar.transport .scrub { accent-color: #fff; }
 
 /* ------------------------------------------------------------------ header */
 header.top { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 6px 12px; background: var(--surface); border-bottom: 1px solid var(--line); }
@@ -434,11 +433,10 @@ body[data-layout="flight"] .hint { display: none; }
   .rec { flex-wrap: wrap; }
 }
 @media (max-width: 600px) {
-  header.top, .statusbar, .srcb { padding-left: 8px; padding-right: 8px; }
+  header.top, .statusbar, .replaystrip { padding-left: 8px; padding-right: 8px; }
   #panels { padding: 6px; gap: 6px; }
   .row .lbl, .frow .lbl { flex-basis: 9em; }
   .tiles.t4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .srcb-label { font-size: 15px; }
   .rq-row, .tc-row { grid-template-columns: 1fr auto; }
 }
 

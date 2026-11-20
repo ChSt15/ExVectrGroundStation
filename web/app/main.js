@@ -425,7 +425,6 @@ async function main() {
   layout = await loadLayout();
   const base = makeCtx(null, null);
   banner = createSourceBanner({ ...base, connState: () => api.state });
-  document.getElementById("sourcebanner").replaceWith(banner.el);
   header = createHeader(
     { ...base, connState: () => api.state, theme: () => document.documentElement.dataset.theme },
     {
@@ -437,6 +436,8 @@ async function main() {
   document.getElementById("header").replaceWith(header.el);
   statusBar = createStatusBar({ ...base });
   document.getElementById("statusbar").replaceWith(statusBar.el);
+  statusBar.el.querySelector(".sb-row").prepend(banner.el); // the data-source tag leads the vehicle status row
+  statusBar.el.after(banner.strip); // replay: compact strip with log, position and transport
   // replay transport: a fixed panel inside the banner (visible in the replay view only)
   const transport = getPanel("transport");
   if (transport) mountPanel(transport, { panel: "transport", options: {} }, banner.transportSlot, "fixed", {}, "");

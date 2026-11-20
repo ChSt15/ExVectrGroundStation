@@ -18,6 +18,10 @@ test("live banner: REAL, SIMULATION, unknown and stale are distinct and never as
   const live = (sim, now = 100.1) => describeSource({ connState: "open", view: "live", live: simulationFlag(sim === "none" ? undefined : entry(sim), now, VS) });
   assert.equal(live(false).kind, "real");
   assert.equal(live(false).label, "LIVE · REAL VEHICLE");
+  assert.equal(live(false).short, "REAL");
+  assert.equal(live(true).short, "SIMULATION");
+  assert.equal(live(false, 110).short, "REAL? stale");
+  assert.equal(live("none").short, "REAL / SIM ?");
   assert.equal(live(true).kind, "sim");
   assert.equal(live(true).inputsLocked, false);
   const none = live("none");
