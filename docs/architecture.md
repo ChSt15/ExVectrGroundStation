@@ -28,6 +28,7 @@ FakeSource ---------------------------------------------> Packet -^
 | `exvectrnet-1` profile (real ExVectrNetwork wire format), fake vehicle `exvectrnet-1` mode | `exvectr_gs.wire.exvectrnet_1`, `tools/fake_vehicle_net.py` | implemented, see [wire-profiles.md](wire-profiles.md) |
 | RcController, radio config | `exvectr_gs.rc` | implemented (T6), `docs/radio.md` |
 | RequestController (whitelisted REQUEST sender, second uplink) | `exvectr_gs.requests` | implemented (`feature/request-sender`), `docs/requests.md` |
+| TelecommandController (TEMPORARY legacy telecommand sender, third uplink, delete at T9b) | `exvectr_gs.telecommand` | implemented (`feature/ops-and-telecommand`), `docs/telecommands.md` |
 
 ## Notes on the implementation
 

@@ -18,6 +18,7 @@ from ..recording import LogLibrary, Recorder
 from ..replay import Replayer
 from ..requests import RequestController
 from ..sources import Source, build_source
+from ..telecommand import TelecommandController
 from ..wire import ProfileNotFound, WireProfile, load_profile
 from .bus import Bus
 from .clock import Clock, MonotonicClock
@@ -85,6 +86,11 @@ class CoreApp:
         # nothing by itself: a control-host client must call `request.send` with the confirmation arguments.
         self.requests = RequestController(
             cfg.requests, self.sources, self.bus, clock=self.clock, control_hosts=cfg.server.control_hosts
+        )
+        # TEMPORARY legacy telecommand sender (user decision 2026-11-20, docs/telecommands.md): third uplink, one
+        # frame per confirmation, deleted with the flight software's T9b.
+        self.telecommands = TelecommandController(
+            cfg.telecommands, self.sources, self.bus, clock=self.clock, control_hosts=cfg.server.control_hosts
         )
         self.library = LogLibrary(Path(cfg.recorder.directory).expanduser())
         # Replay is a separate view (design 6.4): it publishes on replay_bus only, never on the live bus,

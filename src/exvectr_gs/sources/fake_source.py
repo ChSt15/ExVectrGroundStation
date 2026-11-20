@@ -115,11 +115,15 @@ class FakeSource(Source):
         self.received_requests: deque[Packet] = deque(maxlen=1000)  # every attempt that reached this source
         self.executed_requests: list[tuple[int, int, int]] = []  # (req_id, action, target), once per req_id
         self._attempts: dict[int, int] = {}
+        # TEMPORARY legacy telecommand test double: `answer_telecommands = true` accepts GS Telecommand packets
+        # (recorded in `received_telecommands`, nothing else happens, no vehicle logic).
+        self.answer_telecommands = bool(opts.get("answer_telecommands", False))
+        self.received_telecommands: list[Packet] = []
         self._sink: PacketSink | None = None
         self.caps = SourceCaps(
             rc_role=cfg.rc_role,  # type: ignore[arg-type]
-            can_send=cfg.rc_role == "control" or self.answer_requests,
-            request_targets=targets if self.answer_requests else (),
+            can_send=cfg.rc_role == "control" or self.answer_requests or self.answer_telecommands,
+            request_targets=targets if (self.answer_requests or self.answer_telecommands) else (),
         )
         # Test-only RC round trip (design 6.5). With `echo_rc = true`, the last received GS RcState value of
         # channel `echo_channel` (1-based, default 5) is echoed as `MissionState.mission_index`
@@ -269,6 +273,11 @@ class FakeSource(Source):
         loop and request tests."""
         if getattr(pkt, "TYPE", None) == "Request":
             return self._on_request(pkt)
+        if getattr(pkt, "TYPE", None) == "Telecommand":
+            if not self.answer_telecommands or self._state != "connected":
+                return False
+            self.received_telecommands.append(pkt)
+            return True
         if getattr(pkt, "TYPE", None) != "RcState" or self.caps.rc_role != "control" or self._state != "connected":
             return False
         ch = getattr(pkt, "ch_us", None)

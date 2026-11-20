@@ -12,10 +12,11 @@ import math
 import struct
 
 PORT_LINK_STATS, PORT_LOG_TEXT, PORT_HANDSET, PORT_RC_STATE = 0x01, 0x02, 0x03, 0x10
+PORT_LINK_CONFIG, PORT_TELECOMMAND = 0x04, 0x7F  # the latter is the TEMPORARY legacy telecommand port
 PORT_REQUEST, PORT_REQUEST_ACK = 0x11, 0x12
 PORT_VEHICLE_STATUS, PORT_AIR_POSE = 0x20, 0x21
 PORT_POSE, PORT_ACTUATORS, PORT_MISSION, PORT_GNSS = 0x80, 0x81, 0x82, 0x83
-PORT_IMU, PORT_ESTIMATOR, PORT_TIMING = 0x90, 0x91, 0x92
+PORT_IMU, PORT_ESTIMATOR, PORT_TIMING, PORT_CALIBRATION = 0x90, 0x91, 0x92, 0x93
 QOS = {PORT_RC_STATE: 0, PORT_VEHICLE_STATUS: 1, PORT_HANDSET: 1, PORT_LINK_STATS: 1, PORT_LOG_TEXT: 2}
 LATEST = {PORT_RC_STATE, PORT_VEHICLE_STATUS, PORT_HANDSET, PORT_LINK_STATS}  # everything else is telemetry state
 
@@ -92,7 +93,17 @@ def parse_stream(decoded: bytes) -> dict | None:
     ctrl, ttl, dst, src = f[0], f[1], f[2], f[3]
     kind = (ctrl >> 4) & 3
     if kind == 0 and len(f) >= 6:
-        return {"type": "data", "src": src, "dst": dst, "ttl": ttl, "port": f[4], "seq": f[5], "payload": bytes(f[6:])}
+        pl = bytes(f[6:])
+        return {
+            "type": "data",
+            "src": src,
+            "dst": dst,
+            "ttl": ttl,
+            "ctrl": ctrl,
+            "port": f[4],
+            "seq": f[5],
+            "payload": pl,
+        }
     if kind == 1:
         return {"type": "heartbeat", "src": src, "dst": dst, "ttl": ttl, "ctrl": ctrl, "payload": bytes(f[4:])}
     return None
@@ -186,8 +197,22 @@ def _euler(q: list[float]) -> tuple[float, float, float]:
     return roll, pitch, yaw
 
 
-def pack_link_stats(uptime_ms: int, air_state: int, lq: int, rssi: int, snr: int, ants: int, ok: int) -> bytes:
-    return struct.pack("<IBBbbbBHHHHB", uptime_ms, air_state, lq, rssi, snr, 10, ants, ok & 0xFFFF, 2, 0, 1, 15)
+def pack_link_stats(
+    uptime_ms: int, air_state: int, lq: int, rssi: int, snr: int, ants: int, ok: int, tx_power: int = 10
+) -> bytes:
+    return struct.pack("<IBBbbbBHHHHB", uptime_ms, air_state, lq, rssi, snr, tx_power, ants, ok & 0xFFFF, 2, 0, 1, 15)
+
+
+def pack_link_config(tx_power_dbm: int, flags: int = 0) -> bytes:
+    return struct.pack("<bB", tx_power_dbm, flags)
+
+
+def parse_telecommand(payload: bytes) -> dict:
+    """The legacy 8-byte Telecommand, little-endian (independent of the ground station's encoder)."""
+    if len(payload) != 8:
+        raise ValueError(f"telecommand length {len(payload)}")
+    typ, sub, param_int, param_float = struct.unpack("<BBhf", payload)
+    return {"type": typ, "subsystem": sub, "param_int": param_int, "param_float": param_float}
 
 
 def pack_rc_state(flags: int, ch: list[int]) -> bytes:
@@ -201,6 +226,18 @@ def pack_request_ack(req_id: int, status: int, detail: int = 0) -> bytes:
 def parse_request(payload: bytes) -> dict:
     req_id, action, target, arg_i, arg_f = struct.unpack("<HBBif", payload[:12])
     return {"req_id": req_id, "action": action, "target": target, "arg_i": arg_i, "arg_f": arg_f}
+
+
+def pack_calibration(t_us: int, gyro_source=7, accel_source=3, mag_source=3) -> bytes:
+    """CALIBRATION (164 B), bench-like values: gyro and accel diag(-1,1,-1) (accel scaled), mag a permutation."""
+    d = lambda a, b, c: [a, 0.0, 0.0, 0.0, b, 0.0, 0.0, 0.0, c]  # noqa: E731
+    vals = [
+        0.01606, 0.03491, 0.01047, *d(-1.0, 1.0, -1.0),
+        0.42849, 0.55833, 2.14256, *d(-0.9984, 1.003, -0.9673),
+        1.0491e-6, -1.467e-7, 8.154e-7, *(0.1622 * x for x in (0, 0, -1, 1, 0, 0, 0, -1, 0)),
+        0.001, 0.0, -0.002,
+    ]  # fmt: skip
+    return struct.pack("<IBBBB39f", t_us, 0, gyro_source, accel_source, mag_source, *vals)
 
 
 def pack_imu(t_us: int, t: float) -> bytes:

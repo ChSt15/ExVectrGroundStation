@@ -29,6 +29,7 @@ from ..core.state import StateStore
 from ..packets import REGISTRY
 from ..rc.controller import ControlDenied, ControlLocked
 from ..requests import RequestError
+from ..telecommand import TelecommandError
 from . import protocol as P
 from .hub import Client, Hub, View
 from .protocol import ProtocolError
@@ -99,6 +100,8 @@ class ApiServer:
             "request.send": self._op_request_send,
             "request.list": self._op_request_list,
             "request.status": self._op_request_status,
+            "telecommand.send": self._op_telecommand_send,
+            "telecommand.list": self._op_telecommand_list,
             "sources.list": self._op_sources_list,
             "sources.enable": self._op_sources_enable,
             "config.get": self._op_config_get,
@@ -132,6 +135,9 @@ class ApiServer:
         rq = self._mod("requests")
         if rq is not None:
             rq.on_change = self._push_requests
+        tc = self._mod("telecommands")
+        if tc is not None:
+            tc.on_change = self._push_telecommands
         self._tasks = [
             asyncio.create_task(self._status_loop(), name="api-status"),
             asyncio.create_task(self._rc_loop(), name="api-rc"),
@@ -184,7 +190,7 @@ class ApiServer:
             return r
         except ProtocolError:
             raise
-        except RequestError as e:
+        except (RequestError, TelecommandError) as e:
             raise ProtocolError(e.code, e.message) from None
         except ControlDenied as e:
             raise ProtocolError("control_denied", str(e) or "control denied") from None
@@ -334,6 +340,9 @@ class ApiServer:
         rqm = self._requests_msg()
         if rqm is not None:
             client.post(rqm)
+        tcm = self._telecommands_msg()
+        if tcm is not None:
+            client.post(tcm)
 
     async def _op_subscribe(self, client: Client, msg: dict) -> dict:
         req = P.parse_subscribe(msg)
@@ -472,6 +481,37 @@ class ApiServer:
 
     def _push_requests(self) -> None:
         m = self._requests_msg()
+        if m is not None:
+            self.hub.broadcast(m)
+
+    # ------------------------------------------------------------ ops: TELECOMMAND (TEMPORARY, safety-relevant)
+
+    async def _op_telecommand_send(self, client: Client, msg: dict) -> dict:
+        tc = self._need("telecommands", "the telecommand sender")
+        if not client.can_control:  # control hosts only, enforced here as well as in the controller
+            raise ProtocolError("control_denied", "this client is not on a control host (view only)")
+        a = P.parse_telecommand_send(msg)
+        rec = await self._call(
+            lambda: tc.send(
+                a["name"],
+                client=client.name or client.id,
+                remote_addr=client.addr,
+                confirm=a["confirm"],
+                param=a["param"],
+            )
+        )
+        self._push_telecommands()
+        return tc._json(rec)
+
+    async def _op_telecommand_list(self, client: Client, msg: dict) -> dict:
+        return {"commands": self._need("telecommands", "the telecommand sender").whitelist()}
+
+    def _telecommands_msg(self) -> dict | None:
+        tc = self._mod("telecommands")
+        return None if tc is None else {"op": "telecommands", **tc.status(), "route": tc.route()}
+
+    def _push_telecommands(self) -> None:
+        m = self._telecommands_msg()
         if m is not None:
             self.hub.broadcast(m)
 
@@ -617,6 +657,7 @@ class ApiServer:
             "recorder": rec,
             "replay": replay,
             "rc": self._rc_json(),  # extension: null when no RC controller is present
+            "telecommand_route": None if self._mod("telecommands") is None else self._mod("telecommands").route(),
             "request_routes": self._request_routes(),  # target node -> id of the source a request would use
             "clients": len(self.hub.clients),
         }

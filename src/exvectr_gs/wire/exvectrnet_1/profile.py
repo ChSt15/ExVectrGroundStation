@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import math
+import struct
 
 from . import _deps  # noqa: F401
 
@@ -19,6 +20,7 @@ from ...packets import REGISTRY, Direction, Packet
 from ...packets.defs.host import GsEvent, GsEventKind, RawFrame
 from ...packets.defs.link import NetworkStatus, RcOrigin, RcState
 from ...packets.defs.link import Request as RequestPacket
+from ...packets.defs.link import Telecommand as TelecommandPacket
 from ..profile import Frame
 from . import mapping
 from .framing import BROADCAST, DEFAULT_TTL, HEARTBEAT_CHANNEL, NET_VERSION, NetFramer
@@ -31,6 +33,11 @@ NODES = 4  # 0 ground station, 1 vehicle, 2 link TX, 3 link RX
 PRESENCE_S = 3.0  # network-design 3.3.4
 DUP_RESET_S = 1.0  # network-design 3.4: nothing on (src, port) for 1 s accepts the next frame
 GS_RC_PORT = xp.RcState.PORT
+# TEMPORARY legacy telecommand (flight-software docs/project/hardware-and-drivers.md section 10): port 0x7F, not in
+# the packet schema. 8 bytes little-endian: type u8, subsystem u8, paramInt i16, paramFloat f32. DATA frame,
+# QoS EVENT (2), not latest, TTL 3, DST 1, SRC 0 (CTRL byte 0x48). Remove with the flight software's T9b.
+TELECOMMAND_PORT = 0x7F
+TELECOMMAND_QOS = 2
 
 
 class ExVectrNet1Profile:
@@ -143,11 +150,11 @@ class ExVectrNet1Profile:
     # ---- send
 
     def encode(self, pkt: Packet) -> Frame | None:
-        """Only two things are encodable (design 1.4): RC_STATE with origin gs, addressed to the vehicle
-        (node 1), which is the final destination whether the GS sits on the vehicle's USB or behind a TX
-        module, and a REQUEST (the request controller's whitelisted one-shot actions), addressed to its
-        `target` node. Everything else is not sent. The ground station's own heartbeat is not a packet: it
-        has its own method, `encode_heartbeat`."""
+        """Only three things are encodable (design 1.4): RC_STATE with origin gs, addressed to the vehicle (node 1,
+        whether the GS sits on the vehicle's USB or behind the Router), a REQUEST (the request controller's
+        whitelisted one-shot actions) addressed to its `target` node, and, TEMPORARILY (user decision 2026-11-20),
+        the legacy Telecommand to the vehicle. Everything else is not sent. The ground station's own heartbeat is
+        not a packet: it has its own method, `encode_heartbeat`."""
         try:
             if REGISTRY.get(pkt.TYPE).direction is not Direction.UP:
                 return None
@@ -155,6 +162,8 @@ class ExVectrNet1Profile:
             return None
         if isinstance(pkt, RequestPacket):
             return self._encode_request(pkt)
+        if isinstance(pkt, TelecommandPacket):
+            return self._encode_telecommand(pkt)
         if not isinstance(pkt, RcState) or pkt.origin != RcOrigin.gs or pkt.ch_us is None or len(pkt.ch_us) != 16:
             return None
         R = xp.RcState
@@ -168,6 +177,23 @@ class ExVectrNet1Profile:
         self._tx_seq[GS_RC_PORT] = (seq + 1) & 0xFF
         meta = {"dst": NODE_VEHICLE, "seq": seq, "qos": R.QOS, "latest": R.LATEST}
         return Frame(channel=GS_RC_PORT, payload=payload, t=pkt.t, meta=meta)
+
+    def _encode_telecommand(self, pkt: TelecommandPacket) -> Frame | None:
+        """TEMPORARY. One 8-byte legacy `Telecommand` to the vehicle (node 1)."""
+        try:
+            payload = struct.pack(
+                "<BBhf",
+                int(pkt.tc_type),
+                int(pkt.subsystem or 0),
+                int(pkt.param_int or 0),
+                float(pkt.param_float or 0.0),
+            )
+        except (struct.error, TypeError, ValueError):
+            return None
+        seq = self._tx_seq.get(TELECOMMAND_PORT, 0)
+        self._tx_seq[TELECOMMAND_PORT] = (seq + 1) & 0xFF
+        meta = {"dst": NODE_VEHICLE, "seq": seq, "qos": TELECOMMAND_QOS, "latest": False}
+        return Frame(channel=TELECOMMAND_PORT, payload=payload, t=pkt.t, meta=meta)
 
     def _encode_request(self, pkt: RequestPacket) -> Frame | None:
         if pkt.req_id is None or not 1 <= int(pkt.req_id) <= 0xFFFF or pkt.action is None or pkt.target is None:

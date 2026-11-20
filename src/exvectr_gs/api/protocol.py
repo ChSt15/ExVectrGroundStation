@@ -36,7 +36,7 @@ ERROR_CODES = (
     "confirm_required",  # request.send: the confirmation arguments are missing or wrong
     "rate_limited",  # request.send: more than one new request per 500 ms from this client
     "request_in_flight",  # request.send: the same (action, target) is still waiting for its ACK
-    "no_route",  # request.send: no connected source can reach the target (nothing is queued)
+    "no_route",  # request.send, telecommand.send: no connected source can reach the target (nothing is queued)
     "not_implemented",  # the backing module (recorder, replayer, RC controller) has not landed yet
 )
 
@@ -424,6 +424,18 @@ def parse_request_send(msg: Mapping) -> dict[str, Any]:
     if not isinstance(ack, bool):
         raise ProtocolError("bad_request", "understand_link_stops must be true or false")
     return {"action": action, "target": target, "confirm": confirm, "understand_link_stops": ack}
+
+
+def parse_telecommand_send(msg: Mapping) -> dict[str, Any]:
+    """TEMPORARY. `name` (whitelist entry), `confirm` (the name repeated) and an optional integer `param`."""
+    name = _req(msg, "name", str, "a telecommand name")
+    confirm = msg.get("confirm")
+    if confirm is not None and not isinstance(confirm, str):
+        raise ProtocolError("bad_request", "confirm must be a string")
+    param = msg.get("param")
+    if param is not None and (isinstance(param, bool) or not isinstance(param, int)):
+        raise ProtocolError("bad_request", "param must be an integer")
+    return {"name": name, "confirm": confirm, "param": param}
 
 
 def parse_replay_speed(msg: Mapping) -> float:

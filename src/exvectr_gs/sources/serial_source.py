@@ -1,4 +1,4 @@
-"""SerialSource: USB serial from the vehicle (Teensy) or from a TX module (design section 6.1).
+"""SerialSource: USB serial from the vehicle (Teensy) or from the Router (design section 6.1).
 
 Plain pyserial. The wire format is not known here: bytes go through the profile's Framer and
 `WireProfile.decode` only. Threads: one reader and one writer per connection; everything that touches
@@ -130,7 +130,8 @@ class SerialSource(Source):
     async def send(self, pkt: Packet) -> bool:
         """Queue one uplink packet. False if not connected, not allowed or not encodable.
 
-        Only UP packet types go out (RcState and Request), and RcState only through the source with
+        Only UP packet types go out (RcState, Request and the TEMPORARY Telecommand), RcState only through the
+        source with
         rc_role = "control" (design 6.2): a mirror or none source never carries GS RC state, whatever the
         caller asks. A Request goes out whatever the rc_role, but only to a target this source can reach.
         """
@@ -144,6 +145,8 @@ class SerialSource(Source):
             return False
         if pkt.TYPE == "RcState" and self.caps.rc_role != "control":
             return False
+        if pkt.TYPE == "Telecommand" and 1 not in self.caps.request_targets:
+            return False  # TEMPORARY legacy telecommand: only to the vehicle (node 1), which this source must reach
         if pkt.TYPE == "Request" and getattr(pkt, "target", None) not in self.caps.request_targets:
             return False  # the request controller routes by reach; a source never carries what it cannot reach
         frame = self._profile.encode(pkt)

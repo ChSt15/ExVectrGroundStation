@@ -24,6 +24,8 @@ Package `src/exvectr_gs/wire/exvectrnet_1/`: `framing.py` (stream frame, network
 
 ### Dependencies
 
+**Pin (2026-11-20):** `lib/ExVectrPackets` is at commit `9674f89`, branch `feature/calibration-telemetry`, schema hash **`0xCFB7AEED`**. It contains `a96bd7b` (hash `0x8D56E26D`: `RequestAction.LINK_REBOOT` = 11 and the common packet `LINK_CONFIG`, port 0x04) plus the vehicle packet `CALIBRATION` (port 0x93, USB only, about 0.5 Hz, 164 bytes). The branch exists **only locally** (fetched from `flight-software/lib/ExVectrPackets` with `git fetch <path> feature/calibration-telemetry`); it is not on GitHub, so a fresh clone cannot check the pin out until it is pushed. The vehicle reports `0xCFB7AEED` and matches. The Router and the ship radio node run `0x8D56E26D` until they are reflashed: the mismatch banner in the status bar and `NetworkStatus.incompatible` stay on for them and clear on their own once they report `0xCFB7AEED`.
+
 Git submodules `lib/ExVectrPackets` (generated Python packets, schema, vectors, docs) and `lib/ExVectrNetwork` (spec vectors), pinned to commits that are **not on GitHub yet** (they come from the local `Development` clones; `git submodule update --init` needs them pushed or fetched from the local clone). `exvectr_packets` is imported from `lib/ExVectrPackets/python` without copying: `pyproject.toml` puts it on the pytest path, and `exvectrnet_1/_deps.py` adds it to `sys.path` at import if it is not installed. Hash values, flag masks, ports and scalings are always taken from the generated module, never written here: the profile never contains the schema hash or a flag value (the `MOTOR_ENABLE` flag of `RC_STATE` is expected to leave the schema soon: nothing here refers to it).
 
 ### Framing and headers
@@ -36,7 +38,7 @@ network := CTRL | TTL | DST | SRC | (DATA) PORT | SEQ | payload   or   (HEARTBEA
 
 - The framer drops a frame (and only that frame) when COBS fails, the decoded length is outside 7..243, the CRC differs, SKIND is not 1, the network version is not 1, the type is reserved, or a DATA frame has no full transport header. Bad CRC counts as `crc_errors`, everything else as `resyncs`. More than 256 bytes without a delimiter are discarded up to the next delimiter. No console text exists on this stream (the vehicle's `LOG_TEXT` packet replaces it).
 - `Frame.channel` is the port (DATA) or `0x100` (heartbeat). `Frame.meta` has `type`, `qos`, `latest`, `ttl`, `dst`, `src` (node id) and `seq`.
-- Node ids: 0 ground station, 1 vehicle, 2 TX module, 3 vehicle RX module, 0xFF broadcast.
+- Node ids: 0 ground station, 1 vehicle, 2 Router, 3 ship radio node, 0xFF broadcast.
 
 ### Heartbeats, presence, duplicates
 
@@ -51,9 +53,10 @@ Decoded values are SI already. Where the wire does not carry a field, the GS fie
 |---|---|---|---|
 | - | `HEARTBEAT` | `NetworkStatus`, `GsEvent` (on change) | see above |
 | 0x01 | `LINK_STATS` | node 2: `TxModuleStats` and `RadioLinkStats`; node 3: `RxModuleStats` | other senders: `RawFrame`. `RadioLinkStats` gets `rssi_dbm = [rssi]` (one element), `lq_pct`, `snr_db`, `antenna` (RX winner); `up_hz`, `down_hz` are not supplied. Antenna byte split into `rx_antenna` and `tx_antenna` |
+| 0x04 | `LINK_CONFIG` | `LinkConfig` (`tx_power_dbm`, `flags`, `from_node`) | the Router's commanded configuration for the ship radio node. A real Router sends it to the air only and drops it from USB, so the ground station normally receives it only when a source carries it. Display only (link panel) |
 | 0x02 | `LOG_TEXT` | `ConsoleText` | text is `[node N SEVERITY] text`, shown in the console panel |
 | 0x03 | `HANDSET_TELEM` | `HandsetTelem` | flags split into bools; shown as the vehicle sent it (no inference) |
-| 0x10 | `RC_STATE` | `RcState` | origin `gs` if sent by node 0, otherwise `handset` (the Pocket via the TX module). `ch_us = 1500 + ch / 2` (round half up), `CH_INVALID` becomes 0, `seq` is the wire sequence, `flags` and `source_ok` as received |
+| 0x10 | `RC_STATE` | `RcState` | origin `gs` if sent by node 0, otherwise `handset` (the Pocket via the Router). `ch_us = 1500 + ch / 2` (round half up), `CH_INVALID` becomes 0, `seq` is the wire sequence, `flags` and `source_ok` as received |
 | 0x11 | `REQUEST` | `RawFrame` | an uplink packet, not expected from a peer (the GS sends it, see "Uplink" below) |
 | 0x12 | `REQUEST_ACK` | `RequestAck` | |
 | 0x20 | `VEHICLE_STATUS` | `VehicleStatus`, `VehicleState` | `VehicleState` gets `mode`, `armed`, `sim` only (what the wire states directly) |
@@ -63,7 +66,8 @@ Decoded values are SI already. Where the wire does not carry a field, the GS fie
 | 0x82 | `MISSION` | `MissionState` | `mission_time` in seconds to `t_mission` ns; `mission_mode` not on this packet (see `VehicleStatus`) |
 | 0x83 | `GNSS` | `Gps` | radians; `h_acc`, `v_acc`, `s_acc` to `pos_acc`, `alt_acc`, `vel_acc`; new field `fix_type` |
 | 0x90 | `IMU_RAW` | `ImuRaw` | debug set, USB only |
-| 0x91 | `ESTIMATOR` | `Estimator` | debug set |
+| 0x91 | `ESTIMATOR` | `Estimator` | debug set; `att_std` is the 1 sigma about the WORLD axes [North, West, Up] (packet version 2 here) |
+| 0x93 | `CALIBRATION` | `Calibration` | USB only, every 2 s: offsets, row-major 3x3 matrices, source bits and the EKF gyro bias; the panel computes calibrated values from it (display only) |
 | 0x92 | `TASK_TIMING` | `TaskTiming` | debug set; `NaN` marks an invalid entry |
 | other | unknown port | `RawFrame` | `err = "unknown port"`; a known port with a bad payload gives `err = "<PACKET>: ..."` |
 
@@ -78,7 +82,7 @@ Only `RC_STATE` with `origin = gs` and 16 channels. `ch = clamp((us - 1500) * 2,
 | Source | Peer | Role |
 |---|---|---|
 | `kind = "vehicle_usb"` | vehicle, node 1, direct | full USB rates and debug set; `rc_role = "control"` |
-| `kind = "link_module"` | TX module, node 2 | forwards the vehicle radio set (node 1), RX module (node 3), the Pocket's `RC_STATE` and its own `LINK_STATS`; `rc_role = "control"` in the example config (master sends RC to it, the TX module rejects it), `"mirror"` for receive-only |
+| `kind = "link_module"` | Router, node 2 | forwards the vehicle radio set (node 1), ship radio node (node 3), the Pocket's `RC_STATE` and its own `LINK_STATS`; `rc_role = "control"` in the example config (master sends RC to it, the Router rejects it), `"mirror"` for receive-only |
 
 `source_priority = ["usb", "link", "fake"]` prefers the vehicle USB per type when both are fresh.
 
@@ -133,9 +137,13 @@ Who sends it: `CoreApp._heartbeat_loop` (`core/app.py`), a periodic task of its 
 
 `encode` also accepts the `Request` packet (the request controller's, [requests.md](requests.md)): `req_id` 1..65535, `action` (`RequestAction`), `target`, `arg_i`, `arg_f` become `xp.Request` (port 0x11, QoS and LATEST from the generated class), addressed to **DST = `target`** (1 vehicle, 2 TX module, 3 RX module), SRC 0, with its own per-port sequence counter. A missing or out-of-range field returns `None`. The wire profile does not know which actions are allowed: the whitelist lives in the request controller. `REQUEST_ACK` (0x12) decodes to `RequestAck` as before. `SerialSource` sends a `Request` on any `rc_role`, but only for a target within its `SourceCaps.request_targets` (the vehicle's USB reaches node 1; a TX module reaches 1, 2 and 3).
 
+### Legacy Telecommand (TEMPORARY, port 0x7F)
+
+`encode` also accepts the `Telecommand` packet (the telecommand controller's, [telecommands.md](telecommands.md)): `tc_type`, `subsystem`, `param_int` and `param_float` are packed little-endian as `<BBhf` (8 bytes) on **port 0x7F**, which is **not in the ExVectrPackets schema** (so the layout lives here, in `_encode_telecommand`, and nowhere else), addressed to node 1, DATA frame, QoS EVENT (2), not latest, TTL 3, so CTRL is `0x48`. The sequence number counts per port. `SerialSource.send` carries it only if the source reaches node 1. Delete with the flight software's T9b.
+
 ### RC state
 
-Only `UP` packet types can be encoded. Today that is `RcState` with `origin = gs`, 16 channels, and `Request` (above); channels are clamped to 0..65535. Anything else (handset-origin state, wrong channel count, any non-UP type) returns `None`. A received `RcState` (a handset mirror from a TX module) decodes with `origin = handset`. There is no encoder for legacy telecommands and none will be added (design 1.4).
+Only `UP` packet types can be encoded. Today that is `RcState` with `origin = gs`, 16 channels, `Request` (above) and, TEMPORARILY, `Telecommand` (above); channels are clamped to 0..65535. Anything else (handset-origin state, wrong channel count, any non-UP type) returns `None`. A received `RcState` (a handset mirror from a TX module) decodes with `origin = handset`. There is no encoder for legacy telecommands and none will be added (design 1.4).
 
 ## Serial source (`exvectr_gs.sources.serial_source`)
 

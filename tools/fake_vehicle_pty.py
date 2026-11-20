@@ -130,7 +130,7 @@ DEFAULT_RATES = {"Attitude": 50.0, "Position": 25.0, "VehicleState": 10.0, "Miss
 # exvectrnet-1, packet name -> Hz. Vehicle on USB sends the full set, the TX module forwards the radio set.
 NET_VEHICLE_RATES = {
     "VEHICLE_STATUS": 20.0, "POSE": 50.0, "ACTUATORS": 10.0, "MISSION": 10.0, "GNSS": 5.0, "HANDSET_TELEM": 2.0,
-    "IMU_RAW": 20.0, "ESTIMATOR": 10.0, "TASK_TIMING": 5.0,
+    "IMU_RAW": 20.0, "ESTIMATOR": 10.0, "TASK_TIMING": 5.0, "CALIBRATION": 0.5,
 }  # fmt: skip
 NET_TX_RATES = {
     "VEHICLE_STATUS": 5.0, "AIR_POSE": 10.0, "HANDSET_TELEM": 2.0, "LINK_STATS_TX": 2.0, "LINK_STATS_RX": 2.0,
@@ -183,6 +183,16 @@ class FakeVehiclePty:
         self.request_drop_first = request_drop_first
         self.received_requests: list[dict] = []
         self._req_attempts: dict[int, int] = {}
+        # TEMPORARY legacy telecommand test double (port 0x7F, addressed to this node as `vehicle`): every frame is
+        # parsed and recorded in `received_telecommands` (with src, dst, seq, qos, ctrl). The few effects below are
+        # test doubles only: Arm 0xA5 arms (any other value disarms), SimulationMode 0xA9 TOGGLES `simulation`
+        # (once per frame, de-duplicating nothing, like the vehicle). Until the first command the reported
+        # simulation/armed come from the scenario.
+        self.received_telecommands: list[dict] = []
+        self.sim_state: bool | None = None
+        self.armed_state: bool | None = None
+        self.tx_power = 10  # dBm reported in LINK_STATS (txmodule role: both nodes 2 and 3)
+        self.link_config_power = 10  # dBm in LINK_CONFIG (rate "LINK_CONFIG" must be enabled)
         self.received_heartbeats: list[dict] = []
         self.forwarded: list[dict] = []
         self._lock = threading.Lock()
@@ -319,6 +329,11 @@ class FakeVehiclePty:
         vs, ms = sc.fields("VehicleState", t), sc.fields("MissionState", t)
         src = 1
         if name == "VEHICLE_STATUS":
+            vs = dict(vs)
+            if self.sim_state is not None:
+                vs["sim"] = self.sim_state
+            if self.armed_state is not None:
+                vs["armed"] = self.armed_state
             pl = net.pack_vehicle_status(int(t * 1e9), vs, ms["mission_mode"], ms["mission_phase"])
             return self._data(src, 0, net.PORT_VEHICLE_STATUS, pl)
         if name == "POSE":
@@ -338,14 +353,20 @@ class FakeVehiclePty:
             return self._data(src, 0, net.PORT_HANDSET, net.pack_handset(vs, gps, att, vs["mode"].name[:8]))
         if name == "IMU_RAW":
             return self._data(src, 0, net.PORT_IMU, net.pack_imu(t_us, t))
+        if name == "CALIBRATION":
+            return self._data(src, 0, net.PORT_CALIBRATION, net.pack_calibration(t_us))
         if name == "ESTIMATOR":
             return self._data(src, 0, net.PORT_ESTIMATOR, net.pack_estimator(t_us))
         if name == "TASK_TIMING":
             return self._data(src, 0, net.PORT_TIMING, net.pack_timing(t_us))
         if name in ("LINK_STATS_TX", "LINK_STATS_RX"):
             node = 2 if name.endswith("TX") else 3
-            pl = net.pack_link_stats(int(t * 1000), 3, 97 - node, -70 - node, 9, 0x10 | (node & 1), int(t * 25))
+            pl = net.pack_link_stats(
+                int(t * 1000), 3, 97 - node, -70 - node, 9, 0x10 | (node & 1), int(t * 25), self.tx_power
+            )
             return self._data(node, 0xFF, net.PORT_LINK_STATS, pl)
+        if name == "LINK_CONFIG":  # Router to ship radio node; a real Router drops it from USB (test double only)
+            return self._data(2, 3, net.PORT_LINK_CONFIG, net.pack_link_config(self.link_config_power))
         if name == "POCKET_RC":  # the Pocket's RC state as the TX module forwards it
             ch = [(c - 1500) * 2 for c in sc.handset_channels(t)]
             return self._data(2, 1, net.PORT_RC_STATE, net.pack_rc_state(1, ch))
@@ -382,6 +403,30 @@ class FakeVehiclePty:
             return
         self.send_net(self.node, 0, net.PORT_REQUEST_ACK, net.pack_request_ack(req["req_id"], self.request_status))
 
+    def _on_telecommand(self, f: dict) -> None:
+        """TEMPORARY legacy telecommand frame (port 0x7F): record it, apply the tiny test-double effects."""
+        try:
+            tc = net.parse_telecommand(f["payload"])
+        except Exception:
+            return
+        tc.update({k: f[k] for k in ("src", "dst", "seq") if k in f}, ctrl=f.get("ctrl"), ttl=f.get("ttl"))
+        self.received_telecommands.append(tc)
+        if f["dst"] != self.node or self.role != "vehicle":
+            return
+        cur_arm = (
+            self.armed_state
+            if self.armed_state is not None
+            else bool(self.scenario.fields("VehicleState", 0.0)["armed"])
+        )
+        cur_sim = (
+            self.sim_state if self.sim_state is not None else bool(self.scenario.fields("VehicleState", 0.0)["sim"])
+        )
+        if tc["type"] == 5:  # Arm
+            self.armed_state = tc["param_int"] == 0xA5
+        elif tc["type"] == 6 and tc["param_int"] == 0xA9:  # SimulationMode toggles
+            self.sim_state = not cur_sim
+            self.armed_state = cur_arm
+
     def _rx_net(self, data: bytes) -> None:
         """What the ground station sends: DATA frames, parsed with the independent decoder."""
         for b in data:
@@ -402,6 +447,8 @@ class FakeVehiclePty:
                 self.forwarded.append(f)
             if f and f["type"] == "data" and f["port"] == net.PORT_REQUEST:
                 self._on_request(f)
+            if f and f["type"] == "data" and f["port"] == net.PORT_TELECOMMAND:
+                self._on_telecommand(f)
             if f and f["type"] == "data":
                 meta = {"src": f["src"], "dst": f["dst"], "seq": f["seq"], "ttl": f["ttl"]}
                 self.received.append(Frame(channel=f["port"], payload=f["payload"], t=time.monotonic_ns(), meta=meta))
