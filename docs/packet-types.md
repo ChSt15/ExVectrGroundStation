@@ -445,3 +445,48 @@ Version 1, direction `local`, nominal rate n/a, history: no.
 | Field | Kind | Unit | Description |
 |---|---|---|---|
 | `text` | str | - |  |
+
+## LegacyRow
+
+One row of an old ExVectrController CSV log, columns as logged (names and units of the old logger, no frame or unit conversion), written by `exgs log import-legacy` next to the converted packets so nothing is lost (docs/legacy-logs.md). A field is None when the file's layout has no value for that column.
+
+Version 1, direction `local`, nominal rate 10 Hz, history: no.
+
+| Field | Kind | Unit | Description |
+|---|---|---|---|
+| `layout` | str | - | detected column layout (docs/legacy-logs.md) |
+| `Index` | int | - | row index as logged |
+| `LocalTime` | float | s | handset (logger) uptime |
+| `MissionTime` | float | s | vehicle mission time, negative during countdown |
+| `SetPositionX` | float | m |  |
+| `SetPositionY` | float | m |  |
+| `SetPositionZ` | float | m |  |
+| `PositionX` | float | m |  |
+| `PositionY` | float | m |  |
+| `PositionZ` | float | m |  |
+| `VelocityX` | float | m/s |  |
+| `VelocityY` | float | m/s |  |
+| `VelocityZ` | float | m/s |  |
+| `AttitudeQ0` | float | - |  |
+| `AttitudeQ1` | float | - |  |
+| `AttitudeQ2` | float | - |  |
+| `AttitudeQ3` | float | - |  |
+| `GPSLat` | float | rad | logged in radians (the old header comment says degrees; see the docs) |
+| `GPSLon` | float | rad |  |
+| `GPSAlt` | float | m |  |
+| `GPSVelX` | float | m/s | in layout pacc-22 reconstructed from the two printed 32-bit words (docs/legacy-logs.md) |
+| `GPSVelY` | float | m/s |  |
+| `GPSVelZ` | float | m/s |  |
+| `GPSPACC` | float | m | GNSS position accuracy |
+| `GPSVACC` | float | m/s | GNSS velocity accuracy (the logger prints velocityAccuracy here) |
+| `GPSNumSats` | int | - |  |
+| `VehicleMode` | int | - | old VehicleMode enum value as logged |
+| `MissionMode` | int | - | old MissionMode enum value as logged |
+| `TVCThrust` | float | N | layout tvc-28 only: one thrust value |
+| `TVCThrustX` | float | N |  |
+| `TVCThrustY` | float | N |  |
+| `TVCThrustZ` | float | N |  |
+| `TVCTorque` | float | N*m |  |
+| `GroundDistance` | float | m |  |
+| `GroundDistanceCov` | float | m^2 |  |
+| `Tail` | int_array[3] | - | the three trailing integers of the 22-value layouts exactly as printed (docs/legacy-logs.md) |

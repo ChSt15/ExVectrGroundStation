@@ -1,4 +1,4 @@
-"""Offline `exgs log ...` tools (no core needed): validate, stats, cat."""
+"""Offline `exgs log ...` tools (no core needed): validate, stats, cat, import-legacy."""
 
 from __future__ import annotations
 
@@ -198,6 +198,45 @@ def cmd_cat(args: argparse.Namespace) -> int:
     return 0
 
 
+def print_import_results(results) -> None:
+    """Per-file table of a legacy import (shared with tools/convert_legacy_log.py)."""
+    print(f"{'source':40} {'status':10} {'layout':14} {'rows':>5} {'dur s':>7} {'max alt m':>9}  modes / note")
+    for r in results:
+        s = r.summary
+        cols = f"{r.rel_source or r.source.name:40} {r.status:10} {r.layout or '-':14}"
+        if s is not None:
+            modes = ",".join(s.mission_modes_seen) or "(modes not logged)"
+            cols += f" {s.rows:5d} {s.duration_s:7.1f} {s.max_altitude_m:9.2f}  {s.inferred_kind}: {modes}"
+        else:
+            cols += f" {'-':>5} {'-':>7} {'-':>9}"
+        if r.message:
+            cols += f"  [{r.message}]"
+        print(cols)
+
+
+def run_import(files, out: Path, manifest: Path | None, folder: str | None, rel_to: Path | None, strict: bool) -> int:
+    from ..recording.legacy import convert_files, update_manifest
+
+    paths = [Path(f) for f in files]
+    results = convert_files(paths, out, rel_to=rel_to)
+    print_import_results(results)
+    if manifest is not None:
+        update_manifest(manifest, results, folder or out.name)
+        print(f"manifest updated: {manifest}")
+    ok = sum(1 for r in results if r.status in ("converted", "unchanged"))
+    failed = [r for r in results if r.status == "failed"]
+    print(f"{ok} converted or unchanged, {len(failed)} failed, {len(results) - ok - len(failed)} skipped -> {out}")
+    if failed and (strict or ok == 0):
+        return 1
+    return 0
+
+
+def cmd_import_legacy(args: argparse.Namespace) -> int:
+    rel_to = Path(args.relative_to) if args.relative_to else None
+    manifest = Path(args.manifest) if args.manifest else None
+    return run_import(args.files, Path(args.out), manifest, args.folder, rel_to, args.strict)
+
+
 def _known(name: str) -> bool:
     try:
         REGISTRY.get(name)
@@ -208,7 +247,7 @@ def _known(name: str) -> bool:
 
 def register(sub: argparse._SubParsersAction) -> None:
     """Add the `log` command group to the `exgs` parser."""
-    lg = sub.add_parser("log", help="offline log tools (no core needed): validate, stats, cat")
+    lg = sub.add_parser("log", help="offline log tools (no core needed): validate, stats, cat, import-legacy")
     lsub = lg.add_subparsers(dest="log_cmd", required=True)
     v = lsub.add_parser("validate", help="check a log file (exit 1 on errors; warnings for crashed/incomplete files)")
     v.add_argument("file")
@@ -226,3 +265,14 @@ def register(sub: argparse._SubParsersAction) -> None:
     c.add_argument("--count", type=int, help="stop after N lines")
     c.add_argument("--meta", action="store_true", help="also print # metadata lines")
     c.set_defaults(func=cmd_cat)
+    i = lsub.add_parser(
+        "import-legacy",
+        help="convert old ExVectrController CSV logs to .exlog (+ .meta.toml), docs/legacy-logs.md",
+    )
+    i.add_argument("files", nargs="+", metavar="FILE")
+    i.add_argument("--out", default=".", help="output directory (default: current directory)")
+    i.add_argument("--manifest", help="also write the entries into this manifest.toml (generated block)")
+    i.add_argument("--folder", help="folder name used in the manifest entries (default: the --out directory name)")
+    i.add_argument("--relative-to", help="name sources relative to this directory (backup/x.txt)")
+    i.add_argument("--strict", action="store_true", help="exit 1 if any file failed (default: only if all failed)")
+    i.set_defaults(func=cmd_import_legacy)

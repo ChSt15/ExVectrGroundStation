@@ -23,6 +23,7 @@ The example config enables only the fake source, which runs a scripted flight (S
 | [wire-profiles.md](wire-profiles.md) | Wire profile and framer contract, `provisional-1`, `exvectrnet-1` (ports, mapping, uplink), fake vehicle | T1, T5, `exvectrnet-1` |
 | [testing.md](testing.md) | Test layers, fake source scenarios | T1 |
 | [log-format.md](log-format.md) | `.exlog` format, recorder, reader, index, library, `exgs log` tools | written (T2) |
+| [legacy-logs.md](legacy-logs.md) | Import of the old ExVectrController CSV logs (`exgs log import-legacy`, `tools/convert_legacy_log.py`): layouts, conventions with evidence, `LegacyRow` | legacy import (2026-11-20) |
 | [api.md](api.md) | WebSocket protocol and CLI | T3 |
 | [gui.md](gui.md) | GUI shell, panels, adding a panel, 3D view (config-driven model), virtual radio widget | T7, T8, T9 |
 | [requests.md](requests.md) | Whitelisted one-shot REQUESTs (calibration, save, link upload): whitelist, ids and retry, routing, confirmation, API/CLI/GUI, test doubles | request sender (2026-11-19) |

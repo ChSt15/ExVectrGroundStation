@@ -45,6 +45,7 @@ Example: `tests/data/golden.exlog` and the output of `tools/make_sample_logs.py`
 exgs log validate FILE          # exit 1 on errors (bad lines, wrong #end count, bad header); warnings for no #end, truncated last line, unknown types, time going backwards
 exgs log stats FILE [--json]    # per type and source: count, rate, longest gap
 exgs log cat FILE [--types A,B] [--src S] [--start SEC] [--end SEC] [--count N] [--meta]   # lines as stored; times relative to the first packet
+exgs log import-legacy FILE... [--out DIR] [--manifest PATH]   # old ExVectrController CSV logs -> .exlog, see legacy-logs.md
 python tools/make_sample_logs.py OUTDIR [--duration 60] [--only full,no-flapstate,dropouts,radio]
 ```
 

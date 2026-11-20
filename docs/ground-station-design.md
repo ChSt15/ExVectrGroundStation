@@ -614,7 +614,7 @@ Same protocol. Default output is the log line format (readable for humans and Cl
 | `exgs rc set SA=1 SB=2 S1=0.4 [--hold S] [--unlock CTRL]` | Set controls (takes or renews the keepalive lease). `SE=1 --hold 0.5` presses the momentary control for 0.5 s. A non-default value for a locked control (SD) needs `--unlock SD` (the CLI calls `rc.unlock` first). |
 | `exgs rc unlock CTRL` / `rc lock CTRL` | Unlock a locked control or lock it again. |
 | `exgs rc session [--script FILE] [--keep-going]` | Long-running process holding a connection lease with a 300 ms heartbeat; commands (`set`, `unlock`, `lock`, `sleep`, `show`, `release`, `quit`) from stdin or a script file. A crash or exit ends the lease at once, heartbeat loss within 1 s. |
-| `exgs log validate FILE` / `log stats FILE` / `log cat FILE [--types]` / `log redecode` | Offline tools (no core needed). |
+| `exgs log validate FILE` / `log stats FILE` / `log cat FILE [--types]` / `log redecode` / `log import-legacy FILE...` | Offline tools (no core needed). `import-legacy` converts the old ExVectrController CSV logs ([legacy-logs.md](legacy-logs.md)). |
 
 Agent bench example:
 

@@ -2,5 +2,5 @@
 
 from importlib import import_module
 
-for _name in ("vehicle", "link", "host"):
+for _name in ("vehicle", "link", "host", "legacy"):
     import_module(f"{__name__}.{_name}")
