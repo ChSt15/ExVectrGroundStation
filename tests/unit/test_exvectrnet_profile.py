@@ -109,10 +109,20 @@ def test_vehicle_status_values_and_flags():
         vals["flags"] & X.FLAGS_INCOMPATIBLE
     )
     assert vs.gs_present == bool(vals["flags"] & X.FLAGS_GS_PRESENT)
+    assert vs.uart_peer_seen == bool(vals["flags"] & X.FLAGS_UART_PEER_SEEN)
     assert int(vs.ctrl_source) == int(vals["ctrl_source"]) and vs.rc_age == pytest.approx(vals["rc_age"])
     assert (st.mode, st.armed, st.sim) == (vs.mode, vs.armed, vs.simulation) and st.sensor_gnss is None
     _, pl = case_payload("vehicle_status_no_rc")
     assert math.isnan(by_type(PROFILE.decode_many(frame(0x20, pl), "usb"))["VehicleStatus"].rc_age)
+
+
+def test_uart_peer_seen_flag_is_bit_6_and_information_only():
+    assert xp.VehicleStatus.FLAGS_UART_PEER_SEEN == 1 << 6
+    for on in (True, False):
+        pl = xp.VehicleStatus(flags=xp.VehicleStatus.FLAGS_UART_PEER_SEEN if on else 0).encode()
+        d = by_type(PROFILE.decode_many(frame(0x20, pl), "usb"))
+        assert d["VehicleStatus"].uart_peer_seen is on
+        assert d["VehicleStatus"].armed is False and d["VehicleStatus"].motors_enabled is False  # nothing else follows
 
 
 def test_unknown_enum_values_stay_plain_integers():
@@ -134,7 +144,8 @@ def test_air_pose_has_no_omega():
     vals, pl = case_payload("air_pose")
     d = by_type(PROFILE.decode_many(frame(0x21, pl), "link"))
     assert d["Attitude"].omega is None and d["Attitude"].q == pytest.approx(vals["q"], abs=1e-4)
-    assert d["Position"].pos == pytest.approx(vals["pos"], abs=0.05)
+    assert vals["pos"][2] == 1234.567 and d["Position"].pos[2] == pytest.approx(1234.567, abs=1e-9)  # i32, 1 mm
+    assert d["Position"].pos == pytest.approx(vals["pos"], abs=1e-3)
 
 
 def test_actuators_mission_gnss():
@@ -408,7 +419,7 @@ def test_independent_packers_decode_with_the_generated_module():
             pos["pos"], rel=1e-6
         )
         a = xp.AirPose.decode(net.pack_air_pose(5, att, pos))
-        assert list(a.q) == pytest.approx(att["q"], abs=1e-4) and list(a.pos) == pytest.approx(pos["pos"], abs=0.06)
+        assert list(a.q) == pytest.approx(att["q"], abs=1e-4) and list(a.pos) == pytest.approx(pos["pos"], abs=0.001)
         g = xp.Gnss.decode(net.pack_gnss(5, gps))
         assert (g.latitude, g.satellites, g.fix_type) == (gps["lat"], gps["num_sats"], 3)
         m = xp.Mission.decode(net.pack_mission(5, ms))

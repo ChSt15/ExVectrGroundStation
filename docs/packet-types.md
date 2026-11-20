@@ -135,6 +135,7 @@ Version 1, direction `down`, nominal rate 5 Hz, history: no.
 | `simulation` | bool | - |  |
 | `motors_enabled` | bool | - | the hard motor gate is currently open |
 | `gs_present` | bool | - |  |
+| `uart_peer_seen` | bool | - | the vehicle heard the ship radio node (node 3) on its UART in the last 3 s; information only |
 | `incompatible` | bool | - | vehicle reports a version or schema mismatch |
 | `failsafe` | bool | - |  |
 | `failure_bits` | int | - |  |

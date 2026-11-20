@@ -5,7 +5,7 @@ import { compatibilityProblems, decodeFailureBits, decodeSensorState, describeVe
 const entry = (f, t = 100, extra = {}) => ({ type: "VehicleStatus", src: "usb", t, stale_after: 1, f, ...extra });
 const FULL = {
   mode: "Ready", mission_mode: "Idle", mission_phase: "Idle", ctrl_source: "NONE", armed: false, simulation: true,
-  motors_enabled: false, gs_present: true, failsafe: false, failure_bits: 0, sensor_state: 0x2aa, last_req_id: 0, last_req_status: 0,
+  motors_enabled: false, gs_present: true, uart_peer_seen: true, failsafe: false, failure_bits: 0, sensor_state: 0x2aa, last_req_id: 0, last_req_status: 0,
   rc_age: null,
 };
 const byKey = (d) => Object.fromEntries(d.items.map((i) => [i.key, i]));
@@ -82,4 +82,12 @@ test("compatibility banner appears for a fresh mismatch and clears when it is go
   assert.deepEqual(compatibilityProblems([bad], 10.5), ["link: node 1: schema hash 0x3AFA3CCE (GS 0x8D56E26D)"]);
   assert.deepEqual(compatibilityProblems([{ ...bad, f: { incompatible: false, detail: "" } }], 10.5), []);
   assert.deepEqual(compatibilityProblems([bad], 20), []);
+});
+
+test("ship node UART chip: seen is ok, lost is amber (never red), not supplied is n/s", () => {
+  const cell = (f) => describeVehicleStatus(entry(f), 100.2).items.find((i) => i.key === "uart_peer_seen");
+  assert.deepEqual([cell(FULL).text, cell(FULL).tone], ["seen", "ok"]);
+  assert.deepEqual([cell({ ...FULL, uart_peer_seen: false }).text, cell({ ...FULL, uart_peer_seen: false }).tone], ["lost", "warn"]);
+  const { uart_peer_seen, ...without } = FULL;
+  assert.deepEqual([cell(without).text, cell(without).tone], ["n/s", ""]);
 });

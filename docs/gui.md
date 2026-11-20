@@ -173,6 +173,7 @@ Panel `radio` (`web/app/radio/`; first tab of the Operations dock). **Safety-rel
 | Failsafe | `failsafe` | `FAILSAFE` (red) or `no failsafe` |
 | Failures | `failure_bits` | raw number and hex always, plus decoded names (bit 0 sensor, 1 attitude, 2 position, 3 position out of bounds, 4 attitude out of bounds, 5 radio connection loss, from the flight software's field mapping; unknown bits as `bit n`) |
 | Ground station | `gs_present` | `GS present` / `GS absent` |
+| Ship node UART | `uart_peer_seen` | `seen` / `lost` (amber, never red: information only; `n/s` when the wire profile does not supply it). `VEHICLE_STATUS` flag `UART_PEER_SEEN` (bit 6): the vehicle received a valid frame from the ship radio node on its UART in the last 3 s. The Link & power tab shows it too ("Ship radio node heard on vehicle UART"). |
 | Control source | `ctrl_source` | name as reported |
 | RC age | `rc_age` | seconds, or `none (NaN)` |
 | Last request | `last_req_id`, `last_req_status` | `id n: <status name>` (`none (id 0)`), red for a status other than DONE and IN_PROGRESS |

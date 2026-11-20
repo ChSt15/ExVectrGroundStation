@@ -197,6 +197,9 @@ class VehicleStatus(Packet):
     simulation: bool = f()
     motors_enabled: bool = f(desc="the hard motor gate is currently open")
     gs_present: bool = f()
+    uart_peer_seen: bool = f(
+        desc="the vehicle heard the ship radio node (node 3) on its UART in the last 3 s; information only"
+    )
     incompatible: bool = f(desc="vehicle reports a version or schema mismatch")
     failsafe: bool = f()
     failure_bits: int = f()

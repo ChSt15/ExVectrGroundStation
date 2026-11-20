@@ -209,6 +209,7 @@ class Scenario:
             "simulation": True,
             "motors_enabled": False,
             "gs_present": True,
+            "uart_peer_seen": True,
             "incompatible": False,
             "failsafe": False,
             "failure_bits": 0,

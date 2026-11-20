@@ -334,7 +334,9 @@ class FakeVehiclePty:
                 vs["sim"] = self.sim_state
             if self.armed_state is not None:
                 vs["armed"] = self.armed_state
-            pl = net.pack_vehicle_status(int(t * 1e9), vs, ms["mission_mode"], ms["mission_phase"])
+            pl = net.pack_vehicle_status(
+                int(t * 1e9), {**vs, "uart_peer_seen": True}, ms["mission_mode"], ms["mission_phase"]
+            )
             return self._data(src, 0, net.PORT_VEHICLE_STATUS, pl)
         if name == "POSE":
             return self._data(src, 0, net.PORT_POSE, net.pack_pose(t_us, att, pos))

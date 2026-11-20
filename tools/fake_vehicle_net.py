@@ -130,9 +130,9 @@ def pack_pose(t_us: int, a: dict, p: dict) -> bytes:
 
 def pack_air_pose(t_us: int, a: dict, p: dict) -> bytes:
     q = [i16(x, 1 / 32767) for x in a["q"]]
-    pos = [i16(x, 0.1) for x in p["pos"]]
+    pos = [round(x * 1000) for x in p["pos"]]  # i32, 1 mm
     vel = [i16(x, 0.01) for x in p["vel"]]
-    return struct.pack("<I4h3h3h", t_us, *q, *pos, *vel)
+    return struct.pack("<I4h3i3h", t_us, *q, *pos, *vel)
 
 
 def pack_actuators(t_us: int, flaps: list[float], tvc: list[float], thrust: float, ground: float) -> bytes:
@@ -161,7 +161,14 @@ def pack_gnss(t_us: int, g: dict, fix_type: int = 3) -> bytes:
 
 
 def pack_vehicle_status(t_ns: int, vs: dict, mission_mode: int, mission_phase: int, flags_extra: int = 0) -> bytes:
-    flags = (1 if vs["armed"] else 0) | (2 if vs["sim"] else 0) | (4 if vs["armed"] else 0) | 8 | flags_extra
+    flags = (
+        (1 if vs["armed"] else 0)
+        | (2 if vs["sim"] else 0)
+        | (4 if vs["armed"] else 0)
+        | 8
+        | (64 if vs.get("uart_peer_seen") else 0)
+        | flags_extra
+    )
     t_us = (t_ns // 1000) & 0xFFFFFFFF
     return struct.pack(
         "<IqBBBBBIHHBH", t_us, t_ns, int(vs["mode"]), int(mission_mode), int(mission_phase), 2, flags, 0, 0x3F, 7, 0, 40

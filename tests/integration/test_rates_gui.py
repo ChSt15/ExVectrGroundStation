@@ -47,6 +47,13 @@ async def test_rates_panel_and_status_bar_label_the_paths(tmp_path):
         # air utilisation bar and the Router's LINK_STATS next to it
         assert await b.eval("document.querySelector('[data-testid=air-bar]').dataset.known") == "true"
         assert float(await b.eval("document.querySelector('.rt-fill').style.width.replace('%','')")) > 0
+        # ship node UART chip (VEHICLE_STATUS UART_PEER_SEEN, information only): the fake vehicle reports it seen
+        await until(
+            lambda: b.eval(
+                "document.querySelector('#statusbar [data-key=uart_peer_seen] .sb-v')?.textContent === 'seen'"
+            ),
+            what="ship node UART chip",
+        )
         # status bar: the serial-hop label with its tooltip, and the air figure in B/s
         label = await b.eval("document.querySelector('[data-testid=serial-hop-label]').textContent")
         assert label == "frames/s on the serial hop:"

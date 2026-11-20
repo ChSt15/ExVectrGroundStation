@@ -74,6 +74,10 @@ export function describeVehicleStatus(entry, now, schemaType) {
   const [gsText, gsTone] = bool(f.gs_present, "GS present", "GS absent", "ok", "warn");
   items.push(item("gs_present", "Ground station", gsText, gsTone));
 
+  // information only: the vehicle heard the ship radio node on its UART in the last 3 s. Lost is amber, never red.
+  const [uartText, uartTone] = bool(f.uart_peer_seen, "seen", "lost", "ok", "warn");
+  items.push(item("uart_peer_seen", "Ship node UART", uartText, uartTone, { title: "VEHICLE_STATUS UART_PEER_SEEN: the vehicle received a valid frame from the ship radio node on its UART in the last 3 s (information only)" }));
+
   items.push(item("ctrl_source", "Control source", f.ctrl_source === undefined ? "n/s" : String(f.ctrl_source)));
 
   const rcAge = f.rc_age;

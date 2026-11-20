@@ -9,7 +9,7 @@ const STATE_TONE = { connected: "ok", searching: "warn", error: "bad", disabled:
 registerPanel({
   id: "link",
   title: "Radio link",
-  consumes: ["LinkStats", "RadioLinkStats", "LinkConfig", "TxModuleStats", "RxModuleStats"],
+  consumes: ["VehicleStatus", "LinkStats", "RadioLinkStats", "LinkConfig", "TxModuleStats", "RxModuleStats"],
   create(el, ctx) {
     let b = new Bindings(ctx);
     let key = "";
@@ -74,6 +74,7 @@ registerPanel({
     rb.row(radio, "SNR", { type: R, field: "snr_db", unit: "dB", digits: 0 });
     rb.row(radio, "Up / down rate", { type: R, kind: "vec", unit: "Hz", digits: 1, derive: (e) => (e.f.up_hz === undefined && e.f.down_hz === undefined ? undefined : [e.f.up_hz ?? null, e.f.down_hz ?? null]) });
     rb.row(radio, "Active antenna", { type: R, field: "antenna", digits: 0 });
+    rb.row(radio, "Ship radio node heard on vehicle UART", { type: "VehicleStatus", field: "uart_peer_seen", kind: "text", format: (v) => (v === true ? "seen" : v === false ? "lost" : "n/s") }, { tone: (d) => (d.state === "fresh" && d.value === false ? "warn" : "") });
     const power = section(el, `Transmit power (legal limit ${POWER_LIMIT_DBM} dBm = 10 mW)`);
     const pb = new Bindings(ctx);
     const warnBox = h("div", { class: "pw-warnings", role: "alert" });
