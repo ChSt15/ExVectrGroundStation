@@ -1,0 +1,85 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { compatibilityProblems, decodeFailureBits, decodeSensorState, describeVehicleStatus, hex, linkHealth } from "../app/status/status_logic.js";
+
+const entry = (f, t = 100, extra = {}) => ({ type: "VehicleStatus", src: "usb", t, stale_after: 1, f, ...extra });
+const FULL = {
+  mode: "Ready", mission_mode: "Idle", mission_phase: "Idle", ctrl_source: "NONE", armed: false, simulation: true,
+  motors_enabled: false, gs_present: true, failsafe: false, failure_bits: 0, sensor_state: 0x2aa, last_req_id: 0, last_req_status: 0,
+  rc_age: null,
+};
+const byKey = (d) => Object.fromEntries(d.items.map((i) => [i.key, i]));
+
+test("failure bits decode to the flight software names, unknown bits are listed, raw stays", () => {
+  assert.deepEqual(decodeFailureBits(0), []);
+  assert.deepEqual(decodeFailureBits(0b100001), ["sensor", "radio connection loss"]);
+  assert.deepEqual(decodeFailureBits(1 << 7), ["bit 7"]);
+  const d = byKey(describeVehicleStatus(entry({ ...FULL, failure_bits: 33 }), 100.2));
+  assert.match(d.failure_bits.text, /^33 \(0x21\): sensor, radio connection loss$/);
+  assert.equal(d.failure_bits.tone, "bad");
+  assert.match(byKey(describeVehicleStatus(entry(FULL), 100.2)).failure_bits.text, /^0 \(0x00\): none$/);
+});
+
+test("sensor_state decodes two bits per sensor and the raw value is shown", () => {
+  assert.deepEqual(decodeSensorState(0b11_10).slice(0, 2), [{ name: "GNSS", state: "Ready" }, { name: "IMU", state: "Failure" }]);
+  const d = byKey(describeVehicleStatus(entry(FULL), 100.2));
+  assert.equal(d.sensor_state.text, "0x2AA");
+  assert.match(d.sensor_state.title, /GNSS Ready/);
+  assert.equal(hex(255), "0xFF");
+});
+
+test("simulation versus real sensors comes from VehicleStatus.simulation only, loud, never assumed", () => {
+  let d = byKey(describeVehicleStatus(entry(FULL), 100.2));
+  assert.deepEqual([d.simulation.text, d.simulation.tone, d.simulation.loud], ["SIMULATION", "sim", true]);
+  d = byKey(describeVehicleStatus(entry({ ...FULL, simulation: false }), 100.2));
+  assert.deepEqual([d.simulation.text, d.simulation.tone], ["REAL SENSORS", "real"]);
+  d = byKey(describeVehicleStatus(entry({ ...FULL, simulation: undefined }), 100.2));
+  assert.match(d.simulation.text, /not supplied/);
+  assert.equal(d.simulation.tone, "");
+});
+
+test("motors enabled is loud, an unsupplied flag is n/s and never false", () => {
+  let d = byKey(describeVehicleStatus(entry({ ...FULL, motors_enabled: true }), 100.2));
+  assert.deepEqual([d.motors_enabled.text, d.motors_enabled.tone, d.motors_enabled.loud], ["MOTORS ENABLED", "motors", true]);
+  d = byKey(describeVehicleStatus(entry({ ...FULL, motors_enabled: null, armed: undefined }), 100.2));
+  assert.equal(d.motors_enabled.text, "n/s");
+  assert.equal(d.armed.text, "n/s");
+});
+
+test("armed, failsafe, gs_present, ctrl_source, rc_age, last request", () => {
+  const d = byKey(
+    describeVehicleStatus(entry({ ...FULL, armed: true, failsafe: true, gs_present: false, ctrl_source: "USB", rc_age: 0.25, last_req_id: 7, last_req_status: 2 }), 100.2),
+  );
+  assert.equal(d.armed.text, "ARMED");
+  assert.equal(d.failsafe.text, "FAILSAFE");
+  assert.equal(d.gs_present.text, "GS absent");
+  assert.equal(d.ctrl_source.text, "USB");
+  assert.equal(d.rc_age.text, "0.25 s");
+  assert.deepEqual([d.last_req.text, d.last_req.tone], ["id 7: REJECTED_STATE", "bad"]);
+  assert.equal(byKey(describeVehicleStatus(entry({ ...FULL, rc_age: null }, 100, { nf: { rc_age: "nan" } }), 100.2)).rc_age.text, "none (NaN)");
+  assert.equal(byKey(describeVehicleStatus(entry(FULL), 100.2)).last_req.text, "none (id 0)");
+});
+
+test("stale data is marked with its age, missing data says so", () => {
+  const d = describeVehicleStatus(entry(FULL), 105);
+  assert.equal(d.state, "stale");
+  assert.equal(d.ageText, "5.0 s");
+  assert.equal(describeVehicleStatus(undefined, 5).state, "missing");
+  assert.equal(describeVehicleStatus(entry(FULL), 100.2).state, "fresh");
+});
+
+test("link health per source: connection state, rate, and a silent connected source is stale", () => {
+  const stats = { usb: { t: 100, stale_after: 2, f: { rx_frames_s: 49.6 } }, link: { t: 90, stale_after: 2, f: { rx_frames_s: 10 } } };
+  const h = linkHealth(
+    [{ id: "usb", kind: "vehicle_usb", state: "connected" }, { id: "link", kind: "link_module", state: "connected" }, { id: "x", kind: "fake", state: "searching" }],
+    (id) => stats[id], 101,
+  );
+  assert.deepEqual(h.map((x) => [x.id, x.tone, x.text, x.stale]), [["usb", "ok", "50 pkt/s", false], ["link", "warn", "10 pkt/s", true], ["x", "warn", "searching", false]]);
+});
+
+test("compatibility banner appears for a fresh mismatch and clears when it is gone or stale", () => {
+  const bad = { src: "link", t: 10, stale_after: 2, f: { incompatible: true, detail: "node 1: schema hash 0x3AFA3CCE (GS 0x8D56E26D)" } };
+  assert.deepEqual(compatibilityProblems([bad], 10.5), ["link: node 1: schema hash 0x3AFA3CCE (GS 0x8D56E26D)"]);
+  assert.deepEqual(compatibilityProblems([{ ...bad, f: { incompatible: false, detail: "" } }], 10.5), []);
+  assert.deepEqual(compatibilityProblems([bad], 20), []);
+});

@@ -221,3 +221,14 @@ async def test_browser_trail_is_rebuilt_from_history_after_a_replay_seek():
             again = await trail_after_seek(30)
             assert again["trail_points"] == pytest.approx(late["trail_points"], rel=0.1)
             assert not [m for m in b.console if "EXCEPTION" in m], b.console
+
+
+def test_every_flap_of_the_placeholder_has_its_chamfer_on_the_top():
+    """User decision 2026-11-20: the bottom flaps were drawn upside down. The chamfer is on the top (nose side) of every
+    flap, set by `chamfer_corner = "out_top"` in the model config."""
+    import json
+    from pathlib import Path
+
+    cfg = json.loads((Path(__file__).parents[2] / "config" / "model.placeholder.json").read_text())
+    assert [f["id"] for f in cfg["flaps"]] == ["tl", "tr", "bl", "br"]
+    assert {f["source"]["chamfer_corner"] for f in cfg["flaps"]} == {"out_top"}

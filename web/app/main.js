@@ -7,6 +7,7 @@ import { allPanels } from "./panels/registry.js";
 import "./panels/index.js";
 import { normalizeLayout, pickPreset, stacks, subscriptionTypes } from "./layout.js";
 import { createHeader, HEADER_CONSUMES } from "./header.js";
+import { createStatusBar, STATUS_CONSUMES } from "./status/status_bar.js";
 
 const TICK_MS = 100;
 const store = new Store();
@@ -61,7 +62,7 @@ function subscribe(a, mode) {
 }
 
 function neededPanels() {
-  return [...mounted.map((m) => m.def), { consumes: HEADER_CONSUMES, mode: "latest" }];
+  return [...mounted.map((m) => m.def), { consumes: [...HEADER_CONSUMES, ...STATUS_CONSUMES], mode: "latest" }];
 }
 
 function onMainMessage(msg) {
@@ -86,12 +87,16 @@ function onMainMessage(msg) {
       }
       for (const m of mounted) m.inst.onStatus?.(status);
       header.render();
+      statusBar?.render();
       break;
     case "event":
       for (const m of mounted) m.inst.onEvent?.(msg);
       break;
     case "requests":
       for (const m of mounted) m.inst.onRequests?.(msg);
+      break;
+    case "telecommands":
+      for (const m of mounted) m.inst.onTelecommands?.(msg);
       break;
     case "rc":
       rcState = msg;
@@ -166,10 +171,12 @@ async function switchView(next) {
   for (const a of [api, allApi]) if (a) a.state === "open" && subscribe(a, a === api ? "latest" : "all");
   for (const m of mounted) m.inst.onViewChange?.(view);
   header.render();
+  statusBar?.render();
 }
 
 // ---------------------------------------------------------------- layout and panels
 let header = null;
+let statusBar = null;
 const root = document.getElementById("panels");
 
 function applyViewVisibility() {
@@ -260,6 +267,7 @@ function tick() {
     }
   }
   header.render();
+  statusBar?.render();
 }
 
 async function loadLayout() {
@@ -285,6 +293,8 @@ async function main() {
   header.setPresets(Object.entries(layout.presets).map(([id, p]) => ({ id, label: p.label })), "default");
   const first = pickPreset(layout, lsGet("exgs.preset"), window.innerWidth);
   header.setPresets(Object.entries(layout.presets).map(([id, p]) => ({ id, label: p.label })), first);
+  statusBar = createStatusBar({ ...ctxBase(), view: () => view, status: () => status, store });
+  document.getElementById("statusbar").replaceWith(statusBar.el);
   mountPreset(first);
   api.start();
   setInterval(tick, TICK_MS);

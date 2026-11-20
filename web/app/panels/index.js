@@ -13,5 +13,7 @@ import "./transport.js";
 import "./console.js";
 import "./inspector.js";
 import "./view3d.js";
+import "./rawsensors.js";
 import "./radio.js";
 import "./requests.js";
+import "./telecommands.js";

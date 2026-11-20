@@ -63,17 +63,19 @@ Plain ES modules in `web/`, served by the core (`GET /`, `/static/...`). No buil
 | `position` | `Position`, `Attitude`, `Gps` | Position, velocity, accuracies (NWU), quaternion, roll/pitch/yaw (ZYX, display only), tilt from vertical, angular rate, GPS lat/lon in degrees. |
 | `guidance` | `MissionState`, `Position` | Target position and velocity, vector and distance to the target (display only). |
 | `actuators` | `VehicleState`, `FlapState`, `TvcState` | TVC thrust and torque, vanes, motors, enable flags, flap table (actual and commanded, deg). |
-| `sensors` | `VehicleState`, `Attitude`, `Position`, `Gps` | Per-sensor state, accuracies, ground distance. |
-| `link` | `LinkStats`, `RadioLinkStats`, `status` | One block per source (state, device, rates, error counters) plus the radio link block (RSSI, LQ, SNR, rates, antenna). |
+| `sensors` | `VehicleState`, `Attitude`, `Position`, `Gps` | Per-sensor state, accuracies, ground distance. (`Estimator.att_std` is about the WORLD axes [North, West, Up]; it is shown by the inspector.) |
+| `link` | `LinkStats`, `RadioLinkStats`, `status` | One block per source (state, device, rates, error counters), the Router's radio link block (RSSI, LQ, SNR, rates, antenna) and the transmit power block (see "Transmit power" below). |
 | `recording` | `status`, `logs.list` | Start (optional label), Stop, note entry, file, duration, size, free disk, recorder error, log list with Open (opens the log, switches to REPLAY). Recording is manual only. |
 | `transport` | `status` | Visible in the REPLAY view only: play/pause, scrubber (seeks throttled to 10/s while dragging), time `mm:ss / mm:ss`, speed 0.25 to 8, jump +-5 s, keyboard space and arrow keys. |
 | `view3d` | `Attitude`, `Position`, `MissionState`, `FlapState`, `VehicleState` | Ship, flaps, trail, setpoint, thrust arrow, ground grid, N/W/Up gizmo. See the 3D view section. |
 | `radio` | `RcState`, `rc` push | Virtual radio (T9), see "Virtual radio" below. Safety-relevant. |
+| `telecommands` | `telecommands` push, `status`, `VehicleStatus` | TEMPORARY legacy telecommands (arm, simulation toggle, mission, magnetometer calibration), 'Commands (temporary)', see [telecommands.md](telecommands.md). Safety-relevant. Live view only. Shipped collapsed, next to `requests`. |
+| `rawsensors` | `ImuRaw`, `Calibration` | Raw (uncalibrated) gyro, accel, mag, pressure, temperature next to the calibrated values computed from `CALIBRATION` (display only), magnitudes, sparklines, source flags and calibration age, see "Raw and calibrated sensor panel" below. Needs the vehicle USB debug set. |
 | `requests` | `requests` push, `status` | Whitelisted one-shot REQUESTs (calibration, save, reset, link upload), see "Requests panel" below. Safety-relevant. Live view only. Shipped collapsed in every preset. |
 | `console` | `ConsoleText` (mode `all`), `event` | Vehicle text and GS events, filter, pause, clear, 500 lines. |
 | `inspector` | `*` | All (type, source) pairs with age and a field table from the schema. |
 
-The header shows LIVE/REPLAY, per-source rate (`LinkStats.rx_frames_s`), radio link quality, REC state and duration, connection state and the preset selector.
+The mission status bar under the header is always visible (see "Mission status bar" below). The header shows LIVE/REPLAY, per-source rate (`LinkStats.rx_frames_s`), radio link quality, REC state and duration, connection state and the preset selector.
 
 ## 3D view
 
@@ -89,7 +91,7 @@ Panel `view3d` (first in the middle column of `default`, first in `phone`). It c
 
 **Data rules.** The ship needs both attitude and position, and is not drawn without them ("no attitude and position data"). If either is stale it is drawn semi-transparent with a "stale <age>" label, never extrapolated. With no `FlapState` in the view all flaps show `default_flap_angle_deg` (45 deg) and the overlay and the actuators panel say "flap data: none (default 45 deg)". Stale flap data keeps the last angles with a "flaps stale" label. The flaps jump to the reported angle, no smoothing. The trail is loaded with `get_history` on connect, on a view change and on every snapshot (so after a replay seek), then extended with live `Position` packets from the source that is currently preferred; a sample older than the last one resets it.
 
-**Model config** (`config/model.<name>.json`, set by `[gui] model`, served at `/config/model.json`, files in `models/` at `/models/`). The placeholder is a procedural ship with the real dimensions (body 13 cm diameter, 74 cm high, origin at the centre of mass 37 cm from the bottom, parabolic nose of 8 cm; top flaps 7 x 14 cm with the bottom edge 52 cm from the bottom, bottom flaps 8 x 21 cm starting 1 cm above the bottom, both with an 8 cm chamfer).
+**Model config** (`config/model.<name>.json`, set by `[gui] model`, served at `/config/model.json`, files in `models/` at `/models/`). The placeholder is a procedural ship with the real dimensions (body 13 cm diameter, 74 cm high, origin at the centre of mass 37 cm from the bottom, parabolic nose of 8 cm; top flaps 7 x 14 cm with the bottom edge 52 cm from the bottom, bottom flaps 8 x 21 cm starting 1 cm above the bottom, both with an 8 cm chamfer, on the top (nose side) of every flap).
 
 ```json
 { "name": "placeholder",
@@ -109,7 +111,7 @@ Panel `view3d` (first in the middle column of `default`, first in `phone`). It c
 - `source`: `{ "primitive": name, ...parameters }` (`starship-placeholder`, `flap`) or `{ "gltf": "models/ship.glb", "node": null }`. With `node` set, that node of the file is used (its own transform in the file is ignored) so the body and the flaps can be nodes of one file or separate files. Both go through the same loader and the same transforms.
 - `model_to_body` (body and, as an extension of the design, each flap): rotation as Euler XYZ in degrees, translation in metres, uniform scale, mapping the model's own frame into the body frame **at the modelled angle**. glTF is Y-up, so a glTF ship with its long axis along Y needs `[90, 0, 0]` (glTF Y goes to body Z, glTF Z to body -Y). The primitives are built directly in the body frame.
 - Flaps: `pivot_body_m` and `axis_body` (body frame, unit vector) define the hinge. The pivot group rotates by `sign * (angle - model_angle_deg)` about the axis, `angle` in the vehicle convention and `model_angle_deg` the angle at which the flap is modelled in its file. `index` selects the element of `FlapState.angle` (0 tl, 1 tr, 2 bl, 3 br).
-- Placeholder flap plate: hinge on the model's Z axis, the plate extends toward +X, `chamfer_m` is the length of a 45 deg cut at the outer corner `out_top` (toward the nose, top flaps) or `out_bottom` (toward the tail, bottom flaps). The architecture note gives only "8 cm chamfer"; the corner and the 45 deg cut are assumptions of the placeholder and change by config only. The pivot is at the flap's vertical centre on the body surface at +-Y (z = +0.22 m top, -0.255 m bottom; the bottom flaps span z = -0.36 to -0.15 m by the stated 21 cm height).
+- Placeholder flap plate: hinge on the model's Z axis, the plate extends toward +X, `chamfer_m` is the length of a 45 deg cut at the outer corner named by the orientation parameter `chamfer_corner`: `out_top` (toward the nose, +Z) or `out_bottom` (toward the tail). **All four flaps use `out_top`** (user decision 2026-11-20: the bottom flaps were drawn upside down with the chamfer at the bottom); a flap that is modelled the other way up is fixed by this one parameter in its config entry, never by rotating it. The architecture note gives only "8 cm chamfer"; the 45 deg cut is an assumption of the placeholder and, like the corner, changes by config only. The pivot is at the flap's vertical centre on the body surface at +-Y (z = +0.22 m top, -0.255 m bottom; the bottom flaps span z = -0.36 to -0.15 m by the stated 21 cm height).
 
 **Swapping in a real glTF model** (config change only, no code):
 
@@ -140,19 +142,59 @@ Panel `radio` (`web/app/radio/`; in every preset). **Safety-relevant**: it is th
 2. Add `import "./<name>.js";` to `web/app/panels/index.js`.
 3. Add `{ "panel": "<id>", "area": "<area>" }` to the presets in `config/layout.default.json` (or your own layout file).
 
+### Mission status bar
+
+`web/app/status/status_logic.js` (pure, `web/test/status_logic.test.js`) and `status_bar.js`; mounted in `#statusbar` under the sticky header, so it is visible in every preset and in both views (REPLAY shows the replayed status with a "REPLAY" prefix and an amber edge). **Only vehicle-reported values**, from the freshest `VehicleStatus` (the same packet the schema calls VEHICLE_STATUS): nothing is computed from what the ground station sent, nothing is assumed, and a flag the wire profile did not supply is shown as `n/s`, never as false.
+
+| Cell | Source field | Display |
+|---|---|---|
+| Sensors | `simulation` | large coloured badge: **SIMULATION** (purple) or **REAL SENSORS** (green); `SIM? (not supplied)` if the field is absent |
+| Mode | `mode` | name as reported, tone by mode |
+| Mission | `mission_mode` / `mission_phase` | names |
+| Armed | `armed` | `ARMED` (amber) or `disarmed` |
+| Motors | `motors_enabled` | large: **MOTORS ENABLED** (red, pulsing) or `motors off` |
+| Failsafe | `failsafe` | `FAILSAFE` (red) or `no failsafe` |
+| Failures | `failure_bits` | raw number and hex always, plus decoded names (bit 0 sensor, 1 attitude, 2 position, 3 position out of bounds, 4 attitude out of bounds, 5 radio connection loss, from the flight software's field mapping; unknown bits as `bit n`) |
+| Ground station | `gs_present` | `GS present` / `GS absent` |
+| Control source | `ctrl_source` | name as reported |
+| RC age | `rc_age` | seconds, or `none (NaN)` |
+| Last request | `last_req_id`, `last_req_status` | `id n: <status name>` (`none (id 0)`), red for a status other than DONE and IN_PROGRESS |
+| Sensor state (raw) | `sensor_state` | raw hex; the tooltip decodes the six 2-bit fields (Init, Calib, Ready, Failure) |
+
+Below the cells: one **link health** chip per source (connection state from `status`, packets per second from its `LinkStats`; a connected source that has been silent shows `silent <age>` in the stale colour). A red banner appears above the bar for a fresh `NetworkStatus.incompatible` (schema hash or network version mismatch, with the detail text) and disappears by itself when it clears or when that source goes quiet. **Stale data** (the `VehicleStatus` older than its stale limit) greys the whole line out and the label reads `STALE <age>`; with no `VehicleStatus` in the view it reads `no VehicleStatus received`.
+
+### Transmit power (link panel)
+
+Block in the `link` panel (`web/app/link/link_logic.js`, `web/test/link_logic.test.js`). Shows **Router power commanded** (`LinkConfig.tx_power_dbm`, the Router's `LINK_CONFIG` to the ship radio node), **Router power applied** and **Ship radio node power applied** (`TxModuleStats.tx_power` and `RxModuleStats.tx_power`, from each module's `LINK_STATS`). The block is outlined and a warning appears when **commanded and ship-applied power differ**, and a loud red warning when **any value is above 10 dBm** (the legal limit of 10 mW), naming which end. The ground station never sets the power. The Router drops `LINK_CONFIG` from USB, so on a normal bench the commanded value may never arrive: the block then says "LINK_CONFIG not received" and compares nothing.
+
+### Raw and calibrated sensor panel
+
+`web/app/panels/rawsensors.js`, `web/app/sensors/rawsensors_logic.js` (`web/test/rawsensors_logic.test.js`). Panel `rawsensors`, "Raw and calibrated sensors". Consumes `ImuRaw` and `Calibration` (the vehicle's `CALIBRATION` packet, port 0x93, USB only, every 2 s). Needs the vehicle's USB debug set: with no connected `vehicle_usb` source in the live view the panel says so.
+
+- **Raw (uncalibrated):** `ImuRaw` gyro (rad/s), accelerometer (m/s²), magnetometer (shown in µT, the packet is in T), pressure (Pa) and temperature (K), live, with the update age (stale values are struck through with their age, as everywhere), the magnitude of accel and mag, and a sparkline of the last 10 s (magnitude for vectors). The column header says **raw (uncalibrated)**.
+- **Calibrated (computed here with the ship's formulas):** the formulas of flight-software `docs/project/hardware-and-drivers.md` section 8a, computed in the browser from the latest `ImuRaw` and `Calibration`, SI units: `gyro_cal = gyro_matrix * (gyro - gyro_offset)`, `accel_cal = accel_matrix * (accel - accel_offset)`, `mag_cal = mag_matrix * (mag - mag_offset)`, `omega_est = gyro_cal - gyro_bias_est`; matrices are row-major, `M[r][c] = matrix[3r + c]`. Calibrated values and magnitudes (|accel cal| should be about 9.81 m/s² when the vehicle is still) are shown next to the raw ones; the magnetometer in µT (the vehicle normalises |mag cal| to about 5 µT, which is not the physical field strength). A component that is NaN on the wire gives "n/a", never a guessed number; a `raw_frame` other than 0 (SENSOR) is not computed. **Display only:** nothing computed here is sent, stored, used for a decision or fed back anywhere.
+- **Calibration state:** a line shows the age of the `CALIBRATION` packet (marked STALE when it is older than its limit, and the calibrated column is then dimmed) and the source flags per sensor, decoded: calib EEPROM, transform EEPROM, offset override (hard-coded), RAM only (not saved), memory cleared (defaults), or identity defaults when no bit is set. Until a `CALIBRATION` packet has been received the calibrated column shows `waiting for CALIBRATION packet` (and the state line `none received`).
+- **Tests:** the formula is checked against the `imu_raw` and `calibration` cases of the Packets test vectors (`web/test/data/calibration_vectors.json` is a copy, a Python test fails when it drifts from `lib/ExVectrPackets/test/vectors/packets.json`).
+
+`Estimator.att_std` changed meaning on the vehicle (packet version 2 here): it is the 1 sigma of small rotations about the **WORLD axes [North, West, Up]**, no longer a per-quaternion-axis value. The packet labels are `north, west, up` and the inspector shows them that way.
+
+### Commands (temporary) panel
+
+TEMPORARY, safety-relevant: see [telecommands.md](telecommands.md) (hold 1 s, one frame, no ACK, the simulation state shown is only what the vehicle reports). Logic `web/app/telecommand/telecommand_logic.js`, panel `telecommand_panel.js`.
+
 ### Requests panel
 
 Panel `requests` (`web/app/requests/requests_logic.js`, `requests_panel.js`; `views = ["live"]`, so it is hidden in the replay view). **Safety-relevant**: with the radio widget it is the only GUI path that makes the core send anything ([requests.md](requests.md)). Rules, enforced in the logic module and covered by `web/test/requests_logic.test.js` and `tests/integration/test_requests_widget.py`:
 
 - **From the core's whitelist.** Rows come from `request.list` (group, label, target, confirm level, `route`); the GUI knows nothing about what an action means and has no other way to name an action.
 - **Hold to send.** Each row's button needs a continuous hold of **1 s** (progress bar, same pattern as the radio padlock); a click, a short hold, a blur or a pointer leaving sends nothing. The panel never sends by itself.
-- **`danger` actions** (`LINK_UPLOAD_MODE`) additionally open a modal after the hold: "This stops the radio link of the TX/RX module and puts it into firmware-upload mode. The module always obeys, even in flight." Its send button is **disabled for 2 s** (countdown in the label); Cancel and Escape close it without sending; only the button sends `request.send` with `understand_link_stops: true`.
+- **`danger` actions** (`LINK_UPLOAD_MODE`, `LINK_REBOOT`) additionally open a modal after the hold, showing the row's own `warning` (for `LINK_REBOOT` on the ship radio node: a reboot in flight interrupts RC for seconds), else "This acts on a link module (the Router or the ship radio node): its radio link stops or restarts. The module always obeys, even in flight." Its send button is **disabled for 2 s** (countdown in the label); Cancel and Escape close it without sending; only the button sends `request.send` with `understand_link_stops: true`.
 - **State from the core only:** each row shows the latest `requests` push for its (action, target): `sending, attempt n/5 via <source>`, `ACK <status as reported> (detail d)`, or `TIMEOUT`. `DONE` and `IN_PROGRESS` are green, any other status (and an unknown one) red, never an assumed success. The button is disabled while that request is in flight.
 - **Disabled** in the replay view, without a connection, on a view-only host (`welcome.can_control` false), while in flight, and when no source can reach the target (`status.request_routes`); the core still refuses everything itself and its error text is shown under the list.
 
 `ctx`: `store`, `schema`, `api` (`api.request(op, payload)` returns a promise of `data` or rejects with `{code, message}`), `fmt`, `h`, `Bindings`, `view()` (`"live"` or `"replay"`), `status()` (last `status` message), `rc()` (last `rc` push, `null` while disconnected), `now()` (view time), `switchView(v)` (asynchronous: view guards run first), `addViewGuard(async (nextView) => bool)` (returns a remover; a guard can veto a view switch, the radio uses it for the release prompt), `setTitle(text)`.
 
-The object returned by `create` may have: `onPacket(pkt)` (per received packet of a consumed type in the current view; also called for the items of a snapshot), `onReset(view)` (snapshot replaced the store), `onTick(now)` (10 Hz), `onViewChange(view)`, `onStatus(status)`, `onEvent(evt)`, `onRc(rc)` (every `rc` push, `null` on disconnect), `onRequests(msg)` (every `requests` push), `onReady()` (after every connect), `freshness()` returning `{state, age}` for the header badge, `destroy()`.
+The object returned by `create` may have: `onPacket(pkt)` (per received packet of a consumed type in the current view; also called for the items of a snapshot), `onReset(view)` (snapshot replaced the store), `onTick(now)` (10 Hz), `onViewChange(view)`, `onStatus(status)`, `onEvent(evt)`, `onRc(rc)` (every `rc` push, `null` on disconnect), `onRequests(msg)` (every `requests` push), `onTelecommands(msg)` (every `telecommands` push, TEMPORARY), `onReady()` (after every connect), `freshness()` returning `{state, age}` for the header badge, `destroy()`.
 
 Most panels only need `Bindings`:
 

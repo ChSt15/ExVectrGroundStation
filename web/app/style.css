@@ -14,7 +14,8 @@ button { cursor: pointer; } button:disabled { opacity: .45; cursor: default; }
 button.danger { border-color: var(--bad); color: var(--bad); }
 .grow { flex: 1 1 8em; min-width: 0; }
 
-header.top { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+#topstack { position: sticky; top: 0; z-index: 5; }
+header.top { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 6px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .brand { font-size: 14px; }
 .toggle { display: inline-flex; } .toggle button { border-radius: 0; } .toggle button:first-child { border-radius: 4px 0 0 4px; } .toggle button:last-child { border-radius: 0 4px 4px 0; }
 .toggle button[aria-pressed="true"] { background: var(--info); color: #fff; border-color: var(--info); }
@@ -155,3 +156,48 @@ tr.incomplete td { color: var(--dim); }
 .rq-err { color: var(--bad, #cf222e); font-size: 12px; }
 .rq-danger-text { font-weight: 600; }
 .rc-ok:disabled { opacity: .45; cursor: not-allowed; }
+
+/* Mission status bar (docs/gui.md): vehicle-reported values only, always visible under the header */
+.statusbar { background: var(--panel); border-bottom: 2px solid var(--line); padding: 4px 12px; }
+.statusbar[data-state="stale"] .sb-cells, .statusbar[data-state="missing"] .sb-cells { opacity: .45; filter: grayscale(1); }
+.statusbar[data-state="stale"] .sb-state { color: var(--stale); font-weight: 700; }
+.statusbar[data-view="replay"] { box-shadow: inset 0 -3px 0 var(--warn); }
+.sb-banner { background: var(--bad); color: #fff; font-weight: 700; padding: 3px 8px; border-radius: 4px; margin-bottom: 4px; }
+.sb-banner[hidden] { display: none; }
+.sb-row { display: flex; gap: 8px 14px; align-items: center; flex-wrap: wrap; }
+.sb-state { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .05em; min-width: 8em; }
+.sb-cells { display: flex; gap: 6px 14px; flex-wrap: wrap; align-items: baseline; }
+.sb-cell { display: inline-flex; flex-direction: column; line-height: 1.15; }
+.sb-cell[hidden] { display: none; }
+.sb-l { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: .04em; }
+.sb-v { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.sb-cell[data-loud="true"] .sb-v { font-size: 22px; font-weight: 800; padding: 0 10px; border-radius: 5px; background: var(--line); }
+.sb-cell[data-tone="sim"] .sb-v { background: #b042ff; color: #fff; }
+.sb-cell[data-tone="real"] .sb-v { background: #0b6e4f; color: #fff; }
+.sb-cell[data-tone="motors"] .sb-v { background: var(--bad); color: #fff; animation: sb-pulse 1s infinite; }
+.sb-cell[data-tone="ok"] .sb-v { color: var(--ok); } .sb-cell[data-tone="warn"] .sb-v { color: var(--warn); }
+.sb-cell[data-tone="bad"] .sb-v { color: var(--bad); } .sb-cell[data-tone="info"] .sb-v { color: var(--info); }
+@keyframes sb-pulse { 50% { opacity: .7; } }
+.sb-links { display: flex; gap: 4px 14px; flex-wrap: wrap; font-size: 12px; margin-top: 2px; }
+.sb-link[data-tone="ok"] { color: var(--ok); } .sb-link[data-tone="warn"] { color: var(--warn); } .sb-link[data-tone="bad"] { color: var(--bad); }
+.sb-link[data-stale="true"] { color: var(--stale); }
+@media (max-width: 600px) { .statusbar { padding: 4px 6px; } .sb-v { font-size: 13px; } .sb-cell[data-loud="true"] .sb-v { font-size: 18px; } }
+
+/* Commands (temporary) panel (docs/telecommands.md) */
+.tc-warn { background: var(--warn); color: #fff; font-weight: 600; font-size: 12px; padding: 4px 8px; border-radius: 4px; margin-bottom: 6px; }
+.tc-sim { font-weight: 700; margin-bottom: 4px; }
+.tc-sim[data-tone="sim"] { color: #b042ff; } .tc-sim[data-tone="real"] { color: #0b6e4f; } .tc-sim[data-tone="dim"] { color: var(--dim); }
+.tc-row { grid-template-columns: minmax(10em, 16em) 6em 1fr auto auto; }
+.tc-param { width: 6em; }
+
+/* Link panel: transmit power block */
+.pw-warn { margin-top: 3px; padding: 3px 8px; border-radius: 4px; font-weight: 700; font-size: 12px; }
+.pw-warn[data-tone="bad"] { background: var(--bad); color: #fff; } .pw-warn[data-tone="warn"] { background: var(--warn); color: #fff; }
+.sect[data-alarm="bad"] { outline: 2px solid var(--bad); } .sect[data-alarm="warn"] { outline: 2px solid var(--warn); }
+
+/* Raw sensor panel */
+table.raw th { white-space: nowrap; } .spark { color: var(--info); vertical-align: middle; } .spark[data-state="stale"] { opacity: .4; }
+.raw-cal { font-style: italic; font-size: 11px; max-width: 14em; }
+.dim { color: var(--dim); }
+.raw-cal-info { font-size: 12px; margin: 3px 0; } .raw-cal-info[data-state="stale"] { color: var(--stale); font-weight: 600; } .raw-cal-info[data-state="missing"] { color: var(--dim); }
+td.raw-cal[data-state="stale"] { opacity: .5; } td.raw-cal { font-variant-numeric: tabular-nums; font-style: normal; } td.raw-cal.dim { font-style: italic; }

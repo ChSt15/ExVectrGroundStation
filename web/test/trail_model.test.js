@@ -73,3 +73,14 @@ test("flap outline: chamfered plate has the right extent and area", () => {
   assert.ok(bot.some((p) => p[0] === 0.08 && p[1] > -0.105 && p[1] < -0.04));
   assert.equal(flapOutline({ width_m: 1, height_m: 1 }).length, 4);
 });
+
+test("out_top puts the chamfer at the top (nose side, +z) of the outer edge, out_bottom at the bottom", () => {
+  const maxZAtOuter = (pts, w) => Math.max(...pts.filter(([x]) => x === w).map(([, z]) => z));
+  const minZAtOuter = (pts, w) => Math.min(...pts.filter(([x]) => x === w).map(([, z]) => z));
+  const top = flapOutline({ width_m: 0.08, height_m: 0.21, chamfer_m: 0.08, chamfer_corner: "out_top" });
+  assert.ok(maxZAtOuter(top, 0.08) < 0.105 - 0.04); // the top of the outer edge is cut away
+  assert.equal(minZAtOuter(top, 0.08), -0.105); // the bottom corner is square
+  const bot = flapOutline({ width_m: 0.08, height_m: 0.21, chamfer_m: 0.08, chamfer_corner: "out_bottom" });
+  assert.equal(maxZAtOuter(bot, 0.08), 0.105);
+  assert.ok(minZAtOuter(bot, 0.08) > -0.105 + 0.04);
+});

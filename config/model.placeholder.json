@@ -105,7 +105,7 @@
         "height_m": 0.21,
         "thickness_m": 0.004,
         "chamfer_m": 0.08,
-        "chamfer_corner": "out_bottom"
+        "chamfer_corner": "out_top"
       },
       "model_to_body": {
         "rotation_deg_xyz": [
@@ -141,7 +141,7 @@
         "height_m": 0.21,
         "thickness_m": 0.004,
         "chamfer_m": 0.08,
-        "chamfer_corner": "out_bottom"
+        "chamfer_corner": "out_top"
       },
       "model_to_body": {
         "rotation_deg_xyz": [
