@@ -55,6 +55,13 @@ class ApiServer:
     """aiohttp application: GET / (GUI), /static/..., /config/{radio|layout|model}.json, /models/...,
     /ws (protocol section 4)."""
 
+    @staticmethod
+    async def _no_cache(request: web.Request, response: web.StreamResponse) -> None:
+        """The GUI files change with every ground-station version: make browsers revalidate (ETag) on every load,
+        otherwise a heuristically cached old module can mix with new ones and leave the page stuck on 'loading'."""
+        if not request.path.startswith(("/ws",)):
+            response.headers["Cache-Control"] = "no-cache"
+
     def __init__(self, app_ctx: Any, bind: str, port: int):
         self.ctx = app_ctx
         self.bind = bind
@@ -63,6 +70,7 @@ class ApiServer:
         self.web_dir = REPO_ROOT / "web"
         self.models_dir = REPO_ROOT / "models"
         self.app = web.Application()
+        self.app.on_response_prepare.append(self._no_cache)
         self.app.router.add_get("/", self._index)
         self.app.router.add_get("/ws", self._ws)
         self.app.router.add_get("/config/{name}.json", self._config_http)

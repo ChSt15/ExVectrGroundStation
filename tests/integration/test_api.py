@@ -421,6 +421,16 @@ async def test_config_get_and_http():
         await c.close()
 
 
+async def test_gui_files_are_served_with_no_cache():
+    """Browsers revalidate the GUI files on every load (a stale cached module mixed with new ones breaks the page)."""
+    async with running() as rig:
+        async with aiohttp.ClientSession() as s:
+            for path in ("/", "/static/app/main.js", "/static/app/style.css", "/config/layout.json"):
+                async with s.get(f"{rig.url()}{path}") as r:
+                    assert r.status == 200, path
+                    assert r.headers.get("Cache-Control") == "no-cache", path
+
+
 async def test_cross_origin_websocket_is_refused():
     """A web page on another origin must not reach the core (it would count as a control host)."""
     async with running() as rig:
