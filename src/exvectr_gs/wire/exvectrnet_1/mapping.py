@@ -179,6 +179,10 @@ def _link_stats(p: xp.LinkStats, t: int, src: str, meta: dict) -> list[Packet] |
     ]
 
 
+def _link_config(p: xp.LinkConfig, t: int, src: str, meta: dict) -> list[Packet]:
+    return [L.LinkConfig(t=t, src=src, tx_power_dbm=p.tx_power_dbm, flags=p.flags, from_node=meta.get("src"))]
+
+
 def _log_text(p: xp.LogText, t: int, src: str, meta: dict) -> list[Packet]:
     sev = p.severity.name if isinstance(p.severity, xp.Severity) else f"sev{p.severity}"
     return [ConsoleText(t=t, src=src, text=f"[node {meta['src']} {sev}] {p.text}")]
@@ -230,6 +234,26 @@ def _request(p: xp.Request, t: int, src: str, meta: dict) -> list[Packet] | str:
     return "REQUEST is an uplink packet, not expected from a peer"
 
 
+def _calibration(p: xp.Calibration, t: int, src: str, meta: dict) -> list[Packet]:
+    return [
+        V.Calibration(
+            t=t,
+            src=src,
+            raw_frame=int(p.raw_frame),
+            gyro_source=p.gyro_source,
+            accel_source=p.accel_source,
+            mag_source=p.mag_source,
+            gyro_offset=_fl(p.gyro_offset),
+            gyro_matrix=_fl(p.gyro_matrix),
+            accel_offset=_fl(p.accel_offset),
+            accel_matrix=_fl(p.accel_matrix),
+            mag_offset=_fl(p.mag_offset),
+            mag_matrix=_fl(p.mag_matrix),
+            gyro_bias_est=_fl(p.gyro_bias_est),
+        )
+    ]
+
+
 #: wire packet class -> mapper. A mapper returns the GS packets, or a string: why it is a RawFrame.
 MAPPERS: dict[type, Callable[..., list[Packet] | str]] = {
     xp.VehicleStatus: _vehicle_status,
@@ -240,11 +264,13 @@ MAPPERS: dict[type, Callable[..., list[Packet] | str]] = {
     xp.Gnss: _gnss,
     xp.HandsetTelem: _handset_telem,
     xp.LinkStats: _link_stats,
+    xp.LinkConfig: _link_config,
     xp.LogText: _log_text,
     xp.RcState: _rc_state,
     xp.RequestAck: _request_ack,
     xp.Request: _request,
     xp.ImuRaw: _imu_raw,
+    xp.Calibration: _calibration,
     xp.Estimator: _estimator,
     xp.TaskTiming: _task_timing,
 }
@@ -263,10 +289,12 @@ PRODUCED_TYPES = {
     "TxModuleStats",
     "RxModuleStats",
     "RadioLinkStats",
+    "LinkConfig",
     "ConsoleText",
     "RcState",
     "RequestAck",
     "ImuRaw",
+    "Calibration",
     "Estimator",
     "TaskTiming",
     "NetworkStatus",

@@ -19,7 +19,7 @@ class RcOrigin(IntEnum):
     direction=Direction.UP,
     nominal_rate_hz=25,
     history=False,
-    desc="RC channel state. Sent by the GS (origin gs) or mirrored from the handset via the TX module. "
+    desc="RC channel state. Sent by the GS (origin gs) or mirrored from the handset via the Router. "
     "ch_us 0 = channel not provided (exvectrnet-1).",
 )
 class RcState(Packet):
@@ -47,6 +47,7 @@ class RequestAction(IntEnum):
     SAVE_CONFIG = 8
     SYSTEM_RESET = 9
     LINK_UPLOAD_MODE = 10
+    LINK_REBOOT = 11
 
 
 class RequestStatus(IntEnum):
@@ -65,7 +66,7 @@ class RequestStatus(IntEnum):
     direction=Direction.UP,
     history=False,
     desc="One-shot REQUEST (whitelisted action with an idempotent req_id, sent and retried by the request "
-    "controller, never by hand). target = destination node id (1 vehicle, 2 TX module, 3 RX module).",
+    "controller, never by hand). target = destination node id (1 vehicle, 2 Router, 3 ship radio node).",
 )
 class Request(Packet):
     req_id: int = f(desc="non-zero, new per action, reused on every retry")
@@ -76,12 +77,59 @@ class Request(Packet):
 
 
 @packet(
+    "LinkConfig",
+    version=1,
+    direction=Direction.DOWN,
+    nominal_rate_hz=2,
+    history=False,
+    desc="LINK_CONFIG (port 0x04) as seen on a link: the Router's commanded configuration for the ship radio "
+    "node. The Router drops it from USB, so the ground station normally receives it only if a source sees the "
+    "air side (display only, never sent by the ground station).",
+)
+class LinkConfig(Packet):
+    tx_power_dbm: int = f(unit="dBm", desc="requested RF output power of the ship radio node")
+    flags: int = f(desc="reserved, 0")
+    from_node: int | None = f(desc="ExVectrNetwork node that sent it (2 = Router)")
+
+
+class TelecommandType(IntEnum):
+    """The legacy `TelecommandType` of the flight software (src/telecommand.hpp). TEMPORARY, see
+    docs/telecommands.md."""
+
+    CalibStart = 0
+    CalibApply = 1
+    Load = 2
+    Save = 3
+    SystemReset = 4
+    Arm = 5
+    SimulationMode = 6
+    MissionBegin = 7
+    MissionSelect = 8
+    MissionAbort = 9
+
+
+@packet(
+    "Telecommand",
+    version=1,
+    direction=Direction.UP,
+    history=False,
+    desc="TEMPORARY legacy 8-byte telecommand (port 0x7F), sent once per deliberate confirmation by the "
+    "telecommand controller, never by hand and never repeated. Delete with the flight software's T9b.",
+)
+class Telecommand(Packet):
+    tc_type: TelecommandType = f(desc="legacy command code")
+    subsystem: int = f(desc="legacy Subsystem (0 gyro, 1 accel, 2 magneto, ...)")
+    param_int: int = f(desc="int16 parameter (magic value or mission time)")
+    param_float: float = f(desc="unused by every vehicle handler")
+
+
+@packet(
     "RadioLinkStats",
     version=1,
     direction=Direction.DOWN,
     nominal_rate_hz=2,
     history=False,
-    desc="Planned type. Link quality as reported by the TX module.",
+    desc="Planned type. Link quality as reported by the Router.",
 )
 class RadioLinkStats(Packet):
     rssi_dbm: list[float] = f(unit="dBm", length=2)
@@ -117,7 +165,7 @@ class _ModuleStats(Packet):
     direction=Direction.DOWN,
     nominal_rate_hz=2,
     history=False,
-    desc="LINK_STATS from the TX module (node 2). Also fills RadioLinkStats.",
+    desc="LINK_STATS from the Router (node 2, the Pocket module; type name kept). Also fills RadioLinkStats.",
 )
 class TxModuleStats(_ModuleStats):
     pass
@@ -129,7 +177,7 @@ class TxModuleStats(_ModuleStats):
     direction=Direction.DOWN,
     nominal_rate_hz=2,
     history=False,
-    desc="LINK_STATS from the vehicle RX module (node 3), forwarded by the TX module.",
+    desc="LINK_STATS from the ship radio node (node 3, type name kept), forwarded by the Router.",
 )
 class RxModuleStats(_ModuleStats):
     pass

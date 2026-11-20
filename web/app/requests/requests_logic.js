@@ -12,7 +12,10 @@ export { HoldTimer };
 export const REQUEST_HOLD_MS = 1000; // hold the button this long to send
 export const DANGER_ENABLE_MS = 2000; // the modal's confirm button is disabled for this long
 export const DANGER_TEXT =
-  "This stops the radio link of the TX/RX module and puts it into firmware-upload mode. The module always obeys, even in flight.";
+  "This acts on a link module (the Router or the ship radio node): its radio link stops or restarts. The module always obeys, even in flight.";
+
+/** Warning text of a `danger` whitelist row: its own `warning` from the config, else the generic text. */
+export const dangerText = (a) => (a && a.warning) || DANGER_TEXT;
 
 export const actionKey = (a) => `${a.action}@${a.target}`;
 

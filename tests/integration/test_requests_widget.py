@@ -113,7 +113,7 @@ async def test_danger_action_needs_hold_then_modal_with_a_confirm_disabled_for_t
         await until(lambda: b.eval("!!document.querySelector('[data-testid=danger-modal]')"), timeout=3, what="modal")
         await let_go(b, sel)
         assert await text(b, ".rq-danger-text") == (
-            "This stops the radio link of the TX/RX module and puts it into firmware-upload mode. "
+            "This acts on a link module (the Router or the ship radio node): its radio link stops or restarts. "
             "The module always obeys, even in flight."
         )
         assert len(fake.received_requests) == 0  # the hold alone sent nothing

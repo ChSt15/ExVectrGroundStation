@@ -334,7 +334,7 @@ def test_status_and_whitelist_json():
         ("LINK_UPLOAD_MODE", 2, "danger"),
         ("LINK_UPLOAD_MODE", 3, "danger"),
     ]
-    assert wl[0]["route"] == "usb" and wl[2]["route"] == "link" and wl[2]["target_name"] == "TX module"
+    assert wl[0]["route"] == "usb" and wl[2]["route"] == "link" and wl[2]["target_name"] == "Router"
 
 
 # ------------------------------------------------------------------ config and enum mirrors

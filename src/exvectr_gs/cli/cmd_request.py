@@ -4,7 +4,7 @@ SAFETY-RELEVANT but thin: the core enforces everything (whitelist, control hosts
 The CLI adds the same guard on its side so that a typo can never send anything:
 
 - `send ACTION` needs `--confirm ACTION` (the action name repeated). There is no default confirmation.
-- An action with confirm level `danger` (LINK_UPLOAD_MODE) additionally needs `--i-understand-the-link-stops`.
+- An action with confirm level `danger` (LINK_UPLOAD_MODE, LINK_REBOOT) also needs `--i-understand-the-link-stops`.
 
 `send` waits for the vehicle's REQUEST_ACK (or the retry timeout, about 5 s) and prints the status exactly as
 reported. Exit codes: 0 DONE or IN_PROGRESS, 1 any other status or an error, 2 timeout (no ACK), 3 control denied.
@@ -61,10 +61,11 @@ async def _send(c: CoreClient, args: argparse.Namespace) -> int:
         raise CliError(
             f"{action} is not in the request whitelist (see `exgs request list`)", error_code="not_whitelisted"
         )
+    warning = next((e["warning"] for e in entries if e.get("warning")), "")
     if any(e["confirm"] == "danger" for e in entries) and not args.i_understand_the_link_stops:
         raise CliError(
-            f"{action} stops the radio link of the TX/RX module and puts it into firmware-upload mode; it always "
-            f"obeys, even in flight. Add {DANGER_FLAG} to send it",
+            f"{warning or action + ' stops the radio link of a link module'}"
+            f" (a link module always obeys, even in flight). Add {DANGER_FLAG} to send it",
             error_code="confirm_required",
         )
     r = await c.request(
@@ -92,18 +93,20 @@ async def _send(c: CoreClient, args: argparse.Namespace) -> int:
 
 
 def register(sub: argparse._SubParsersAction) -> None:
-    sp = sub.add_parser("request", help="whitelisted one-shot REQUESTs (calibration, save, link upload ...)")
+    sp = sub.add_parser(
+        "request", help="whitelisted one-shot REQUESTs (calibration, save, link upload, link reboot ...)"
+    )
     ss = sp.add_subparsers(dest="request_cmd", required=True)
     add_client_command(ss, "list", "the request whitelist", _list)
     add_client_command(ss, "status", "requests in flight and recently finished (from ACKs)", _status)
     p = add_client_command(ss, "send", "send one whitelisted REQUEST (needs --confirm ACTION)", _send)
     p.add_argument("action", help="action name from the whitelist, for example CALIB_APPLY")
-    p.add_argument("--target", type=int, help="node id (1 vehicle, 2 TX module, 3 RX module); needed when ambiguous")
+    p.add_argument("--target", type=int, help="node id (1 vehicle, 2 Router, 3 ship radio node); needed when ambiguous")
     p.add_argument("--confirm", help="the action name repeated: there is no default confirmation")
     p.add_argument(
         DANGER_FLAG,
         action="store_true",
         dest="i_understand_the_link_stops",
-        help="also required for LINK_UPLOAD_MODE: the module stops its radio link and enters firmware upload",
+        help="also required for `danger` actions (LINK_UPLOAD_MODE, LINK_REBOOT): the module stops its link or reboots",
     )
     p.add_argument("--no-wait", action="store_true", help="return after the first attempt without waiting for the ACK")

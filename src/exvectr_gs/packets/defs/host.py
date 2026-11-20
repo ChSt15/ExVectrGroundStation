@@ -21,6 +21,7 @@ class GsEventKind(IntEnum):
     request_retry = 10
     request_ack = 11
     request_timeout = 12
+    telecommand_sent = 13
 
 
 @packet(

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  DANGER_ENABLE_MS, DANGER_TEXT, DangerGate, HoldTimer, REQUEST_HOLD_MS, actionKey, describeRequest, groupActions, requestFor,
+  DANGER_ENABLE_MS, DANGER_TEXT, DangerGate, dangerText, HoldTimer, REQUEST_HOLD_MS, actionKey, describeRequest, groupActions, requestFor,
   sendState,
 } from "../app/requests/requests_logic.js";
 
@@ -38,8 +38,8 @@ const WL = [
 test("constants: hold 1 s, danger button disabled for 2 s, the plain warning text", () => {
   assert.equal(REQUEST_HOLD_MS, 1000);
   assert.equal(DANGER_ENABLE_MS, 2000);
-  assert.match(DANGER_TEXT, /stops the radio link of the TX\/RX module/);
-  assert.match(DANGER_TEXT, /firmware-upload mode/);
+  assert.match(DANGER_TEXT, /link module \(the Router or the ship radio node\)/);
+  assert.match(DANGER_TEXT, /stops or restarts/);
   assert.match(DANGER_TEXT, /always obeys, even in flight\.$/);
 });
 
@@ -128,4 +128,11 @@ test("DangerGate: the confirm button becomes ready 2 s after the modal opened, c
   assert.equal(gate.ready(), false);
   gate.open();
   assert.equal(gate.ready(), false); // reopening starts the 2 s again
+});
+
+test("a danger row shows its own warning, else the generic text (LINK_REBOOT carries the RC interruption warning)", () => {
+  assert.equal(dangerText({ action: "LINK_UPLOAD_MODE" }), DANGER_TEXT);
+  const w = "Reboots the ship radio node: RC to the vehicle is interrupted for seconds, in flight too.";
+  assert.equal(dangerText({ action: "LINK_REBOOT", target: 3, warning: w }), w);
+  assert.equal(dangerText(null), DANGER_TEXT);
 });

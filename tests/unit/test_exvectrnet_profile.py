@@ -59,10 +59,12 @@ EXPECTED = {
     "GNSS": {"Gps"},
     "HANDSET_TELEM": {"HandsetTelem"},
     "LINK_STATS": {"TxModuleStats", "RadioLinkStats"},
+    "LINK_CONFIG": {"LinkConfig"},
     "LOG_TEXT": {"ConsoleText"},
     "RC_STATE": {"RcState"},
     "REQUEST_ACK": {"RequestAck"},
     "IMU_RAW": {"ImuRaw"},
+    "CALIBRATION": {"Calibration"},
     "ESTIMATOR": {"Estimator"},
     "TASK_TIMING": {"TaskTiming"},
 }

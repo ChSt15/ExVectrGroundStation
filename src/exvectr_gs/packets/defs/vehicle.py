@@ -266,14 +266,17 @@ class ImuRaw(Packet):
 
 @packet(
     "Estimator",
-    version=1,
+    version=2,
     direction=Direction.DOWN,
     nominal_rate_hz=20,
     history=False,
-    desc="Debug set (USB only): estimator accuracy as standard deviations.",
+    desc="Debug set (USB only): estimator accuracy as standard deviations. Version 2: att_std is the 1 sigma of "
+    "small rotations about the WORLD axes [North, West, Up] (it was a per-quaternion-axis value before).",
 )
 class Estimator(Packet):
-    att_std: list[float] = f(unit="rad", labels=("x", "y", "z"))
+    att_std: list[float] = f(
+        unit="rad", labels=("north", "west", "up"), desc="1 sigma of rotation about the WORLD axes [North, West, Up]"
+    )
     vel_std: list[float] = f(unit="m/s", labels=("x", "y", "z"))
     pos_std: list[float] = f(unit="m", labels=("x", "y", "z"))
 
@@ -290,3 +293,29 @@ class TaskTiming(Packet):
     count: int = f(desc="number of valid entries, at most 8")
     avg: list[float] = f(unit="s", length=8)
     max: list[float] = f(unit="s", length=8)
+
+
+@packet(
+    "Calibration",
+    version=1,
+    direction=Direction.DOWN,
+    nominal_rate_hz=0.5,
+    history=False,
+    desc="CALIBRATION (USB only, every 2 s): the sensor calibration the vehicle applies. For each sensor "
+    "cal = M * (raw - offset), M row-major (M[r][c] = matrix[3r + c]), raw = ImuRaw in raw_frame; SI. The ground "
+    "station only displays the result.",
+)
+class Calibration(Packet):
+    raw_frame: int = f(desc="frame of the ImuRaw values the parameters apply to (0 = SENSOR, driver output)")
+    gyro_source: int = f(
+        desc="bits: 0 calib EEPROM, 1 transform EEPROM, 2 offset override, 3 RAM only, 4 memory cleared"
+    )
+    accel_source: int = f(desc="as gyro_source")
+    mag_source: int = f(desc="as gyro_source")
+    gyro_offset: list[float] = f(unit="rad/s", length=3, labels=("x", "y", "z"))
+    gyro_matrix: list[float] = f(length=9, desc="row-major 3x3, scale and misalignment times sensor to body")
+    accel_offset: list[float] = f(unit="m/s^2", length=3, labels=("x", "y", "z"))
+    accel_matrix: list[float] = f(length=9, desc="row-major 3x3")
+    mag_offset: list[float] = f(unit="T", length=3, labels=("x", "y", "z"))
+    mag_matrix: list[float] = f(length=9, desc="row-major 3x3, dimensionless")
+    gyro_bias_est: list[float] = f(unit="rad/s", length=3, labels=("x", "y", "z"), desc="EKF gyro bias, body frame")

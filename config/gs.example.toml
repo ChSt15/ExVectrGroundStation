@@ -6,7 +6,7 @@
 # "provisional-1": the old temporary profile, only for the legacy firmware. Fake sources need neither.
 wire_profile = "exvectrnet-1"
 # Preferred source per value when several are fresh: the vehicle's own USB (full rate, debug set) first,
-# then the TX module (radio set plus the Pocket's RC state and link statistics).
+# then the Router (radio set plus the Pocket's RC state and link statistics).
 source_priority = ["usb", "link", "fake"]
 stale_min_s = 0.5
 
@@ -25,7 +25,7 @@ fsync_interval_ms = 1000
 # the Pocket's positions) and sends nothing until the user switches it to MASTER (GUI "Switch to master",
 # `exgs rc acquire`). In master the RC state goes to EVERY connected source with rc_role = "control".
 # rc_role = "mirror" makes a source receive-only (never sent to), "none" the same for sources that carry no RC.
-# The rejection of ground-station RC_STATE is done by the receiving side (TX module, later the vehicle), never here.
+# The rejection of ground-station RC_STATE is done by the receiving side (Router, later the vehicle), never here.
 
 # Peer 1: the vehicle on USB (ExVectrNetwork node 1, direct). Telemetry at the USB rates including the debug
 # set (ports 0x90 and up). In master it receives the GS RC_STATE; the vehicle accepts it as the bench control
@@ -37,10 +37,10 @@ match = { vid = "16c0", pid = "0483" }         # Teensy USB serial; or device = 
 rc_role = "control"
 enabled = false                                # set true when the Teensy is on USB (or use tools/fake_vehicle_pty.py)
 
-# Peer 2: the ExVectrLink TX module on USB (node 2). It also forwards the vehicle's radio set (node 1), the
-# vehicle RX module (node 3) and the Pocket's RC_STATE (handset origin), plus its own LINK_STATS. In master the
-# GS sends RC_STATE to it too; the TX module always rejects it (it drops RC_STATE arriving from USB towards the
-# air). Set rc_role = "mirror" for a receive-only link module (nothing is ever sent to it).
+# Peer 2: the Router (the ExVectrLink Pocket module) on USB (node 2). It also forwards the vehicle's radio set (node 1), the
+# ship radio node (node 3) and the Pocket's RC_STATE (handset origin), plus its own LINK_STATS. In master the
+# GS sends RC_STATE to it too; the Router always rejects it (it drops RC_STATE arriving from USB towards the
+# air). Set rc_role = "mirror" for a receive-only Router (nothing is ever sent to it).
 [[source]]
 id = "link"
 kind = "link_module"
@@ -57,6 +57,7 @@ seed = 1
 speed = 1.0                                    # simulated seconds per wall second
 rc_role = "none"                              # "control" lets the RC controller send to it (accepts and keeps GS RcState)
 answer_requests = true                         # test double: answers REQUESTs with REQUEST_ACK (docs/requests.md)
+answer_telecommands = true                     # test double: accepts the TEMPORARY legacy telecommands (docs/telecommands.md)
 # request_status = 2                           # ACK status to answer with (0 DONE ... 4 FAILED); request_drop_first = 2 to test retries
 # echo_rc = true                               # test only: echo the SA channel value as MissionState.mission_index (docs/testing.md)
 # faults = [ { kind = "dropout", at = 10, duration = 2, types = ["Attitude"] } ]
@@ -65,11 +66,11 @@ answer_requests = true                         # test double: answers REQUESTs w
 # actions the GUI "Requests" panel and `exgs request send` may send, each only after a deliberate confirmation (hold
 # 1 s in the GUI; `--confirm ACTION` in the CLI). The ground station does not interpret an action: whether the
 # vehicle accepts it (disarmed and on the ground) is the vehicle's decision, and the GUI shows the REQUEST_ACK
-# status exactly as reported. target = ExVectrNetwork node id: 1 vehicle, 2 TX module, 3 RX module.
+# status exactly as reported. target = ExVectrNetwork node id: 1 vehicle, 2 Router (Pocket module), 3 ship radio node.
 # confirm = "hold" (default) or "danger" (a stronger confirmation: a modal in the GUI, an extra CLI flag).
 [requests]
 # Sources tried in this order, the first one that is connected and can reach the target is used (the vehicle's USB
-# reaches node 1 only, a TX module reaches 1 over the air, 2 and 3). Not set: vehicle_usb sources, then link_module
+# reaches node 1 only, the Router reaches 1 over the air, 2 and 3). Not set: vehicle_usb sources, then link_module
 # sources, then fake sources, each in config order. No suitable connected source: the send is refused, never queued.
 source_preference = ["usb", "link", "fake"]
 
@@ -131,17 +132,123 @@ target = 1
 # link and enters over-the-air firmware upload. Hence confirm = "danger".
 [[requests.action]]
 action = "LINK_UPLOAD_MODE"
-label = "TX module: firmware upload mode"
+label = "Router: firmware upload mode"
 group = "Link modules"
 target = 2
 confirm = "danger"
 
 [[requests.action]]
 action = "LINK_UPLOAD_MODE"
-label = "RX module: firmware upload mode"
+label = "Ship radio node: firmware upload mode"
 group = "Link modules"
 target = 3
 confirm = "danger"
+
+# Reboot of a link module. LINK_REBOOT interrupts the radio link for seconds: a reboot of the ship radio node in
+# flight interrupts RC for seconds.
+[[requests.action]]
+action = "LINK_REBOOT"
+label = "Router: reboot"
+group = "Link modules"
+target = 2
+confirm = "danger"
+warning = "Reboots the Router: the radio link and the Pocket's RC stop for seconds."
+
+[[requests.action]]
+action = "LINK_REBOOT"
+label = "Ship radio node: reboot"
+group = "Link modules"
+target = 3
+confirm = "danger"
+warning = "Reboots the ship radio node: RC to the vehicle is interrupted for seconds, in flight too. The module always obeys."
+
+# TEMPORARY legacy TELECOMMANDS (docs/telecommands.md). A THIRD uplink, besides RC state and REQUESTs, approved by the
+# user on 2026-11-20 and kept ONLY until the flight software's T9b replaces it by RC_STATE mapping and REQUESTs.
+# TODO(T9b): delete this whole section, the `telecommand/` package, `exgs tc` and the GUI panel then.
+# The vehicle takes the old 8-byte Telecommand on ExVectrNetwork port 0x7F (src node 0, dst node 1). Each command is
+# sent EXACTLY ONCE per deliberate confirmation (GUI hold 1 s, CLI `exgs tc send NAME --confirm NAME`): no retry, no
+# ACK, and the vehicle de-duplicates nothing. SimulationMode TOGGLES on the vehicle, so the GUI never shows an assumed
+# state: only VehicleStatus.simulation as reported. Control hosts only, never in replay, never to a source that is not
+# connected, at most one per 500 ms per client. name = whitelist key, type = flight software TelecommandType,
+# subsystem = flight software Subsystem (2 = magnetometer), param_int = int16 parameter (magic values are the
+# vehicle's: Arm 0xA5 arms and anything else disarms, SystemReset 0xC5, SimulationMode 0xA9).
+[telecommands]
+source_preference = ["usb", "link", "fake"]    # vehicle USB first, else the Router link
+
+[[telecommands.command]]
+name = "Arm"
+type = "Arm"
+label = "Arm"
+group = "Vehicle"
+param_int = 0xA5
+
+[[telecommands.command]]
+name = "Disarm"
+type = "Arm"
+label = "Disarm"
+group = "Vehicle"
+param_int = 0
+
+[[telecommands.command]]
+name = "SystemReset"
+type = "SystemReset"
+label = "System reset (also disarms)"
+group = "Vehicle"
+param_int = 0xC5
+
+[[telecommands.command]]
+name = "SimulationMode"
+type = "SimulationMode"
+label = "Simulation mode: TOGGLE"
+group = "Vehicle"
+param_int = 0xA9
+note = "toggles on the vehicle; the state is only what the status bar reports"
+
+[[telecommands.command]]
+name = "MissionBegin"
+type = "MissionBegin"
+label = "Mission begin"
+group = "Mission"
+param_int = -10                                # initial mission time in s; -10 or less gives the full countdown
+param_min = -3600
+param_max = 3600
+note = "needs mode Ready on the vehicle; arming is not required by the vehicle"
+
+[[telecommands.command]]
+name = "MissionAbort"
+type = "MissionAbort"
+label = "Mission abort"
+group = "Mission"
+
+[[telecommands.command]]
+name = "CalibMagStart"
+type = "CalibStart"
+label = "Magnetometer calibration start"
+group = "Calibration"
+subsystem = 2
+param_int = 1                                  # > 0 starts (the vehicle ignores the duration)
+
+[[telecommands.command]]
+name = "CalibMagStop"
+type = "CalibStart"
+label = "Magnetometer calibration stop"
+group = "Calibration"
+subsystem = 2
+param_int = 0                                  # <= 0 stops
+
+[[telecommands.command]]
+name = "CalibMagApply"
+type = "CalibApply"
+label = "Magnetometer calibration apply (RAM)"
+group = "Calibration"
+subsystem = 2
+
+[[telecommands.command]]
+name = "MagSave"
+type = "Save"
+label = "Save to EEPROM"
+group = "Calibration"
+subsystem = 2
 
 [radio]
 config = "config/radio.pocket.toml"

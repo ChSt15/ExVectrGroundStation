@@ -44,7 +44,7 @@ MAX_ATTEMPTS = 5
 MIN_INTERVAL_S = 0.5  # per client
 RECENT_KEPT = 20
 TICK_S = 0.05
-NODE_NAMES = {1: "vehicle", 2: "TX module", 3: "RX module"}
+NODE_NAMES = {1: "vehicle", 2: "Router", 3: "ship radio node"}
 CODES = ("control_denied", "not_whitelisted", "confirm_required", "rate_limited", "request_in_flight", "no_route")
 
 
@@ -210,6 +210,7 @@ class RequestController:
                 "label": e.label,
                 "group": e.group,
                 "confirm": e.confirm,
+                "warning": e.warning,
                 "route": self.route(e.target),
             }
             for e in self.cfg.actions
@@ -261,7 +262,7 @@ class RequestController:
         if entry.confirm == "danger" and not understand_link_stops:
             raise RequestError(
                 "confirm_required",
-                f"{entry.action} stops the radio link of the module and starts its firmware upload: "
+                f"{entry.warning or entry.action + ' stops the radio link of the module'}: "
                 "the explicit acknowledgement is required",
             )
         now = self._clock.now()

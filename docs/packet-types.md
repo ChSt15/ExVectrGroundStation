@@ -197,13 +197,13 @@ Version 1, direction `down`, nominal rate 100 Hz, history: no.
 
 ## Estimator
 
-Debug set (USB only): estimator accuracy as standard deviations.
+Debug set (USB only): estimator accuracy as standard deviations. Version 2: att_std is the 1 sigma of small rotations about the WORLD axes [North, West, Up] (it was a per-quaternion-axis value before).
 
-Version 1, direction `down`, nominal rate 20 Hz, history: no.
+Version 2, direction `down`, nominal rate 20 Hz, history: no.
 
 | Field | Kind | Unit | Description |
 |---|---|---|---|
-| `att_std` | float_array[3] | rad | Elements: x, y, z. |
+| `att_std` | float_array[3] | rad | 1 sigma of rotation about the WORLD axes [North, West, Up] Elements: north, west, up. |
 | `vel_std` | float_array[3] | m/s | Elements: x, y, z. |
 | `pos_std` | float_array[3] | m | Elements: x, y, z. |
 
@@ -219,9 +219,29 @@ Version 1, direction `down`, nominal rate 5 Hz, history: no.
 | `avg` | float_array[8] | s |  |
 | `max` | float_array[8] | s |  |
 
+## Calibration
+
+CALIBRATION (USB only, every 2 s): the sensor calibration the vehicle applies. For each sensor cal = M * (raw - offset), M row-major (M[r][c] = matrix[3r + c]), raw = ImuRaw in raw_frame; SI. The ground station only displays the result.
+
+Version 1, direction `down`, nominal rate 0.5 Hz, history: no.
+
+| Field | Kind | Unit | Description |
+|---|---|---|---|
+| `raw_frame` | int | - | frame of the ImuRaw values the parameters apply to (0 = SENSOR, driver output) |
+| `gyro_source` | int | - | bits: 0 calib EEPROM, 1 transform EEPROM, 2 offset override, 3 RAM only, 4 memory cleared |
+| `accel_source` | int | - | as gyro_source |
+| `mag_source` | int | - | as gyro_source |
+| `gyro_offset` | float_array[3] | rad/s | Elements: x, y, z. |
+| `gyro_matrix` | float_array[9] | - | row-major 3x3, scale and misalignment times sensor to body |
+| `accel_offset` | float_array[3] | m/s^2 | Elements: x, y, z. |
+| `accel_matrix` | float_array[9] | - | row-major 3x3 |
+| `mag_offset` | float_array[3] | T | Elements: x, y, z. |
+| `mag_matrix` | float_array[9] | - | row-major 3x3, dimensionless |
+| `gyro_bias_est` | float_array[3] | rad/s | EKF gyro bias, body frame Elements: x, y, z. |
+
 ## RcState
 
-RC channel state. Sent by the GS (origin gs) or mirrored from the handset via the TX module. ch_us 0 = channel not provided (exvectrnet-1).
+RC channel state. Sent by the GS (origin gs) or mirrored from the handset via the Router. ch_us 0 = channel not provided (exvectrnet-1).
 
 Version 1, direction `up`, nominal rate 25 Hz, history: no.
 
@@ -235,21 +255,46 @@ Version 1, direction `up`, nominal rate 25 Hz, history: no.
 
 ## Request
 
-One-shot REQUEST (whitelisted action with an idempotent req_id, sent and retried by the request controller, never by hand). target = destination node id (1 vehicle, 2 TX module, 3 RX module).
+One-shot REQUEST (whitelisted action with an idempotent req_id, sent and retried by the request controller, never by hand). target = destination node id (1 vehicle, 2 Router, 3 ship radio node).
 
 Version 1, direction `up`, nominal rate n/a, history: no.
 
 | Field | Kind | Unit | Description |
 |---|---|---|---|
 | `req_id` | int | - | non-zero, new per action, reused on every retry |
-| `action` | enum (RequestAction: NONE=0, CALIB_GYRO_START=1, CALIB_GYRO_STOP=2, CALIB_ACCEL_START=3, CALIB_ACCEL_STOP=4, CALIB_MAG_START=5, CALIB_MAG_STOP=6, CALIB_APPLY=7, SAVE_CONFIG=8, SYSTEM_RESET=9, LINK_UPLOAD_MODE=10) | - |  |
+| `action` | enum (RequestAction: NONE=0, CALIB_GYRO_START=1, CALIB_GYRO_STOP=2, CALIB_ACCEL_START=3, CALIB_ACCEL_STOP=4, CALIB_MAG_START=5, CALIB_MAG_STOP=6, CALIB_APPLY=7, SAVE_CONFIG=8, SYSTEM_RESET=9, LINK_UPLOAD_MODE=10, LINK_REBOOT=11) | - |  |
 | `target` | int | - | destination node id |
 | `arg_i` | int | - |  |
 | `arg_f` | float | - |  |
 
+## LinkConfig
+
+LINK_CONFIG (port 0x04) as seen on a link: the Router's commanded configuration for the ship radio node. The Router drops it from USB, so the ground station normally receives it only if a source sees the air side (display only, never sent by the ground station).
+
+Version 1, direction `down`, nominal rate 2 Hz, history: no.
+
+| Field | Kind | Unit | Description |
+|---|---|---|---|
+| `tx_power_dbm` | int | dBm | requested RF output power of the ship radio node |
+| `flags` | int | - | reserved, 0 |
+| `from_node` | int | - | ExVectrNetwork node that sent it (2 = Router) |
+
+## Telecommand
+
+TEMPORARY legacy 8-byte telecommand (port 0x7F), sent once per deliberate confirmation by the telecommand controller, never by hand and never repeated. Delete with the flight software's T9b.
+
+Version 1, direction `up`, nominal rate n/a, history: no.
+
+| Field | Kind | Unit | Description |
+|---|---|---|---|
+| `tc_type` | enum (TelecommandType: CalibStart=0, CalibApply=1, Load=2, Save=3, SystemReset=4, Arm=5, SimulationMode=6, MissionBegin=7, MissionSelect=8, MissionAbort=9) | - | legacy command code |
+| `subsystem` | int | - | legacy Subsystem (0 gyro, 1 accel, 2 magneto, ...) |
+| `param_int` | int | - | int16 parameter (magic value or mission time) |
+| `param_float` | float | - | unused by every vehicle handler |
+
 ## RadioLinkStats
 
-Planned type. Link quality as reported by the TX module.
+Planned type. Link quality as reported by the Router.
 
 Version 1, direction `down`, nominal rate 2 Hz, history: no.
 
@@ -264,7 +309,7 @@ Version 1, direction `down`, nominal rate 2 Hz, history: no.
 
 ## TxModuleStats
 
-LINK_STATS from the TX module (node 2). Also fills RadioLinkStats.
+LINK_STATS from the Router (node 2, the Pocket module; type name kept). Also fills RadioLinkStats.
 
 Version 1, direction `down`, nominal rate 2 Hz, history: no.
 
@@ -286,7 +331,7 @@ Version 1, direction `down`, nominal rate 2 Hz, history: no.
 
 ## RxModuleStats
 
-LINK_STATS from the vehicle RX module (node 3), forwarded by the TX module.
+LINK_STATS from the ship radio node (node 3, type name kept), forwarded by the Router.
 
 Version 1, direction `down`, nominal rate 2 Hz, history: no.
 
@@ -384,7 +429,7 @@ Version 1, direction `local`, nominal rate n/a, history: no.
 
 | Field | Kind | Unit | Description |
 |---|---|---|---|
-| `kind` | enum (GsEventKind: rec_start=0, rec_stop=1, source_up=2, source_down=3, lease_acquired=4, lease_released=5, lease_expired=6, replay_note=7, link_warning=8, request_sent=9, request_retry=10, request_ack=11, request_timeout=12) | - |  |
+| `kind` | enum (GsEventKind: rec_start=0, rec_stop=1, source_up=2, source_down=3, lease_acquired=4, lease_released=5, lease_expired=6, replay_note=7, link_warning=8, request_sent=9, request_retry=10, request_ack=11, request_timeout=12, telecommand_sent=13) | - |  |
 | `detail` | str | - |  |
 
 ## Note

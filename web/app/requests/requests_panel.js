@@ -3,7 +3,7 @@
 // confirmation arguments again; this file only provides the deliberate gestures.
 import { h } from "../ui.js";
 import {
-  DANGER_ENABLE_MS, DANGER_TEXT, DangerGate, HoldTimer, REQUEST_HOLD_MS, actionKey, describeRequest, groupActions,
+  DANGER_ENABLE_MS, DANGER_TEXT, DangerGate, dangerText, HoldTimer, REQUEST_HOLD_MS, actionKey, describeRequest, groupActions,
   requestFor, sendState,
 } from "./requests_logic.js";
 
@@ -30,7 +30,7 @@ export function dangerDialog(a, gate = new DangerGate()) {
     const box = h(
       "div",
       { class: "rc-modal", role: "dialog", "aria-modal": "true", "data-testid": "danger-modal" },
-      h("div", { class: "rc-dialog" }, h("h3", { text: `${a.label} (node ${a.target})` }), h("p", { class: "rq-danger-text", text: DANGER_TEXT }), h("div", { class: "toolbar" }, cancel, ok)),
+      h("div", { class: "rc-dialog" }, h("h3", { text: `${a.label} (node ${a.target})` }), h("p", { class: "rq-danger-text", text: dangerText(a) }), h("div", { class: "toolbar" }, cancel, ok)),
     );
     gate.open();
     const tick = setInterval(refresh, 100);
