@@ -158,6 +158,9 @@ function ensureAllApi() {
     onReady: () => subscribe(allApi, "all"),
     onMessage(msg) {
       if (msg.op === "snapshot" && msg.view === view) {
+        // this socket's snapshot can overtake the main socket's: take its clock first, so panels that reload
+        // history on reset (tuning graphs) end it at the new replay position, not the stale one
+        store.setClock(msg.view, msg.clock);
         for (const m of mounted) if (m.def.mode === "all") m.inst.onReset?.(view);
       }
       if (msg.op !== "packets" || msg.view !== view) return;

@@ -296,3 +296,36 @@ async def test_browser_tuning_graphs_live_history_reload_and_replay():
             d3 = await b.eval("window.exgs.tuning.debug()")
             assert d3["rings"].get("att.roll", 0) > 50, d3["rings"]
             assert not [m for m in b.console if "EXCEPTION" in m], b.console
+
+
+@needs_browser
+async def test_browser_tuning_graphs_after_a_replay_seek_show_the_whole_history():
+    """Seeking ahead (also while paused) must not leave a gap: the graphs hold the log's data up to the new position."""
+    from pathlib import Path
+
+    from tests.support_logs import make_log
+
+    app = make_app(speed=1.0)
+    make_log(Path(app.library.directory), "full", 20.0)
+    async with running(app) as rig:
+        async with browser_check.Browser(1600, 1000, 9348) as b:
+            await b.goto(rig.url() + "/")
+            await b.sleep(1.0)
+            await b.eval("window.exgs.layout.set('tuning')")
+            await b.eval("window.exgs.dock.open('recording')")
+            await b.eval("document.querySelector('[data-panel=recording] .sect-title button').click()")
+            await b.sleep(0.8)
+            await b.eval("[...document.querySelectorAll('[data-panel=recording] .loglist button')][0].click()")
+            await b.sleep(1.5)
+            slider = "document.querySelector('[data-panel=transport] input[type=range]')"
+            for frac in (0.25, 0.8, 0.5):  # forward, forward again, back
+                set_value = f"s.value = {int(frac * 1000)}; s.dispatchEvent(new Event('input'));"
+                await b.eval(f"(() => {{ const s = {slider}; {set_value} }})()")
+                await b.sleep(2.0)
+                d = await b.eval("window.exgs.tuning.debug()")
+                lo, hi = d["ranges"]["att.roll"]
+                n = d["rings"]["att.roll"]
+                span = hi - lo
+                assert span > 20.0 * frac * 0.9, (frac, d["ranges"]["att.roll"])
+                assert n > 100 * span * 0.9, (frac, n, span)  # 100 Hz Attitude at full rate, no gap
+            assert not [m for m in b.console if "EXCEPTION" in m], b.console
