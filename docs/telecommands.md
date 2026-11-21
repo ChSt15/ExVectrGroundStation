@@ -135,7 +135,7 @@ Three more simulation-only commands, types 16..18 (`SimFlapStuck`, `SimFlapSlow`
 | 17 `SimFlapSlow` | flap index 0..3 | servo rate factor | 0.05..1.0 |
 | 18 `SimFaultClear` | 0 | 0 | none (fixed) |
 
-The subsystem byte is part of the whitelist entry (not client-settable): 4 `SimFlapStuck{TL,TR,BL,BR}Now` entries (subsystem 0..3; the name keeps the old `Now` suffix, there is no `Descent` variant any more), 4 `SimFlapSlow{TL,TR,BL,BR}` and `SimFaultClear`. `subsystem` in the config accepts 0..6. The GUI finds the entry by type and subsystem. Entries of group "Simulation tests" are hidden from the generic Commands panel.
+The subsystem byte is part of the whitelist entry (not client-settable): 4 `SimFlapStuck{TL,TR,BL,BR}` entries (subsystem 0..3; there is no `Now` or `Descent` variant any more), 4 `SimFlapSlow{TL,TR,BL,BR}` and `SimFaultClear`. `subsystem` in the config accepts 0..6. The GUI finds the entry by type and subsystem. Entries of group "Simulation tests" are hidden from the generic Commands panel.
 
 Examples (checked by `tests/unit/test_sim_fault_telecommands.py`): TL forced at 42 deg (0.7330383 rad) = `10 00 57 00 66 A8 3B 3F`; BR hold the current angle = `10 03 57 00 00 00 80 BF`; slow factor 0.3 on TL = `11 00 57 00 9A 99 99 3E`; clear = `12 00 57 00 00 00 00 00`.
 

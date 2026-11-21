@@ -439,7 +439,7 @@ note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode"
 # flap index 0..3 (TL, TR, BL, BR). The GUI page 'Simulation testing' picks the entry.
 
 [[telecommands.command]]
-name = "SimFlapStuckTLNow"
+name = "SimFlapStuckTL"
 type = "SimFlapStuck"
 label = "Force flap TL to an angle (rad)"
 group = "Simulation tests"
@@ -452,7 +452,7 @@ param_float_name = "angle_rad"
 note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs a line when it sets a fault; angle 0..pi/2 rad, -1.0 = stick at the current angle"
 
 [[telecommands.command]]
-name = "SimFlapStuckTRNow"
+name = "SimFlapStuckTR"
 type = "SimFlapStuck"
 label = "Force flap TR to an angle (rad)"
 group = "Simulation tests"
@@ -465,7 +465,7 @@ param_float_name = "angle_rad"
 note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs a line when it sets a fault; angle 0..pi/2 rad, -1.0 = stick at the current angle"
 
 [[telecommands.command]]
-name = "SimFlapStuckBLNow"
+name = "SimFlapStuckBL"
 type = "SimFlapStuck"
 label = "Force flap BL to an angle (rad)"
 group = "Simulation tests"
@@ -478,7 +478,7 @@ param_float_name = "angle_rad"
 note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs a line when it sets a fault; angle 0..pi/2 rad, -1.0 = stick at the current angle"
 
 [[telecommands.command]]
-name = "SimFlapStuckBRNow"
+name = "SimFlapStuckBR"
 type = "SimFlapStuck"
 label = "Force flap BR to an angle (rad)"
 group = "Simulation tests"

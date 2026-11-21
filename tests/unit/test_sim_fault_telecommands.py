@@ -31,7 +31,7 @@ def test_shipped_fault_entries(cfg):
     assert int(TelecommandType.SimFaultClear) == 18
     assert not [n for n in names if n.endswith("Descent")]  # the arm-for-descent bit is gone (the vehicle refuses it)
     for i, f in enumerate(FLAPS):
-        e = names[f"SimFlapStuck{f}Now"]
+        e = names[f"SimFlapStuck{f}"]
         assert (e.type, e.subsystem, e.param_int, e.group, e.rate_group, e.confirm) == (
             "SimFlapStuck", i, 0x57, "Simulation tests", "", "hold",
         )  # fmt: skip
@@ -76,7 +76,7 @@ async def rig():
 
 async def test_sent_once_with_flap_subsystem_and_500ms_rule():
     r = await rig()
-    await r.send("SimFlapStuckBRNow", param_float=-1.0)
+    await r.send("SimFlapStuckBR", param_float=-1.0)
     pkt = r.usb.sent[0]
     assert (int(pkt.tc_type), pkt.subsystem, pkt.param_int) == (16, 3, 0x57)
     r.clock.advance(0.15)  # no group exception: 150 ms is too fast
