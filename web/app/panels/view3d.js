@@ -6,6 +6,7 @@ import { describe, fmtAge } from "../fmt.js";
 import { isValidQuat } from "../view3d/frames.js";
 import { validateModel, resolveFlapAngles, radToDeg } from "../view3d/model_config.js";
 import { Trail } from "../view3d/trail.js";
+import { TargetSmoother } from "../view3d/target_smooth.js";
 
 const CONSUMES = ["Attitude", "Position", "MissionState", "FlapState", "VehicleState"];
 const MODES = [["follow", "Follow"], ["observer", "Observer"], ["top", "Top"]];
@@ -25,6 +26,9 @@ registerPanel({
 
     let scene = null, cfg = null, failed = null;
     let trail = new Trail(60);
+    // Display-only smoothing of the target position (see view3d/target_smooth.js); panels keep the raw values.
+    const target = new TargetSmoother();
+    let lastShipPos = null, lastSpStale = false;
     let histGen = 0, pending = false;
     let state = { ship: "no data", flaps: "default", flapAngles: null };
 
@@ -55,6 +59,7 @@ registerPanel({
         axesBox.addEventListener("change", () => scene.setBodyAxes(axesBox.checked));
         const loop = () => {
           if (!scene) return;
+          if (!target.settled(ctx.now() ?? 0)) drawTarget();
           scene.frame();
           requestAnimationFrame(loop);
         };
@@ -95,6 +100,12 @@ registerPanel({
       refresh();
     }
 
+    function drawTarget() {
+      const now = ctx.now();
+      scene.setSetpoint(now === null ? null : target.at(now), lastVel, lastSpStale, lastShipPos);
+    }
+    let lastVel = null;
+
     // ---- store -> scene
     function refresh() {
       pending = false;
@@ -125,7 +136,18 @@ registerPanel({
       else if (state.flaps === "stale") lines.push([`flaps stale ${fmtAge(fdesc.age)}`, "warn"]);
       // setpoint (guidance) and thrust arrow
       const ms = desc("MissionState", "sp_pos"), mv = desc("MissionState", "sp_vel");
-      scene.setSetpoint(usable(ms) ? ms.value : null, usable(mv) ? mv.value : null, ms.state === "stale", usable(pos) ? p : null);
+      // a stale or missing target is drawn as received (no extrapolation, no blending)
+      const spEntry = lookup("MissionState");
+      lastSpStale = ms.state === "stale";
+      lastShipPos = usable(pos) ? p : null;
+      lastVel = usable(mv) ? mv.value : null;
+      if (usable(ms) && !lastSpStale && spEntry && now !== null) {
+        target.update(now, ms.value, lastVel, spEntry.t);
+        drawTarget();
+      } else {
+        target.reset();
+        scene.setSetpoint(usable(ms) ? ms.value : null, lastVel, lastSpStale, lastShipPos);
+      }
       const th = desc("VehicleState", "tvc_thrust");
       scene.setThrust(usable(th) ? th.value : null, stale || th.state === "stale");
       // trail
@@ -157,11 +179,13 @@ registerPanel({
         schedule();
       },
       onReset() {
+        target.reset();
         trail.clear();
         loadHistory();
         schedule();
       },
       onViewChange() {
+        target.reset();
         trail.clear();
         loadHistory();
         schedule();

@@ -135,6 +135,8 @@ Panel `view3d` (head of the Guidance group in Bench and Flight). It consumes `At
 3. Flaps: either `{ "gltf": ..., "node": "flap_tl" }` per flap or separate files. Set `pivot_body_m` to the hinge in the body frame, `axis_body` and `sign` so that increasing angle folds toward +X, and `model_angle_deg` to the angle the flap has in the file (0 if modelled extended). Check with the checkbox "body axes" and by watching the flaps move.
 4. Set `[gui] model = "config/model.starship.json"` in the core config and reload the page. A config that fails validation, or a model that fails to load, shows "3D view unavailable: ..." in the panel, and the rest of the GUI keeps working. Run `.venv/bin/pytest tests/integration/test_view3d.py` to re-check the loader with `models/test-box.gltf`.
 
+**Target smoothing (display only).** The target sphere is drawn at `sp_pos + sp_vel * (view time since the MissionState packet)`, at most 0.5 s and then held, and a new packet is blended in (exponential, 150 ms) instead of snapping (`view3d/target_smooth.js`, tested in `web/test/target_smooth.test.js`). This is display smoothing only: it is never extrapolated without a finite `sp_vel`, is reset on replay seeks, view changes and when MissionState is stale, and panels and plots keep showing the raw vehicle-reported `sp_pos` and `sp_vel`; the 3D view's target position is not a reported value.
+
 **Debug hook** for end-to-end tests: `window.exgs.view3d.debug()` returns the ship pose and visibility, nose, belly and origin in Three.js coordinates, per-flap angle and outer-edge position in the body frame, flap source (`data`, `default`, `stale`), setpoint and thrust visibility, trail point count, overlay text and camera mode. `window.exgs.view3d.scene3d` gives the Scene3D object.
 
 ## Virtual radio
@@ -155,6 +157,14 @@ Panel `radio` (`web/app/radio/`; first tab of the Operations dock). **Safety-rel
 ## Callouts
 
 Audio callouts and notifications (display only, `docs/callouts.md`): a rule engine over the vehicle-reported values, speech through the Web Speech API with severity styles and a WebAudio beep for failures, a toast stack top right (clear of the status bar and of the Operations dock) and a history. Settings are the Operations dock tab **Callouts** (master switch, volume slider 0 to 100 % default 80 %, categories with TEST buttons, altitude list, deviation limit, voice styles, voice, speak in replay, history); the header speaker icon shows muted / audio on / audio not enabled and opens the tab. Defaults come from `/config/callouts.json`.
+
+## Display settings (UI scale and 3D resolution)
+
+Operations dock tab **Display** (`panels/display.js`, `display_settings.js`), stored per browser in `localStorage` key `exgs.display` (reads and writes wrapped in try/catch; an unusable store means Auto). Display only, nothing is sent to the vehicle.
+
+- **UI scale**: Auto (default, 1), 75, 100, 125, 150, 200 %. Applied as CSS `zoom` on `<html>` through the variable `--ui-zoom` (viewport-height boxes are divided by it in `style.css`). The media-query breakpoints see the real window size, not the zoomed one.
+- **3D resolution**: Auto (default), 1x, 1.5x, 2x. The 3D renderer uses `setPixelRatio(devicePixelRatio * UI zoom * resolution)`, capped to 3 (Auto = factor 1, so a high-DPI screen renders at its full device ratio up to 3 instead of the former cap of 2), re-applied on every resize, on a UI scale or resolution change and when `devicePixelRatio` changes. The Display tab shows the resulting ratio. If the GUI looks very zoomed in on a small high-DPI screen (Steam Frame), lower UI scale to 75 % or 100 % and, if the 3D view is blocky, raise 3D resolution.
+- Below 600 px width the 3D view is shorter (200 to 420 px).
 
 ## Adding a panel
 

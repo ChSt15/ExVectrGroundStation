@@ -33,6 +33,7 @@
 }
 
 * { box-sizing: border-box; }
+html { zoom: var(--ui-zoom, 1); } /* UI scale setting (display_settings.js); viewport-sized boxes are divided by it below */
 html, body { height: 100%; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: var(--fs-m)/1.4 var(--sans); }
 button, select, input { font: inherit; color: inherit; background: var(--surface-2); border: 1px solid var(--line); border-radius: 5px; padding: 3px 9px; min-height: 28px; }
@@ -53,7 +54,7 @@ input[type="checkbox"] { min-height: 0; accent-color: var(--accent); }
 [data-tone="bad"] > .dot, .dot[data-tone="bad"] { background: var(--bad); }
 
 /* ------------------------------------------------------------------ app frame */
-#app { display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100vh; }
+#app { display: grid; grid-template-rows: auto minmax(0, 1fr); height: calc(100vh / var(--ui-zoom, 1)); }
 #top { position: relative; z-index: 10; }
 #workspace { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-height: 0; position: relative; }
 #panels { display: grid; gap: var(--gap); padding: var(--gap); min-height: 0; overflow: hidden; }
@@ -420,7 +421,7 @@ body[data-layout="flight"] .hint { display: none; }
 /* ------------------------------------------------------------------ responsive */
 @media (max-width: 1500px) { :root { --dock-w: 380px; --fs-tile: 19px; } body[data-layout="flight"] { --fs-tile: 24px; } }
 @media (max-width: 1100px) {
-  #app { height: auto; min-height: 100vh; }
+  #app { height: auto; min-height: calc(100vh / var(--ui-zoom, 1)); }
   #workspace { grid-template-columns: minmax(0, 1fr); }
   #panels { grid-template-columns: minmax(0, 1fr) !important; overflow: visible; }
   .group { overflow: visible; }
@@ -436,6 +437,7 @@ body[data-layout="flight"] .hint { display: none; }
   header.top, .statusbar, .replaystrip { padding-left: 8px; padding-right: 8px; }
   #panels { padding: 6px; gap: 6px; }
   .row .lbl, .frow .lbl { flex-basis: 9em; }
+  .v3d, .v3d.v3d-large { height: clamp(200px, 45vh, 420px); }
   .tiles.t4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .rq-row, .tc-row { grid-template-columns: 1fr auto; }
 }

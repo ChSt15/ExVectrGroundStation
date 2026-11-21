@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { WORLD_ROOT_ROTATION_X, vehicleQuatToThree } from "./frames.js";
 import { buildShip } from "./model.js";
+import { getDisplay, pixelRatio } from "../display_settings.js";
 
 const GRID_HALF_M = 50;
 const AXIS_COLORS = { n: 0xe5534b, w: 0x3fb950, up: 0x58a6ff };
@@ -49,7 +50,7 @@ export class Scene3D {
     this.labels = [];
     this.stale = {};
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.applyPixelRatio();
     this.renderer.setClearColor(0x000000, 0);
     container.append(this.renderer.domElement);
     this.scene = new THREE.Scene();
@@ -77,6 +78,9 @@ export class Scene3D {
     this._onTheme = () => this.applyTheme();
     this.mq?.addEventListener?.("change", this._onTheme);
     window.addEventListener("exgs-theme", this._onTheme); // the GUI's own dark / light switch
+    this._onDisplay = () => this.resize(); // UI scale / 3D resolution changed
+    window.addEventListener("exgs-display", this._onDisplay);
+    this.watchDpr();
     this.resize();
   }
 
@@ -300,9 +304,32 @@ export class Scene3D {
   }
 
   // ------------------------------------------------------------------ rendering
+  /** Renderer pixel ratio from devicePixelRatio, the GUI's UI scale and the 3D resolution setting (capped). */
+  applyPixelRatio() {
+    const d = getDisplay();
+    const r = pixelRatio(window.devicePixelRatio, d.ui, d.res);
+    if (r !== this._pr) {
+      this._pr = r;
+      this.renderer.setPixelRatio(r);
+    }
+  }
+
+  /** Re-apply when devicePixelRatio changes (window moved to another screen, browser zoom). */
+  watchDpr() {
+    this._dprMq?.removeEventListener?.("change", this._onDpr);
+    if (!window.matchMedia) return;
+    this._dprMq = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+    this._onDpr = () => {
+      this.resize();
+      this.watchDpr();
+    };
+    this._dprMq.addEventListener?.("change", this._onDpr);
+  }
+
   resize() {
     const w = this.container.clientWidth, h = this.container.clientHeight;
     if (!w || !h) return;
+    this.applyPixelRatio();
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
@@ -331,6 +358,8 @@ export class Scene3D {
     this.ro.disconnect();
     this.mq?.removeEventListener?.("change", this._onTheme);
     window.removeEventListener("exgs-theme", this._onTheme);
+    window.removeEventListener("exgs-display", this._onDisplay);
+    this._dprMq?.removeEventListener?.("change", this._onDpr);
     this.controls.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
