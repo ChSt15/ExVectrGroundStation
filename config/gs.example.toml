@@ -226,10 +226,10 @@ name = "MissionBegin"
 type = "MissionBegin"
 label = "Mission begin"
 group = "Mission"
-param_int = -10                                # initial mission time in s; -10 or less gives the full countdown
+param_int = -20                                # initial mission time in s; the vehicle refuses > -18 while calibration is required (fixed 15 s countdown comes with T9b)
 param_min = -3600
 param_max = 3600
-note = "needs mode Ready on the vehicle; arming is not required by the vehicle"
+note = "needs mode Ready; real mode refuses a countdown shorter than -18 s (simulation accepts it); arming not required"
 
 [[telecommands.command]]
 name = "MissionAbort"
@@ -238,34 +238,136 @@ label = "Mission abort"
 group = "Mission"
 
 [[telecommands.command]]
+name = "CalibGyroStart"
+type = "CalibStart"
+label = "Gyro: start calibration"
+group = "Calibration"
+subsystem = 0
+param_int = 1
+note = "vehicle must be disarmed, on the ground, not in simulation"
+
+[[telecommands.command]]
+name = "CalibGyroStop"
+type = "CalibStart"
+label = "Gyro: stop and fit"
+group = "Calibration"
+subsystem = 0
+param_int = 0
+
+[[telecommands.command]]
+name = "CalibGyroVerify"
+type = "CalibStart"
+label = "Gyro: verify active calibration"
+group = "Calibration"
+subsystem = 0
+param_int = 2
+
+[[telecommands.command]]
+name = "CalibGyroDiscard"
+type = "CalibStart"
+label = "Gyro: discard candidate"
+group = "Calibration"
+subsystem = 0
+param_int = -1
+
+[[telecommands.command]]
+name = "CalibGyroApply"
+type = "CalibApply"
+label = "Gyro: apply candidate (RAM only until Save)"
+group = "Calibration"
+subsystem = 0
+note = "the vehicle applies only a passing candidate"
+
+[[telecommands.command]]
+name = "CalibAccelStart"
+type = "CalibStart"
+label = "Accelerometer: start calibration"
+group = "Calibration"
+subsystem = 1
+param_int = 1
+note = "vehicle must be disarmed, on the ground, not in simulation"
+
+[[telecommands.command]]
+name = "CalibAccelStop"
+type = "CalibStart"
+label = "Accelerometer: stop and fit"
+group = "Calibration"
+subsystem = 1
+param_int = 0
+
+[[telecommands.command]]
+name = "CalibAccelVerify"
+type = "CalibStart"
+label = "Accelerometer: verify active calibration"
+group = "Calibration"
+subsystem = 1
+param_int = 2
+
+[[telecommands.command]]
+name = "CalibAccelDiscard"
+type = "CalibStart"
+label = "Accelerometer: discard candidate"
+group = "Calibration"
+subsystem = 1
+param_int = -1
+
+[[telecommands.command]]
+name = "CalibAccelApply"
+type = "CalibApply"
+label = "Accelerometer: apply candidate (RAM only until Save)"
+group = "Calibration"
+subsystem = 1
+note = "the vehicle applies only a passing candidate"
+
+[[telecommands.command]]
 name = "CalibMagStart"
 type = "CalibStart"
-label = "Magnetometer calibration start"
+label = "Magnetometer: start calibration"
 group = "Calibration"
 subsystem = 2
-param_int = 1                                  # > 0 starts (the vehicle ignores the duration)
+param_int = 1
+note = "vehicle must be disarmed, on the ground, not in simulation"
 
 [[telecommands.command]]
 name = "CalibMagStop"
 type = "CalibStart"
-label = "Magnetometer calibration stop"
+label = "Magnetometer: stop and fit"
 group = "Calibration"
 subsystem = 2
-param_int = 0                                  # <= 0 stops
+param_int = 0
+
+[[telecommands.command]]
+name = "CalibMagVerify"
+type = "CalibStart"
+label = "Magnetometer: verify active calibration"
+group = "Calibration"
+subsystem = 2
+param_int = 2
+
+[[telecommands.command]]
+name = "CalibMagDiscard"
+type = "CalibStart"
+label = "Magnetometer: discard candidate"
+group = "Calibration"
+subsystem = 2
+param_int = -1
 
 [[telecommands.command]]
 name = "CalibMagApply"
 type = "CalibApply"
-label = "Magnetometer calibration apply (RAM)"
+label = "Magnetometer: apply candidate (RAM only until Save)"
 group = "Calibration"
 subsystem = 2
+note = "the vehicle applies only a passing candidate"
 
 [[telecommands.command]]
-name = "MagSave"
+name = "CalibSave"
 type = "Save"
-label = "Save to EEPROM"
+label = "Save calibration to EEPROM"
 group = "Calibration"
-subsystem = 2
+subsystem = 0
+note = "writes the whole image; any subsystem saves all"
+
 
 [radio]
 config = "config/radio.pocket.toml"
