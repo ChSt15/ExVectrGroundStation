@@ -67,6 +67,29 @@ test("phase edges: names from the vehicle phases, first observation silent, Idle
   assert.deepEqual(said, ["Hover", "Ascent", "Belly flop", "Deceleration", "Return to home", "Landing", "Landed"]);
 });
 
+test("mission begin: said when the mode leaves Idle; phase (Hover) only once Running", () => {
+  const { run, step, w } = rig();
+  w.vs.mission_mode = "Idle";
+  w.ms.mission_mode = "Idle";
+  w.ms.t_mission = -10;
+  run();
+  const both = (m) => ({ ms: { mission_mode: m }, vs: { mission_mode: m } });
+  // the vehicle reports Hover from Ready on: nothing for it while Idle / Initialisation / Startup
+  assert.deepEqual(texts(step(0.2, both("Initialisation"))), ["Mission beginning"]);
+  assert.deepEqual(texts(step(0.2, both("Startup"))), []);
+  assert.deepEqual(texts(step(0.2, { ms: { t_mission: -9 } })), []);
+  assert.deepEqual(texts(step(0.2, both("Running"))), ["Hover"]);
+  assert.deepEqual(texts(step(0.2, { ms: { mission_phase: "Ascent" } })), ["Ascent"]);
+  assert.deepEqual(texts(step(0.2, both("Finished"))), []);
+  assert.deepEqual(texts(step(0.2, { ms: { mission_phase: "Completed" } })), ["Landed"]);
+});
+
+test("mission begin: not said for the first observation or when connecting to a running mission", () => {
+  const { run, step } = rig();
+  assert.deepEqual(texts(run()), ["Simulation"]); // already Running at connect: silent, no Hover
+  assert.deepEqual(texts(step(0.2)), []);
+});
+
 test("altitude: both directions, once per crossing, hysteresis stops repeats near a threshold", () => {
   const { run, step, w } = rig();
   w.pos.pos = [0, 0, 10];
@@ -99,7 +122,7 @@ test("altitude is ignored on the ground (mission not Running)", () => {
   run();
   assert.deepEqual(texts(step(0.1, { pos: { pos: [0, 0, 60] } })), []);
   // going Running at 60 m only sets the baseline: nothing is said for levels already passed
-  assert.deepEqual(texts(step(0.1, { ms: { mission_mode: "Running" }, vs: { mission_mode: "Running" } })), []);
+  assert.deepEqual(texts(step(0.1, { ms: { mission_mode: "Running" }, vs: { mission_mode: "Running" } })), ["Mission beginning", "Hover"]);
   assert.deepEqual(texts(step(0.1, { pos: { pos: [0, 0, 110] } })), ["Altitude 100"]);
 });
 

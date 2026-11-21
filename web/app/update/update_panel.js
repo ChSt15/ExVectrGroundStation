@@ -2,7 +2,7 @@
 // the reason when it is disabled, the progress output, and the reconnect after the restart. The core enforces the
 // control-host rule, the confirm flag and the guards again.
 import { h } from "../ui.js";
-import { HoldTimer, UPDATE_HOLD_MS, applyState, checkNotes, describeVersion, liveGuards } from "./update_logic.js";
+import { HoldTimer, UPDATE_HOLD_MS, applyState, checkNotes, describeVersion, liveGuards, quitState } from "./update_logic.js";
 
 export function createUpdatePanel(el, ctx) {
   let status = null;
@@ -21,7 +21,13 @@ export function createUpdatePanel(el, ctx) {
   const notes = h("div", { class: "up-notes" });
   const out = h("pre", { class: "up-out", "data-testid": "up-out", hidden: true });
   const msg = h("div", { class: "rq-msg", role: "status", "data-testid": "up-msg" });
-  el.append(version, details, h("div", { class: "up-actions" }, checkBtn, applyBtn), why, commits, notes, out, msg);
+  const qbar = h("span", { class: "bar" });
+  const quitBtn = h("button", { class: "rq-btn up-quit", "data-testid": "up-quit", title: `hold ${UPDATE_HOLD_MS / 1000} s` }, h("span", { class: "rq-label", text: "Quit ground station" }), qbar);
+  const quitNotes = h("div", { class: "up-quit-notes", "data-testid": "up-quit-notes" });
+  const quitMsg = h("div", { class: "rq-msg", role: "status", "data-testid": "up-quit-msg" });
+  el.append(version, details, h("div", { class: "up-actions" }, checkBtn, applyBtn), why, commits, notes, out, msg,
+    h("div", { class: "up-quit" }, quitBtn, quitNotes, quitMsg));
+  let stopped = false;
 
   const canControl = () => !!(ctx.api.welcome && ctx.api.welcome.can_control);
   const guards = () => liveGuards({
@@ -89,6 +95,49 @@ export function createUpdatePanel(el, ctx) {
     await load();
   }
 
+  async function doQuit() {
+    quitMsg.textContent = "Stopping the core ...";
+    try {
+      await ctx.api.request("core.quit", { confirm: true }, 10000);
+    } catch (e) {
+      quitMsg.textContent = `quit refused or failed: ${e.message}`;
+      return;
+    }
+    stopped = true;
+    clearInterval(poll);
+    quitMsg.textContent = "Ground station stopped. The core has exited; start it again to reconnect.";
+    document.body.dataset.gsStopped = "1";
+    const banner = h("div", { class: "gs-stopped", role: "alert", "data-testid": "gs-stopped", text: "Ground station stopped" });
+    document.body.prepend(banner);
+    setTimeout(() => { try { window.close(); } catch (e) { /* the browser may ignore it */ } }, 1500);
+    render();
+  }
+
+  const qtimer = new HoldTimer(() => { stopQAnim(); doQuit(); }, undefined, UPDATE_HOLD_MS);
+  let qanim = null;
+  function stopQAnim() {
+    if (qanim !== null) clearInterval(qanim);
+    qanim = null;
+    qbar.style.width = "0";
+  }
+  const stopQ = () => { qtimer.cancel(); stopQAnim(); };
+  function startQ() {
+    if (quitBtn.disabled || qtimer.holding) return;
+    qtimer.start();
+    qanim = setInterval(() => { qbar.style.width = `${Math.round(qtimer.progress() * 100)}%`; }, 40);
+  }
+  quitBtn.addEventListener("pointerdown", (e) => {
+    try {
+      quitBtn.setPointerCapture(e.pointerId);
+    } catch (err) {
+      /* synthetic pointer ids have no capture */
+    }
+    startQ();
+  });
+  for (const ev of ["pointerup", "pointercancel", "lostpointercapture", "pointerleave", "blur"]) quitBtn.addEventListener(ev, stopQ);
+  quitBtn.addEventListener("keydown", (e) => { if ((e.key === " " || e.key === "Enter") && !e.repeat) { startQ(); e.preventDefault(); } });
+  quitBtn.addEventListener("keyup", (e) => { if (e.key === " " || e.key === "Enter") stopQ(); });
+
   const timer = new HoldTimer(() => { stopAnim(); doApply(); }, undefined, UPDATE_HOLD_MS);
   let anim = null;
   function stopAnim() {
@@ -116,6 +165,13 @@ export function createUpdatePanel(el, ctx) {
   checkBtn.addEventListener("click", doCheck);
 
   function render() {
+    const q = quitState({ apiState: ctx.api.state, canControl: canControl(), rc: ctx.rc() });
+    quitBtn.disabled = stopped || !q.enabled;
+    if (quitBtn.disabled) stopQ();
+    quitBtn.dataset.why = q.reason;
+    quitBtn.title = q.enabled ? `hold ${UPDATE_HOLD_MS / 1000} s` : q.reason;
+    quitNotes.replaceChildren(...q.notes.map((t) => h("div", { text: t })));
+    if (stopped) return;
     version.textContent = describeVersion(status);
     const g = guards();
     const pending = !!((summary && summary.restart_pending) || (status && status.restart_pending));
@@ -144,7 +200,7 @@ export function createUpdatePanel(el, ctx) {
   function mounted() {
     return !el.closest("[hidden]");
   }
-  poll = setInterval(() => { if (!busy && ctx.api.state === "open" && mounted()) load(); }, 3000);
+  poll = setInterval(() => { if (!stopped && !busy && ctx.api.state === "open" && mounted()) load(); }, 3000);
 
   return {
     onReady: load,
@@ -160,7 +216,7 @@ export function createUpdatePanel(el, ctx) {
     onRc: render,
     onTick: render,
     onViewChange: render,
-    destroy() { stop(); clearInterval(poll); },
+    destroy() { stop(); stopQ(); clearInterval(poll); },
     debug: () => ({ status, check, summary, busy, awaitingRestart }),
   };
 }

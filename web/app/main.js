@@ -11,8 +11,20 @@ import { createHeader, HEADER_CONSUMES } from "./header.js";
 import { createStatusBar, STATUS_CONSUMES } from "./status/status_bar.js";
 import { createSourceBanner, BANNER_CONSUMES } from "./status/source_banner.js";
 import { createCallouts, CALLOUT_CONSUMES } from "./callouts/controller.js";
+import { initDisplay } from "./display_settings.js";
 import { Notifier } from "./callouts/notify.js";
 import { Speaker } from "./callouts/speech.js";
+import { ClipPlayer } from "./callouts/clipplayer.js";
+import { VOICE_ID } from "./callouts/clips.js";
+
+// Hold-to-confirm buttons (telecommands, requests, unlock) need an uninterrupted press of 1 s. Touch screens and the
+// Steam Frame's controller pointer turn a press held for about 500 ms into a context-menu (right click), which cancels
+// the pointer and the hold. The browser menu is never wanted in this app (text fields keep it for copy and paste).
+document.addEventListener("contextmenu", (e) => {
+  const t = e.target;
+  if (t instanceof Element && t.closest("input, textarea, [contenteditable]")) return;
+  e.preventDefault();
+});
 
 const TICK_MS = 100;
 const store = new Store();
@@ -49,6 +61,7 @@ function applyTheme(t) {
   window.dispatchEvent(new Event("exgs-theme"));
 }
 applyTheme(lsGet("exgs.theme") || "dark");
+initDisplay({ get: lsGet, set: lsSet }); // UI scale (per browser)
 
 // ---------------------------------------------------------------- connections
 const wsUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
@@ -180,6 +193,7 @@ function makeCtx(entry, getM) {
     telecommands: () => tcPush,
     update: () => updatePush,
     callouts: () => callouts,
+    ls: { get: lsGet, set: lsSet },
     notifier: () => notifier,
     speaker: () => speaker,
     now: () => store.now(view),
@@ -496,7 +510,7 @@ async function loadCalloutDefaults() {
 async function main() {
   layout = await loadLayout();
   notifier = new Notifier();
-  speaker = new Speaker({ getSettings: () => callouts.settings() });
+  speaker = new Speaker({ getSettings: () => callouts.settings(), clips: new ClipPlayer({ baseUrl: `/static/audio/${VOICE_ID}/` }) });
   callouts = createCallouts({ store, getView: () => view, getCoreStatus: () => status, ls: { get: lsGet, set: lsSet }, speaker, notifier, defaults: await loadCalloutDefaults() });
   renderAudioBar();
   const base = makeCtx(null, null);

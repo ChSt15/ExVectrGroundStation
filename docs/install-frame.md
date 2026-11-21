@@ -37,7 +37,7 @@ Userspace USB works without root: the user is in group `input` and `/dev/bus/usb
 
 ## Update
 
-Software tab (Operations dock): Check for updates, then hold "Update and restart" for 1 s. Or `.venv/bin/exgs update check` and `exgs update apply --confirm`; `exgs update --local` when no core runs. Refused while armed, motors enabled, mission running, recording, or an RC lease is held; refused with local changes ("local changes"), another branch, or non-fast-forward history. The page reconnects by itself and reloads once when the version changed.
+Software tab (Operations dock): Check for updates, then hold "Update and restart" for 1 s. Or `.venv/bin/exgs update check` and `exgs update apply --confirm`; stop the core with the Quit button (Software tab) or `exgs quit --confirm` (exit 0, start.sh does not restart); `exgs update --local` when no core runs. Refused while armed, motors enabled, mission running, recording, or an RC lease is held; refused with local changes ("local changes"), another branch, or non-fast-forward history. The page reconnects by itself and reloads once when the version changed.
 
 ## Rollback
 

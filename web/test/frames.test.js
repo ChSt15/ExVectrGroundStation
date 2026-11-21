@@ -68,3 +68,33 @@ test("attitude outside worldRoot: q3 = qR q qR* rotates Three.js vectors like th
   }
   near(quatMul(Q_ROOT, quatConj(Q_ROOT)), ID);
 });
+
+import { attitudeErrorDeg, isUsableSetpointQuat, vehicleQuatToThree as vq3 } from "../app/view3d/frames.js";
+
+test("attitude error: zero for equal attitudes, q and -q the same, shortest arc, null for unusable", () => {
+  const q = quatFromAxisAngle([0.3, -0.5, 0.8], 0.7);
+  assert.ok(Math.abs(attitudeErrorDeg(q, q)) < 1e-6);
+  assert.ok(Math.abs(attitudeErrorDeg(q, q.map((x) => -x))) < 1e-6);
+  const d = quatMul(quatFromAxisAngle([0, 0, 1], (30 * Math.PI) / 180), q);
+  assert.ok(Math.abs(attitudeErrorDeg(q, d) - 30) < 1e-6);
+  // a 350 degree rotation is a 10 degree error
+  const far = quatMul(quatFromAxisAngle([1, 0, 0], (350 * Math.PI) / 180), ID);
+  assert.ok(Math.abs(attitudeErrorDeg(ID, far) - 10) < 1e-6);
+  assert.equal(attitudeErrorDeg(ID, [0, 0, 0, 0]), null);
+  assert.equal(attitudeErrorDeg(ID, [NaN, 0, 0, 0]), null);
+  assert.equal(attitudeErrorDeg(null, ID), null);
+  assert.equal(isUsableSetpointQuat([0, 0, 0, 0]), false);
+  assert.equal(isUsableSetpointQuat(ID), true);
+});
+
+test("target attitude ghost uses the ship's conversion: equal setpoint and attitude give coinciding axes", () => {
+  const q = quatFromAxisAngle([0.2, 0.9, -0.4], 1.1);
+  const t = vq3(q); // what scene.js applies to both the ship group and the ghost group
+  const tq = [t.w, t.x, t.y, t.z];
+  for (const axis of [[1, 0, 0], [0, 1, 0], [0, 0, 1]]) {
+    // quaternion inside worldRoot (then worldRoot's -90 deg about X) equals bodyToThree of the vehicle quaternion
+    near(nwuToThree(quatRotate(tq, axis)), bodyToThree(q, axis));
+  }
+  // the ghost for a 90 degree yaw setpoint points body +X West (-Z in Three.js)
+  near(bodyToThree(quatFromAxisAngle([0, 0, 1], Math.PI / 2), [1, 0, 0]), [0, 0, -1]);
+});

@@ -88,6 +88,7 @@ Version 1, direction `down`, nominal rate 2 Hz, history: no.
 |---|---|---|---|
 | `sp_vel` | float_array[3] | m/s | velocity setpoint, NWU Elements: x, y, z. |
 | `sp_pos` | float_array[3] | m | position setpoint, NWU Elements: x, y, z. |
+| `sp_q` | float_array[4] | - | attitude setpoint quaternion, body -> world, NWU (as Attitude.q); None = no attitude setpoint (all four zero, NaN from an older sender, or a link that does not carry it) Elements: w, x, y, z. |
 | `mission_mode` | enum (MissionMode: Idle=0, Initialisation=1, Startup=2, Running=3, Finished=4) | - |  |
 | `mission_phase` | enum (MissionPhase: Idle=0, Hover=1, Ascent=2, Descent=3, Deceleration=4, RTH=5, Landing=6, Completed=7) | - |  |
 | `t_mission` | time_ns | ns | mission time, negative during countdown |

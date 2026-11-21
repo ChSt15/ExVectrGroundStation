@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { WORLD_ROOT_ROTATION_X, vehicleQuatToThree } from "./frames.js";
 import { buildShip } from "./model.js";
+import { getDisplay, pixelRatio } from "../display_settings.js";
 
 const GRID_HALF_M = 50;
 const AXIS_COLORS = { n: 0xe5534b, w: 0x3fb950, up: 0x58a6ff };
@@ -49,7 +50,7 @@ export class Scene3D {
     this.labels = [];
     this.stale = {};
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.applyPixelRatio();
     this.renderer.setClearColor(0x000000, 0);
     container.append(this.renderer.domElement);
     this.scene = new THREE.Scene();
@@ -77,6 +78,9 @@ export class Scene3D {
     this._onTheme = () => this.applyTheme();
     this.mq?.addEventListener?.("change", this._onTheme);
     window.addEventListener("exgs-theme", this._onTheme); // the GUI's own dark / light switch
+    this._onDisplay = () => this.resize(); // UI scale / 3D resolution changed
+    window.addEventListener("exgs-display", this._onDisplay);
+    this.watchDpr();
     this.resize();
   }
 
@@ -86,6 +90,7 @@ export class Scene3D {
     this.bodyAxes = new THREE.AxesHelper(0.25);
     this.bodyAxes.visible = false;
     this.ship.group.add(this.bodyAxes);
+    this.buildTargetAttitude();
     const ta = this.cfg.thrust_arrow || {};
     this.thrustCfg = { m_per_n: ta.m_per_n ?? 0.02, max_m: ta.max_m ?? 0.6, origin: ta.origin_body_m ?? [0, 0, -0.4] };
     this.thrust = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(), 0.1, 0xd29922, 0.04, 0.025);
@@ -270,6 +275,47 @@ export class Scene3D {
     this.dirty = true;
   }
 
+  /**
+   * Target attitude: the wanted body axes drawn as dashed, semi-transparent "ghost" axes at the ship position, in the
+   * same colours as the real body axes (AxesHelper: X red, Y green, Z blue). Placed under worldRoot with the vehicle
+   * quaternion exactly like the ship group, so they coincide with the real axes when the vehicle tracks perfectly.
+   */
+  buildTargetAttitude() {
+    const L = 0.35;
+    const g = (this.attGhost = new THREE.Group());
+    this.attGhostMats = [];
+    for (const [dir, col] of [[[L, 0, 0], 0xff0000], [[0, L, 0], 0x00ff00], [[0, 0, L], 0x0000ff]]) {
+      const mat = new THREE.LineDashedMaterial({ color: col, dashSize: 0.03, gapSize: 0.02, transparent: true, opacity: 0.6, depthTest: false });
+      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(...dir)]), mat);
+      line.computeLineDistances();
+      line.renderOrder = 2;
+      g.add(line);
+      this.attGhostMats.push(mat);
+    }
+    g.visible = false;
+    this.root.add(g);
+    this.attGhostEnabled = true;
+  }
+
+  /** pos NWU [x,y,z] (ship position) or null, sp vehicle quaternion [w,x,y,z] or null (hidden), shown: the toggle. */
+  setTargetAttitude(pos, sp) {
+    if (!this.attGhost) return;
+    const qt = sp && vehicleQuatToThree(sp);
+    const ok = this.attGhostEnabled && qt && Array.isArray(pos) && pos.every(Number.isFinite);
+    this.attGhost.visible = !!ok;
+    if (ok) {
+      this.attGhost.position.set(...pos);
+      this.attGhost.quaternion.set(qt.x, qt.y, qt.z, qt.w);
+    }
+    this.dirty = true;
+  }
+
+  setTargetAttitudeEnabled(on) {
+    this.attGhostEnabled = on;
+    if (!on && this.attGhost) this.attGhost.visible = false;
+    this.dirty = true;
+  }
+
   setBodyAxes(on) {
     if (this.bodyAxes) this.bodyAxes.visible = on;
     this.dirty = true;
@@ -300,9 +346,32 @@ export class Scene3D {
   }
 
   // ------------------------------------------------------------------ rendering
+  /** Renderer pixel ratio from devicePixelRatio, the GUI's UI scale and the 3D resolution setting (capped). */
+  applyPixelRatio() {
+    const d = getDisplay();
+    const r = pixelRatio(window.devicePixelRatio, d.ui, d.res);
+    if (r !== this._pr) {
+      this._pr = r;
+      this.renderer.setPixelRatio(r);
+    }
+  }
+
+  /** Re-apply when devicePixelRatio changes (window moved to another screen, browser zoom). */
+  watchDpr() {
+    this._dprMq?.removeEventListener?.("change", this._onDpr);
+    if (!window.matchMedia) return;
+    this._dprMq = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+    this._onDpr = () => {
+      this.resize();
+      this.watchDpr();
+    };
+    this._dprMq.addEventListener?.("change", this._onDpr);
+  }
+
   resize() {
     const w = this.container.clientWidth, h = this.container.clientHeight;
     if (!w || !h) return;
+    this.applyPixelRatio();
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
@@ -331,6 +400,8 @@ export class Scene3D {
     this.ro.disconnect();
     this.mq?.removeEventListener?.("change", this._onTheme);
     window.removeEventListener("exgs-theme", this._onTheme);
+    window.removeEventListener("exgs-display", this._onDisplay);
+    this._dprMq?.removeEventListener?.("change", this._onDpr);
     this.controls.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();

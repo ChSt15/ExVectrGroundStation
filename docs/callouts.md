@@ -11,7 +11,8 @@ The engine reads the freshest `VehicleStatus`, `MissionState` and `Position` of 
 | Category | Says | Details |
 |---|---|---|
 | countdown | `5` `4` `3` `2` `1`, `Mission start` | `MissionState.t_mission` crossing -5 s .. -1 s once each, `Mission start` at 0. If one step crosses several numbers only the last is spoken. A jump of more than 2 s or a reset backwards re-baselines without speaking. |
-| phase | phase names | Edge of `mission_phase` (MissionState, else VehicleStatus). The first observation is silent, `Idle` is not announced. Names are configurable (`phaseNames`): Hover = `Hover`, Ascent = `Ascent`, Descent = `Belly flop`, Deceleration = `Deceleration`, RTH = `Return to home`, Landing = `Landing`, Completed = `Landed`. The vehicle has no `Freefall` phase: say it by renaming `Descent` in `phaseNames` if wanted. |
+| countdown (mission begin) | `Mission beginning` | `mission_mode` leaves `Idle` for `Initialisation`, `Startup` (or `Running`): the user started the mission. First observation (connect) is silent. Priority mission, category switch `countdown`. Clip `mission-beginning`. |
+| phase | phase names | Edge of `mission_phase` (MissionState, else VehicleStatus), **only while `mission_mode` is `Running`** (and `Finished`, for `Landed`). The vehicle reports `Hover` from Ready on and through Initialisation / Startup (countdown), so nothing is said for it before `Running`; on entering `Running` the current phase (normally `Hover`) is announced once. The first observation while already `Running` is silent, `Idle` is not announced. Names are configurable (`phaseNames`): Hover = `Hover`, Ascent = `Ascent`, Descent = `Belly flop`, Deceleration = `Deceleration`, RTH = `Return to home`, Landing = `Landing`, Completed = `Landed`. The vehicle has no `Freefall` phase: say it by renaming `Descent` in `phaseNames` if wanted. |
 | altitude | `Altitude 50` | `Position.pos[2]` (NWU up, relative to the reset origin) crossing the list (default 25, 50, 100, 150, 200 m), rising and falling, once per crossing. Hysteresis (default 3 m): a level is said at threshold + 1.5 m and re-arms at threshold - 1.5 m, so noise does not repeat. Several levels in one step: only the last reached. Active only while the reported `mission_mode` is `Running` (not on the ground), the first fresh sample sets the baseline silently. |
 | failure | `Sensor failure`, `Attitude failure`, `Position failure`, `Position out of bounds`, `Attitude out of bounds`, `Radio connection loss`, `Failure bit n`, `Failsafe`, `Failure cleared` | One callout per set bit of `VehicleStatus.failure_bits` (names as `status_logic.js`), `Failsafe` when the flag rises, `Failure cleared` when the last failure ends or the failsafe flag falls. Repeated every 5 s, up to 3 repeats (4 announcements) while it persists. Existing failures at connect are announced. Failure toasts stay until cleared or dismissed. |
 | link | `Telemetry lost`, `Telemetry restored`, `Router link lost`, `Router link restored` | Live view only. Telemetry lost: the newest `VehicleStatus` is older than 3 s (also when the core connection is down: the view clock keeps running). Router: the source of kind `link_module` leaves `connected` (a user-disabled or absent Router says nothing). |
@@ -26,7 +27,7 @@ The engine reads the freshest `VehicleStatus`, `MissionState` and `Position` of 
 
 ## Voice styles
 
-The Web Speech API has rate, pitch, volume and voice selection only, no emotion and no SSML, so urgency is emulated:
+These styles apply to the **Browser voice** mode (and the fallback). The Web Speech API has rate, pitch, volume and voice selection only, no emotion and no SSML, so urgency is emulated:
 
 | Style | Used for | rate | pitch | volume |
 |---|---|---|---|---|
@@ -34,11 +35,37 @@ The Web Speech API has rate, pitch, volume and voice selection only, no emotion 
 | warning | deviation, telemetry/link, armed | 1.15 | 0.9 | 1.0 |
 | failure | failures, failsafe, motors enabled | 1.3 | 0.7 | 1.0 |
 
-The failure style is preceded by a short two-tone beep (WebAudio, no audio files). All styles are editable in the settings. **Master volume** (0 to 100 %, default 80 %): the utterance volume is `min(1, style volume x master)` and the beep gain is `0.35 x master`; changes apply to the next callout, and *Test volume* speaks `Volume test` with the beep at the current setting.
+The failure style is preceded by a short two-tone beep (WebAudio). All styles are editable in the settings. **Master volume** (0 to 100 %, default 80 %): the utterance volume is `min(1, style volume x master)` and the beep gain is `0.35 x master`; changes apply to the next callout, and *Test volume* speaks `Volume test` with the beep at the current setting.
+
+## Recorded voice (default)
+
+Browser speech needs a system voice, and some devices have none (the Steam Frame's Flatpak Chromium). So callouts are **pre-recorded clips** by default, played with WebAudio: they work offline, without any TTS voice, and sound the same everywhere. The **Voice** setting in the Callouts tab (`voiceMode`, saved with the other callout settings) has three choices:
+
+- **Recorded (default):** the callout text is composed into clips (`web/app/callouts/clips.js`). A text that has no clip falls back to browser speech when it can speak (speechSynthesis with at least one voice), otherwise to one short beep.
+- **Browser voice:** the Web Speech API as before (styles, voice selection); a beep when no voice exists.
+- **Beeps only:** one short two-tone beep per callout (a failure beeps before its words in the other modes too).
+
+Composition: a text that equals a clip's spoken text is one clip. Otherwise it is split into words: known phrases (longest match first), numbers and units. Numbers: `0..99` and `100..900` are single clips, `1234` is one, thousand, two hundred, thirty-four; `12.5` is twelve, point, five; `-3` starts with minus; `0.0` is zero, point, zero; beyond 99999 digit by digit. Units after a number: `m` meters, `m/s` meters per second, `s` seconds, `deg` or the degree sign degrees, `%` percent. `Altitude 50` is "altitude", "fifty"; `T minus 5` works too. Clips are chained on the AudioContext clock with a 60 ms gap (`CLIP_GAP_S`), not one `<audio>` element per clip. Priorities, interrupts (a failure cancels the clips in progress), queue, max age, suppression and the master and style volume (`min(1, style volume x master)`) are the same as for speech; rate and pitch of the styles apply to browser speech only.
+
+The clips are `web/audio/en_GB-northern_english_male-medium/<clip-id>.ogg` (Opus, mono, about 450 KiB for the 149 clips, loaded and decoded once after audio is enabled), served as `/static/audio/...`, with `manifest.json` (clip id to file, spoken text, duration, model, length scale). Voice: Piper `en_GB-northern_english_male`, quality medium, length scale 1.1 (slower than the default 1.0, for clarity; `LENGTH_SCALE` in the generator).
+
+### Licence
+
+The voice is trained on the OpenSLR 83 dataset (crowdsourced UK and Ireland English) and published in rhasspy/piper-voices under **CC-BY-SA 4.0 International** (its MODEL_CARD; finetuned from the lessac medium voice). Generated audio may be redistributed with credit, an indication of changes and the same licence. That is why the clips are committed with `web/audio/en_GB-northern_english_male-medium/LICENSE-VOICE.txt` (credit, source, licence link, length scale). The licence covers the audio only, not the ground-station code. Anyone shipping the GUI audio must keep that file with the clips.
+
+### Regenerating and adding a phrase
+
+```
+pip install -e '.[voice]'            # piper-tts, optional, not a runtime dependency; ffmpeg for Opus
+python tools/generate_voice_clips.py  # downloads the model once to ~/.cache/exvectr-gs/piper/ (network), renders missing clips
+python tools/generate_voice_clips.py --force   # re-render everything (or after changing --length-scale)
+```
+
+It trims leading and trailing silence, writes the clips, `manifest.json` and `LICENSE-VOICE.txt`, and skips clips whose file and text are unchanged; a changed length scale or format re-renders all. Without ffmpeg the clips stay WAV (larger). To add a phrase the engine can say: add `"clip-id": "Spoken text"` to `web/audio/phrases.json`, run the generator, commit the new clip and manifest. `tests/unit/test_voice_clips.py` reads the engine, settings, default config and controller sources and fails when a fixed text has no clip, and checks manifest and files against the list.
 
 ## Audio permission
 
-Browsers need a user gesture before sound. The notification area shows an **Enable audio** button (and the settings page has the same), the header speaker icon shows muted / audio on / audio not enabled. The choice is remembered in `localStorage` (`exgs.callouts.audio`); after a reload the state is **audio blocked** until the first click or key press anywhere on the page, which activates it. The test buttons enable audio as well. With no `speechSynthesis` or no voices (Linux without speech-dispatcher) notifications still work and the settings page says `no speech voices available: install speech-dispatcher / a voice, text notifications still shown`.
+Browsers need a user gesture before sound. The notification area shows an **Enable audio** button (and the settings page has the same), the header speaker icon shows muted / audio on / audio not enabled. The choice is remembered in `localStorage` (`exgs.callouts.audio`); after a reload the state is **audio blocked** until the first click or key press anywhere on the page, which activates it. The test buttons enable audio as well. With the default recorded voice no system voice is needed. In Browser voice mode with no `speechSynthesis` or no voices (Linux without speech-dispatcher) callouts beep, notifications still work and the settings page says `no speech voices available: install speech-dispatcher / a voice, text notifications still shown`.
 
 ## Notifications
 
@@ -50,4 +77,4 @@ Every callout is shown as a toast (also with audio off or blocked), top right be
 
 ## Tests
 
-`web/test/callouts_*.test.js` (engine rules, seek and stale suppression, queue and suppression, speaker with a fake synth, settings merge, volume scaling), `tests/integration/test_callouts_gui.py` (headless browser with a fake `speechSynthesis` and `AudioContext` against the pty fake vehicle and a replay, including the 1366x768 position check of the toasts), `tests/integration/test_api.py` (`/config/callouts.json`). Real speech is not testable headless: listen once on the real browser and voice (docs/callouts.md checklist in the branch report).
+`web/test/callouts_*.test.js` (engine rules, seek and stale suppression, queue and suppression, speaker with a fake synth, clip composition and playback with a fake AudioContext (`callouts_clips.test.js`), settings merge, volume scaling), `tests/integration/test_callouts_gui.py` (headless browser with a fake `speechSynthesis` and `AudioContext` against the pty fake vehicle and a replay, including the 1366x768 position check of the toasts), `tests/integration/test_api.py` (`/config/callouts.json`). Real speech is not testable headless: listen once on the real browser and voice (docs/callouts.md checklist in the branch report).

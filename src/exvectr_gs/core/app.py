@@ -124,6 +124,7 @@ class CoreApp:
         self.restart_delay_s = 1.5  # lets the `update.apply` reply reach the client before the core exits
         self._restart_reason = ""
         self._restart_requested = False
+        self._quit_requested = False  # `core.quit`: clean shutdown, exit code 0 (start.sh then ends)
         self.api = None
         self.update = UpdateService(cfg.update, REPO_ROOT, lambda: update_guards(self), self.request_restart)
 
@@ -245,6 +246,11 @@ class CoreApp:
             if self._running:
                 self._start_source(src)
 
+    def request_quit(self, reason: str) -> None:
+        """Ask `run` to shut down cleanly (same path as Ctrl-C) and exit with code 0, after `restart_delay_s`."""
+        self._quit_requested = True
+        log.warning("quit requested: %s", reason)
+
     async def _restart_now(self, summary) -> bool:
         """True when the core should exit for the restart. Waits a moment (the reply to the client), then re-checks
         the guards: if one fails now, nothing restarts (the update stays on disk, `restart_pending`)."""
@@ -303,6 +309,11 @@ class CoreApp:
             while end is None or self.clock.now() < end:
                 await asyncio.sleep(1.0)
                 summary(self.summary_line())
+                if self._quit_requested:
+                    await asyncio.sleep(self.restart_delay_s)  # lets the `core.quit` reply reach the client
+                    self.exit_code = 0
+                    summary("exiting with code 0 (quit requested)")
+                    break
                 if self._restart_requested and await self._restart_now(summary):
                     break
         finally:

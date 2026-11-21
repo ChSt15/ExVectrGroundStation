@@ -95,6 +95,11 @@ async def test_mission_callouts_are_spoken_with_styles_and_shown(tmp_path):
         # voice list from getVoices(), speaker icon state
         assert await b.eval("document.querySelector('[data-testid=co-voice]').options.length") == 2
         assert await b.eval("document.querySelector('[data-testid=callouts-icon]').dataset.muted") == "false"
+        # voice setting: recorded by default, three choices, clips are served as static files
+        assert await b.eval("document.querySelector('[data-testid=co-voice-mode]').value") == "recorded"
+        assert await b.eval("document.querySelector('[data-testid=co-voice-mode]').options.length") == 3
+        m = await b.eval("fetch('/static/audio/en_GB-northern_english_male-medium/manifest.json').then(r => r.ok)")
+        assert m is True
         # reset to defaults restores 80 %
         await b.eval("document.querySelector('[data-testid=co-reset]').click()")
         assert await b.eval("document.querySelector('[data-testid=co-volume-pct]').textContent") == "80 %"

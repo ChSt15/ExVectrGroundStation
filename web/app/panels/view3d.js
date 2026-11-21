@@ -3,9 +3,10 @@
 import { registerPanel } from "./registry.js";
 import { h } from "../ui.js";
 import { describe, fmtAge } from "../fmt.js";
-import { isValidQuat } from "../view3d/frames.js";
+import { isValidQuat, isUsableSetpointQuat, attitudeErrorDeg } from "../view3d/frames.js";
 import { validateModel, resolveFlapAngles, radToDeg } from "../view3d/model_config.js";
 import { Trail } from "../view3d/trail.js";
+import { TargetSmoother } from "../view3d/target_smooth.js";
 
 const CONSUMES = ["Attitude", "Position", "MissionState", "FlapState", "VehicleState"];
 const MODES = [["follow", "Follow"], ["observer", "Observer"], ["top", "Top"]];
@@ -19,12 +20,17 @@ registerPanel({
     const overlay = h("div", { class: "v3d-overlay" });
     const buttons = new Map(MODES.map(([id, label]) => [id, h("button", { text: label, "aria-pressed": id === "follow" ? "true" : "false" })]));
     const axesBox = h("input", { type: "checkbox" });
-    const toolbar = h("div", { class: "toolbar" }, h("span", { class: "toggle" }, ...buttons.values()), h("label", { class: "hint" }, axesBox, " body axes"));
+    const ghostBox = h("input", { type: "checkbox", checked: true });
+    ghostBox.checked = true;
+    const toolbar = h("div", { class: "toolbar" }, h("span", { class: "toggle" }, ...buttons.values()), h("label", { class: "hint" }, axesBox, " body axes"), h("label", { class: "hint", title: "dashed axes: attitude setpoint of the vehicle" }, ghostBox, " target attitude"));
     const size = ctx.options && ctx.options.height ? ` v3d-${ctx.options.height}` : "";
     el.append(toolbar, h("div", { class: `v3d${size}` }, canvasBox, overlay));
 
     let scene = null, cfg = null, failed = null;
     let trail = new Trail(60);
+    // Display-only smoothing of the target position (see view3d/target_smooth.js); panels keep the raw values.
+    const target = new TargetSmoother();
+    let lastShipPos = null, lastSpStale = false;
     let histGen = 0, pending = false;
     let state = { ship: "no data", flaps: "default", flapAngles: null };
 
@@ -53,8 +59,13 @@ registerPanel({
           buttons.forEach((bb, i) => bb.setAttribute("aria-pressed", String(i === id)));
         }));
         axesBox.addEventListener("change", () => scene.setBodyAxes(axesBox.checked));
+        ghostBox.addEventListener("change", () => {
+          scene.setTargetAttitudeEnabled(ghostBox.checked);
+          refresh();
+        });
         const loop = () => {
           if (!scene) return;
+          if (!target.settled(ctx.now() ?? 0)) drawTarget();
           scene.frame();
           requestAnimationFrame(loop);
         };
@@ -95,13 +106,19 @@ registerPanel({
       refresh();
     }
 
+    function drawTarget() {
+      const now = ctx.now();
+      scene.setSetpoint(now === null ? null : target.at(now), lastVel, lastSpStale, lastShipPos);
+    }
+    let lastVel = null;
+
     // ---- store -> scene
     function refresh() {
       pending = false;
       if (!scene) return;
       const now = ctx.now();
       const att = desc("Attitude", "q"), pos = desc("Position", "pos");
-      const lines = [];
+      const lines = [], extra = [];
       const usable = (d) => d.state === "fresh" || d.state === "stale";
       const q = usable(att) ? att.value : null, p = usable(pos) ? pos.value : null;
       const validQ = isValidQuat(q);
@@ -125,7 +142,25 @@ registerPanel({
       else if (state.flaps === "stale") lines.push([`flaps stale ${fmtAge(fdesc.age)}`, "warn"]);
       // setpoint (guidance) and thrust arrow
       const ms = desc("MissionState", "sp_pos"), mv = desc("MissionState", "sp_vel");
-      scene.setSetpoint(usable(ms) ? ms.value : null, usable(mv) ? mv.value : null, ms.state === "stale", usable(pos) ? p : null);
+      // a stale or missing target is drawn as received (no extrapolation, no blending)
+      const spEntry = lookup("MissionState");
+      lastSpStale = ms.state === "stale";
+      lastShipPos = usable(pos) ? p : null;
+      lastVel = usable(mv) ? mv.value : null;
+      if (usable(ms) && !lastSpStale && spEntry && now !== null) {
+        target.update(now, ms.value, lastVel, spEntry.t);
+        drawTarget();
+      } else {
+        target.reset();
+        scene.setSetpoint(usable(ms) ? ms.value : null, lastVel, lastSpStale, lastShipPos);
+      }
+      // target attitude (display only, as received, no smoothing): ghost axes at the ship, hidden when none or stale
+      const sq = desc("MissionState", "sp_q");
+      const spq = sq.state === "fresh" && isUsableSetpointQuat(sq.value) ? sq.value : null;
+      scene.setTargetAttitude(spq && lastShipPos ? lastShipPos : null, spq);
+      const err = spq && validQ && !stale ? attitudeErrorDeg(q, spq) : null;
+      if (err !== null) extra.push([`attitude error (setpoint vs estimate): ${err.toFixed(1)}°`, "dim"]);
+      state.attErr = err;
       const th = desc("VehicleState", "tvc_thrust");
       scene.setThrust(usable(th) ? th.value : null, stale || th.state === "stale");
       // trail
@@ -134,7 +169,7 @@ registerPanel({
         scene.setTrail(trail.pts, trail.fades(now));
       }
       state.ship = lines.length ? lines.map((l) => l[0]).join("; ") : "ok";
-      setOverlay(lines);
+      setOverlay([...lines, ...extra]);
     }
     const schedule = () => {
       if (!pending) {
@@ -157,11 +192,13 @@ registerPanel({
         schedule();
       },
       onReset() {
+        target.reset();
         trail.clear();
         loadHistory();
         schedule();
       },
       onViewChange() {
+        target.reset();
         trail.clear();
         loadHistory();
         schedule();
@@ -219,6 +256,7 @@ registerPanel({
           trail_points: scene.trailCount ?? 0,
           status: state.ship,
           overlay: overlay.textContent,
+          target_attitude: { visible: scene.attGhost.visible, error_deg: state.attErr ?? null },
           world_root_rotation_x: scene.root.rotation.x,
         };
       },

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyState, badgeState, checkNotes, describeVersion, liveGuards } from "../app/update/update_logic.js";
+import { applyState, badgeState, checkNotes, describeVersion, liveGuards, quitState } from "../app/update/update_logic.js";
 
 const ok = { apiState: "open", view: "live", canControl: true, vehicle: { f: { armed: false, motors_enabled: false, mission_mode: "Idle" } }, recorder: { active: false }, rc: { lease: null }, coreGuards: [] };
 
@@ -51,4 +51,15 @@ test("describe and notes", () => {
   assert.match(describeVersion({ git: true, sha: "abc", branch: "master", date: "2026-11-20T10:00:00+01:00", subject: "s" }), /abc on master · 2026-11-20 · s/);
   assert.match(describeVersion({ git: false }), /git checkout/);
   assert.equal(checkNotes({ deps_changed: true, submodules_changed: true, diverged: false, more_commits: 4 }).length, 3);
+});
+
+test("quit: needs a connection and a control host, warns about an RC lease but allows it", () => {
+  const q = (o) => quitState({ apiState: "open", canControl: true, rc: { lease: null }, ...o });
+  assert.equal(q({}).enabled, true);
+  assert.equal(q({}).notes.length, 1);
+  assert.equal(q({ apiState: "closed" }).enabled, false);
+  assert.equal(q({ canControl: false }).enabled, false);
+  const w = q({ rc: { lease: { id: "x" } } });
+  assert.equal(w.enabled, true);
+  assert.ok(w.notes.some((t) => t.includes("RC control is active")));
 });

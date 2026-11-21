@@ -6,6 +6,7 @@
 # (fake vehicle, no hardware needed).
 #
 # The core is restarted when it exits with code 42 ("update applied, restart"); any other exit code ends the loop.
+# Exit code 0 is a deliberate stop (`core.quit`, GUI Quit button, `exgs quit --confirm`): no restart, no prompt.
 # Environment: EXGS_PORT (default 8765), GS_NAME (mDNS alias, default gs -> gs.local), GS_NO_BROWSER=1 (do not open
 # the GUI), GS_NO_MDNS=1 (no alias).
 set -u
@@ -88,7 +89,7 @@ main() {
     break
   done
 
-  # Ended on its own: keep an interactive window open so a message can be read.
+  # Ended on its own (a deliberate quit is rc 0 and closes at once): keep an interactive window open so a message can be read.
   if [ "$rc" -ne 0 ] && [ "$rc" -ne 130 ] && [ -t 0 ]; then
     read -r -p "Ground station stopped (exit code $rc). Press Enter to close. " _
   fi

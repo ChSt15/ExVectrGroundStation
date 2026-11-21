@@ -96,7 +96,14 @@ async def test_browser_view_frames_flaps_and_overlays_with_flap_data():
                 exp = flap_tip_expected(side, zc, w, math.radians(f["angle_deg"]))
                 assert f["tip_body"] == pytest.approx(exp, abs=2e-3), (fid, f, exp)
             assert d["setpoint"]["visible"] and d["trail_points"] > 0 and d["thrust_visible"]
-            assert d["overlay"] == ""
+            # the only overlay line is the attitude error readout (Running: the fake source supplies sp_q)
+            assert d["overlay"].startswith("attitude error (setpoint vs estimate): "), d["overlay"]
+            ta = d["target_attitude"]
+            assert ta["visible"] and 0 < ta["error_deg"] < 15, ta
+            # the toggle hides the ghost axes
+            await b.eval("document.querySelectorAll('[data-panel=view3d] .toolbar input')[1].click()")
+            await b.sleep(0.4)
+            assert not json.loads(await b.eval(DEBUG))["target_attitude"]["visible"]
             # camera modes work
             for mode in ("Observer", "Top", "Follow"):
                 await b.eval(

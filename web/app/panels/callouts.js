@@ -2,7 +2,7 @@
 // deviation limit, voice styles, voice, speak-in-replay, history. docs/callouts.md. Display-only feature.
 import { registerPanel } from "./registry.js";
 import { h, section } from "../ui.js";
-import { CATEGORIES, CATEGORY_LABELS, STYLE_NAMES } from "../callouts/settings.js";
+import { CATEGORIES, CATEGORY_LABELS, STYLE_NAMES, VOICE_MODES, VOICE_MODE_LABELS } from "../callouts/settings.js";
 import { toneOf } from "../callouts/notify.js";
 
 const STYLE_HELP = {
@@ -34,8 +34,15 @@ registerPanel({
     const audioBtn = h("button", { "data-testid": "audio-enable" });
     audioBtn.addEventListener("click", () => (co().audioState() === "on" ? co().disableAudio() : co().enableAudio()));
     const audioNote = h("div", { class: "hint", "data-testid": "voices-note" });
+    const mode = h("select", { "data-testid": "co-voice-mode", "aria-label": "voice" }, ...VOICE_MODES.map((k) => h("option", { value: k, text: VOICE_MODE_LABELS[k] })));
+    mode.addEventListener("change", () => set((s) => (s.voiceMode = mode.value)));
     const a = section(el, "Audio");
-    a.append(h("div", { class: "co-row" }, audioState, audioBtn), audioNote);
+    a.append(
+      h("div", { class: "co-row" }, audioState, audioBtn),
+      h("div", { class: "co-row" }, h("span", { text: "Voice" }), mode),
+      h("div", { class: "hint", text: "Recorded: pre-recorded clips, work without any system voice. Browser voice: the browser's speech synthesis. Beeps only: a short beep per callout." }),
+      audioNote,
+    );
 
     const master = h("input", { type: "checkbox", "data-testid": "co-master" });
     master.addEventListener("change", () => set((s) => (s.master = master.checked)));
@@ -93,9 +100,9 @@ registerPanel({
       st.append(row, h("div", { class: "hint", text: STYLE_HELP[n] }));
     }
     st.append(h("div", { class: "hint", text: "The Web Speech API has rate, pitch, volume and voice only (no emotion, no SSML): urgency is emulated with these styles and the beep." }));
-    const voice = h("select", { "data-testid": "co-voice", "aria-label": "speech voice" });
+    const voice = h("select", { "data-testid": "co-voice", "aria-label": "browser speech voice" });
     voice.addEventListener("change", () => set((s) => (s.voice = voice.value)));
-    st.append(h("div", { class: "co-row" }, h("span", { text: "Voice" }), voice));
+    st.append(h("div", { class: "co-row" }, h("span", { text: "Browser voice" }), voice), h("div", { class: "hint", text: "Used by the Browser voice setting, and as the fallback of Recorded for phrases without a clip. Rate and pitch of the styles apply to browser speech only; recorded clips use the volume." }));
 
     // ---- reset and history
     const reset = h("button", { "data-testid": "co-reset", text: "Reset to defaults" });
@@ -126,10 +133,14 @@ registerPanel({
       const s = co().audioState();
       const sp = ctx.speaker();
       audioState.dataset.tone = s === "on" ? "ok" : "bad";
-      audioState.textContent = { on: "audio on", off: "audio off (click Enable audio)", blocked: "audio blocked: click anywhere or Enable audio", unsupported: "speech not supported by this browser" }[s];
+      audioState.textContent = { on: "audio on", off: "audio off (click Enable audio)", blocked: "audio blocked: click anywhere or Enable audio", unsupported: "no audio output available in this browser" }[s];
       audioBtn.textContent = s === "on" ? "Disable audio" : "Enable audio";
       audioBtn.disabled = s === "unsupported";
-      audioNote.textContent = !sp.supported ? "speechSynthesis is not available: text notifications are still shown." : !sp.voices().length ? NO_VOICES : "";
+      const m = co().settings().voiceMode;
+      const clips = sp.clips;
+      audioNote.textContent = m === "beeps" ? ""
+        : m === "recorded" ? (clips && clips.state === "failed" ? "recorded clips could not be loaded: using browser speech or beeps." : clips && clips.state === "loading" ? "loading recorded clips ..." : "")
+        : !sp.supported ? "speechSynthesis is not available: beeps instead, text notifications are still shown." : !sp.voices().length ? NO_VOICES : "";
     }
 
     function render() {
@@ -138,6 +149,7 @@ registerPanel({
         if (document.activeElement !== i) i.value = String(v);
       };
       master.checked = s.master;
+      mode.value = s.voiceMode;
       put(vol, Math.round(s.volume * 100));
       volPct.textContent = `${Math.round(s.volume * 100)} %`;
       for (const k of CATEGORIES) catBoxes[k].checked = s.categories[k];

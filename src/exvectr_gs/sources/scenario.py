@@ -165,7 +165,13 @@ class Scenario:
     def _f_MissionState(self, t: float) -> dict[str, Any]:
         _, mmode, phase = self.phase_at(t)
         ahead = t + 1.0
+        # attitude setpoint: slowly varying unit quaternion near the vehicle attitude while Running, none otherwise
+        sp_q = None
+        if self.phase_at(t)[0] == VehicleMode.Running:
+            r, p, y = self.euler(t)
+            sp_q = _quat_from_euler(r + 0.08 * math.sin(0.5 * t), p + 0.06 * math.cos(0.4 * t), y + 0.05)
         return {
+            "sp_q": sp_q,
             "sp_vel": self.vel(ahead),
             "sp_pos": self.pos(ahead),
             "mission_mode": mmode,

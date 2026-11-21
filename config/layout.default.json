@@ -28,6 +28,10 @@
         "label": "Callouts"
       },
       {
+        "panel": "display",
+        "label": "Display"
+      },
+      {
         "panel": "update",
         "label": "Software"
       },

@@ -71,3 +71,17 @@ export const bodyToWorld = (q, v) => quatRotate(q, v);
 
 /** Body-frame vector -> Three.js world vector (through worldRoot) for attitude q. */
 export const bodyToThree = (q, v) => nwuToThree(quatRotate(q, v));
+
+/** Usable attitude setpoint: 4 finite numbers, norm within 1 % of 1 (None / zero / NaN from the core never passes). */
+export const isUsableSetpointQuat = isValidQuat;
+
+/**
+ * Angle in degrees of the shortest-arc rotation between two attitudes [w, x, y, z] (q and -q are the same attitude).
+ * Null if either is unusable. Display only.
+ */
+export function attitudeErrorDeg(q, sp) {
+  if (!isValidQuat(q) || !isValidQuat(sp)) return null;
+  const nq = quatNorm(q), ns = quatNorm(sp);
+  const dot = Math.abs((q[0] * sp[0] + q[1] * sp[1] + q[2] * sp[2] + q[3] * sp[3]) / (nq * ns));
+  return (2 * Math.acos(Math.min(1, dot)) * 180) / Math.PI;
+}

@@ -1,0 +1,759 @@
+{
+ "voice": "en_GB-northern_english_male-medium",
+ "model": "en_GB-northern_english_male-medium.onnx",
+ "length_scale": 1.1,
+ "format": "ogg",
+ "licence": "CC-BY-SA 4.0 International",
+ "clips": {
+  "altitude": {
+   "file": "altitude.ogg",
+   "text": "Altitude",
+   "duration": 0.618
+  },
+  "armed": {
+   "file": "armed.ogg",
+   "text": "Armed",
+   "duration": 0.391
+  },
+  "ascent": {
+   "file": "ascent.ogg",
+   "text": "Ascent",
+   "duration": 0.381
+  },
+  "attitude-failure": {
+   "file": "attitude-failure.ogg",
+   "text": "Attitude failure",
+   "duration": 0.986
+  },
+  "attitude-out-of-bounds": {
+   "file": "attitude-out-of-bounds.ogg",
+   "text": "Attitude out of bounds",
+   "duration": 1.351
+  },
+  "belly-flop": {
+   "file": "belly-flop.ogg",
+   "text": "Belly flop",
+   "duration": 0.529
+  },
+  "deceleration": {
+   "file": "deceleration.ogg",
+   "text": "Deceleration",
+   "duration": 0.757
+  },
+  "degrees": {
+   "file": "degrees.ogg",
+   "text": "Degrees",
+   "duration": 0.558
+  },
+  "disarmed": {
+   "file": "disarmed.ogg",
+   "text": "Disarmed",
+   "duration": 0.505
+  },
+  "failsafe": {
+   "file": "failsafe.ogg",
+   "text": "Failsafe",
+   "duration": 0.513
+  },
+  "failure-bit": {
+   "file": "failure-bit.ogg",
+   "text": "Failure bit",
+   "duration": 0.524
+  },
+  "failure-cleared": {
+   "file": "failure-cleared.ogg",
+   "text": "Failure cleared",
+   "duration": 0.781
+  },
+  "hover": {
+   "file": "hover.ogg",
+   "text": "Hover",
+   "duration": 0.389
+  },
+  "landed": {
+   "file": "landed.ogg",
+   "text": "Landed",
+   "duration": 0.458
+  },
+  "landing": {
+   "file": "landing.ogg",
+   "text": "Landing",
+   "duration": 0.412
+  },
+  "meters": {
+   "file": "meters.ogg",
+   "text": "Meters",
+   "duration": 0.585
+  },
+  "meters-per-second": {
+   "file": "meters-per-second.ogg",
+   "text": "Meters per second",
+   "duration": 1.155
+  },
+  "minus": {
+   "file": "minus.ogg",
+   "text": "Minus",
+   "duration": 0.553
+  },
+  "mission-beginning": {
+   "file": "mission-beginning.ogg",
+   "text": "Mission beginning",
+   "duration": 0.731
+  },
+  "mission-start": {
+   "file": "mission-start.ogg",
+   "text": "Mission start",
+   "duration": 0.88
+  },
+  "motors-enabled": {
+   "file": "motors-enabled.ogg",
+   "text": "Motors enabled",
+   "duration": 0.993
+  },
+  "num-0": {
+   "file": "num-0.ogg",
+   "text": "zero",
+   "duration": 0.543
+  },
+  "num-1": {
+   "file": "num-1.ogg",
+   "text": "one",
+   "duration": 0.379
+  },
+  "num-10": {
+   "file": "num-10.ogg",
+   "text": "ten",
+   "duration": 0.337
+  },
+  "num-100": {
+   "file": "num-100.ogg",
+   "text": "one hundred",
+   "duration": 0.494
+  },
+  "num-11": {
+   "file": "num-11.ogg",
+   "text": "eleven",
+   "duration": 0.511
+  },
+  "num-12": {
+   "file": "num-12.ogg",
+   "text": "twelve",
+   "duration": 0.39
+  },
+  "num-13": {
+   "file": "num-13.ogg",
+   "text": "thirteen",
+   "duration": 0.622
+  },
+  "num-14": {
+   "file": "num-14.ogg",
+   "text": "fourteen",
+   "duration": 0.558
+  },
+  "num-15": {
+   "file": "num-15.ogg",
+   "text": "fifteen",
+   "duration": 0.607
+  },
+  "num-16": {
+   "file": "num-16.ogg",
+   "text": "sixteen",
+   "duration": 0.627
+  },
+  "num-17": {
+   "file": "num-17.ogg",
+   "text": "seventeen",
+   "duration": 0.682
+  },
+  "num-18": {
+   "file": "num-18.ogg",
+   "text": "eighteen",
+   "duration": 0.565
+  },
+  "num-19": {
+   "file": "num-19.ogg",
+   "text": "nineteen",
+   "duration": 0.713
+  },
+  "num-2": {
+   "file": "num-2.ogg",
+   "text": "two",
+   "duration": 0.325
+  },
+  "num-20": {
+   "file": "num-20.ogg",
+   "text": "twenty",
+   "duration": 0.479
+  },
+  "num-200": {
+   "file": "num-200.ogg",
+   "text": "two hundred",
+   "duration": 0.655
+  },
+  "num-21": {
+   "file": "num-21.ogg",
+   "text": "twenty-one",
+   "duration": 0.554
+  },
+  "num-22": {
+   "file": "num-22.ogg",
+   "text": "twenty-two",
+   "duration": 0.625
+  },
+  "num-23": {
+   "file": "num-23.ogg",
+   "text": "twenty-three",
+   "duration": 0.719
+  },
+  "num-24": {
+   "file": "num-24.ogg",
+   "text": "twenty-four",
+   "duration": 0.743
+  },
+  "num-25": {
+   "file": "num-25.ogg",
+   "text": "twenty-five",
+   "duration": 0.683
+  },
+  "num-26": {
+   "file": "num-26.ogg",
+   "text": "twenty-six",
+   "duration": 0.731
+  },
+  "num-27": {
+   "file": "num-27.ogg",
+   "text": "twenty-seven",
+   "duration": 0.704
+  },
+  "num-28": {
+   "file": "num-28.ogg",
+   "text": "twenty-eight",
+   "duration": 0.541
+  },
+  "num-29": {
+   "file": "num-29.ogg",
+   "text": "twenty-nine",
+   "duration": 0.611
+  },
+  "num-3": {
+   "file": "num-3.ogg",
+   "text": "three",
+   "duration": 0.498
+  },
+  "num-30": {
+   "file": "num-30.ogg",
+   "text": "thirty",
+   "duration": 0.502
+  },
+  "num-300": {
+   "file": "num-300.ogg",
+   "text": "three hundred",
+   "duration": 0.728
+  },
+  "num-31": {
+   "file": "num-31.ogg",
+   "text": "thirty-one",
+   "duration": 0.676
+  },
+  "num-32": {
+   "file": "num-32.ogg",
+   "text": "thirty-two",
+   "duration": 0.652
+  },
+  "num-33": {
+   "file": "num-33.ogg",
+   "text": "thirty-three",
+   "duration": 0.825
+  },
+  "num-34": {
+   "file": "num-34.ogg",
+   "text": "thirty-four",
+   "duration": 0.713
+  },
+  "num-35": {
+   "file": "num-35.ogg",
+   "text": "thirty-five",
+   "duration": 0.679
+  },
+  "num-36": {
+   "file": "num-36.ogg",
+   "text": "thirty-six",
+   "duration": 0.806
+  },
+  "num-37": {
+   "file": "num-37.ogg",
+   "text": "thirty-seven",
+   "duration": 0.747
+  },
+  "num-38": {
+   "file": "num-38.ogg",
+   "text": "thirty-eight",
+   "duration": 0.641
+  },
+  "num-39": {
+   "file": "num-39.ogg",
+   "text": "thirty-nine",
+   "duration": 0.686
+  },
+  "num-4": {
+   "file": "num-4.ogg",
+   "text": "four",
+   "duration": 0.406
+  },
+  "num-40": {
+   "file": "num-40.ogg",
+   "text": "forty",
+   "duration": 0.545
+  },
+  "num-400": {
+   "file": "num-400.ogg",
+   "text": "four hundred",
+   "duration": 0.622
+  },
+  "num-41": {
+   "file": "num-41.ogg",
+   "text": "forty-one",
+   "duration": 0.724
+  },
+  "num-42": {
+   "file": "num-42.ogg",
+   "text": "forty-two",
+   "duration": 0.745
+  },
+  "num-43": {
+   "file": "num-43.ogg",
+   "text": "forty-three",
+   "duration": 0.794
+  },
+  "num-44": {
+   "file": "num-44.ogg",
+   "text": "forty-four",
+   "duration": 0.725
+  },
+  "num-45": {
+   "file": "num-45.ogg",
+   "text": "forty-five",
+   "duration": 0.729
+  },
+  "num-46": {
+   "file": "num-46.ogg",
+   "text": "forty-six",
+   "duration": 0.818
+  },
+  "num-47": {
+   "file": "num-47.ogg",
+   "text": "forty-seven",
+   "duration": 0.767
+  },
+  "num-48": {
+   "file": "num-48.ogg",
+   "text": "forty-eight",
+   "duration": 0.636
+  },
+  "num-49": {
+   "file": "num-49.ogg",
+   "text": "forty-nine",
+   "duration": 0.726
+  },
+  "num-5": {
+   "file": "num-5.ogg",
+   "text": "five",
+   "duration": 0.411
+  },
+  "num-50": {
+   "file": "num-50.ogg",
+   "text": "fifty",
+   "duration": 0.429
+  },
+  "num-500": {
+   "file": "num-500.ogg",
+   "text": "five hundred",
+   "duration": 0.7
+  },
+  "num-51": {
+   "file": "num-51.ogg",
+   "text": "fifty-one",
+   "duration": 0.628
+  },
+  "num-52": {
+   "file": "num-52.ogg",
+   "text": "fifty-two",
+   "duration": 0.743
+  },
+  "num-53": {
+   "file": "num-53.ogg",
+   "text": "fifty-three",
+   "duration": 0.674
+  },
+  "num-54": {
+   "file": "num-54.ogg",
+   "text": "fifty-four",
+   "duration": 0.691
+  },
+  "num-55": {
+   "file": "num-55.ogg",
+   "text": "fifty-five",
+   "duration": 0.686
+  },
+  "num-56": {
+   "file": "num-56.ogg",
+   "text": "fifty-six",
+   "duration": 0.862
+  },
+  "num-57": {
+   "file": "num-57.ogg",
+   "text": "fifty-seven",
+   "duration": 0.691
+  },
+  "num-58": {
+   "file": "num-58.ogg",
+   "text": "fifty-eight",
+   "duration": 0.559
+  },
+  "num-59": {
+   "file": "num-59.ogg",
+   "text": "fifty-nine",
+   "duration": 0.75
+  },
+  "num-6": {
+   "file": "num-6.ogg",
+   "text": "six",
+   "duration": 0.408
+  },
+  "num-60": {
+   "file": "num-60.ogg",
+   "text": "sixty",
+   "duration": 0.486
+  },
+  "num-600": {
+   "file": "num-600.ogg",
+   "text": "six hundred",
+   "duration": 0.837
+  },
+  "num-61": {
+   "file": "num-61.ogg",
+   "text": "sixty-one",
+   "duration": 0.7
+  },
+  "num-62": {
+   "file": "num-62.ogg",
+   "text": "sixty-two",
+   "duration": 0.698
+  },
+  "num-63": {
+   "file": "num-63.ogg",
+   "text": "sixty-three",
+   "duration": 0.782
+  },
+  "num-64": {
+   "file": "num-64.ogg",
+   "text": "sixty-four",
+   "duration": 0.997
+  },
+  "num-65": {
+   "file": "num-65.ogg",
+   "text": "sixty-five",
+   "duration": 0.769
+  },
+  "num-66": {
+   "file": "num-66.ogg",
+   "text": "sixty-six",
+   "duration": 0.769
+  },
+  "num-67": {
+   "file": "num-67.ogg",
+   "text": "sixty-seven",
+   "duration": 0.79
+  },
+  "num-68": {
+   "file": "num-68.ogg",
+   "text": "sixty-eight",
+   "duration": 0.58
+  },
+  "num-69": {
+   "file": "num-69.ogg",
+   "text": "sixty-nine",
+   "duration": 0.824
+  },
+  "num-7": {
+   "file": "num-7.ogg",
+   "text": "seven",
+   "duration": 0.396
+  },
+  "num-70": {
+   "file": "num-70.ogg",
+   "text": "seventy",
+   "duration": 0.537
+  },
+  "num-700": {
+   "file": "num-700.ogg",
+   "text": "seven hundred",
+   "duration": 0.747
+  },
+  "num-71": {
+   "file": "num-71.ogg",
+   "text": "seventy-one",
+   "duration": 0.634
+  },
+  "num-72": {
+   "file": "num-72.ogg",
+   "text": "seventy-two",
+   "duration": 0.667
+  },
+  "num-73": {
+   "file": "num-73.ogg",
+   "text": "seventy-three",
+   "duration": 0.805
+  },
+  "num-74": {
+   "file": "num-74.ogg",
+   "text": "seventy-four",
+   "duration": 0.763
+  },
+  "num-75": {
+   "file": "num-75.ogg",
+   "text": "seventy-five",
+   "duration": 0.861
+  },
+  "num-76": {
+   "file": "num-76.ogg",
+   "text": "seventy-six",
+   "duration": 0.975
+  },
+  "num-77": {
+   "file": "num-77.ogg",
+   "text": "seventy-seven",
+   "duration": 0.763
+  },
+  "num-78": {
+   "file": "num-78.ogg",
+   "text": "seventy-eight",
+   "duration": 0.662
+  },
+  "num-79": {
+   "file": "num-79.ogg",
+   "text": "seventy-nine",
+   "duration": 0.801
+  },
+  "num-8": {
+   "file": "num-8.ogg",
+   "text": "eight",
+   "duration": 0.247
+  },
+  "num-80": {
+   "file": "num-80.ogg",
+   "text": "eighty",
+   "duration": 0.377
+  },
+  "num-800": {
+   "file": "num-800.ogg",
+   "text": "eight hundred",
+   "duration": 0.595
+  },
+  "num-81": {
+   "file": "num-81.ogg",
+   "text": "eighty-one",
+   "duration": 0.63
+  },
+  "num-82": {
+   "file": "num-82.ogg",
+   "text": "eighty-two",
+   "duration": 0.617
+  },
+  "num-83": {
+   "file": "num-83.ogg",
+   "text": "eighty-three",
+   "duration": 0.662
+  },
+  "num-84": {
+   "file": "num-84.ogg",
+   "text": "eighty-four",
+   "duration": 0.605
+  },
+  "num-85": {
+   "file": "num-85.ogg",
+   "text": "eighty-five",
+   "duration": 0.695
+  },
+  "num-86": {
+   "file": "num-86.ogg",
+   "text": "eighty-six",
+   "duration": 0.709
+  },
+  "num-87": {
+   "file": "num-87.ogg",
+   "text": "eighty-seven",
+   "duration": 0.925
+  },
+  "num-88": {
+   "file": "num-88.ogg",
+   "text": "eighty-eight",
+   "duration": 0.519
+  },
+  "num-89": {
+   "file": "num-89.ogg",
+   "text": "eighty-nine",
+   "duration": 0.663
+  },
+  "num-9": {
+   "file": "num-9.ogg",
+   "text": "nine",
+   "duration": 0.403
+  },
+  "num-90": {
+   "file": "num-90.ogg",
+   "text": "ninety",
+   "duration": 0.659
+  },
+  "num-900": {
+   "file": "num-900.ogg",
+   "text": "nine hundred",
+   "duration": 0.654
+  },
+  "num-91": {
+   "file": "num-91.ogg",
+   "text": "ninety-one",
+   "duration": 0.591
+  },
+  "num-92": {
+   "file": "num-92.ogg",
+   "text": "ninety-two",
+   "duration": 0.742
+  },
+  "num-93": {
+   "file": "num-93.ogg",
+   "text": "ninety-three",
+   "duration": 0.739
+  },
+  "num-94": {
+   "file": "num-94.ogg",
+   "text": "ninety-four",
+   "duration": 0.666
+  },
+  "num-95": {
+   "file": "num-95.ogg",
+   "text": "ninety-five",
+   "duration": 0.941
+  },
+  "num-96": {
+   "file": "num-96.ogg",
+   "text": "ninety-six",
+   "duration": 0.823
+  },
+  "num-97": {
+   "file": "num-97.ogg",
+   "text": "ninety-seven",
+   "duration": 0.734
+  },
+  "num-98": {
+   "file": "num-98.ogg",
+   "text": "ninety-eight",
+   "duration": 0.654
+  },
+  "num-99": {
+   "file": "num-99.ogg",
+   "text": "ninety-nine",
+   "duration": 0.708
+  },
+  "percent": {
+   "file": "percent.ogg",
+   "text": "Percent",
+   "duration": 0.438
+  },
+  "point": {
+   "file": "point.ogg",
+   "text": "Point",
+   "duration": 0.316
+  },
+  "position-deviation": {
+   "file": "position-deviation.ogg",
+   "text": "Position deviation",
+   "duration": 1.091
+  },
+  "position-failure": {
+   "file": "position-failure.ogg",
+   "text": "Position failure",
+   "duration": 0.867
+  },
+  "position-out-of-bounds": {
+   "file": "position-out-of-bounds.ogg",
+   "text": "Position out of bounds",
+   "duration": 1.186
+  },
+  "radio-connection-loss": {
+   "file": "radio-connection-loss.ogg",
+   "text": "Radio connection loss",
+   "duration": 1.308
+  },
+  "real-sensors": {
+   "file": "real-sensors.ogg",
+   "text": "Real sensors",
+   "duration": 0.976
+  },
+  "return-to-home": {
+   "file": "return-to-home.ogg",
+   "text": "Return to home",
+   "duration": 0.868
+  },
+  "router-link-lost": {
+   "file": "router-link-lost.ogg",
+   "text": "Router link lost",
+   "duration": 0.992
+  },
+  "router-link-restored": {
+   "file": "router-link-restored.ogg",
+   "text": "Router link restored",
+   "duration": 1.091
+  },
+  "seconds": {
+   "file": "seconds.ogg",
+   "text": "Seconds",
+   "duration": 0.519
+  },
+  "sensor-failure": {
+   "file": "sensor-failure.ogg",
+   "text": "Sensor failure",
+   "duration": 0.795
+  },
+  "simulation": {
+   "file": "simulation.ogg",
+   "text": "Simulation",
+   "duration": 0.711
+  },
+  "t-minus": {
+   "file": "t-minus.ogg",
+   "text": "T minus",
+   "duration": 0.77
+  },
+  "telemetry-lost": {
+   "file": "telemetry-lost.ogg",
+   "text": "Telemetry lost",
+   "duration": 0.918
+  },
+  "telemetry-restored": {
+   "file": "telemetry-restored.ogg",
+   "text": "Telemetry restored",
+   "duration": 1.14
+  },
+  "thousand": {
+   "file": "thousand.ogg",
+   "text": "Thousand",
+   "duration": 0.399
+  },
+  "volume-test": {
+   "file": "volume-test.ogg",
+   "text": "Volume test",
+   "duration": 0.931
+  },
+  "zero-complete": {
+   "file": "zero-complete.ogg",
+   "text": "Zero complete",
+   "duration": 0.885
+  },
+  "zeroing": {
+   "file": "zeroing.ogg",
+   "text": "Zeroing",
+   "duration": 0.667
+  }
+ }
+}
