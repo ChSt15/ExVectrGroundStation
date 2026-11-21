@@ -32,15 +32,33 @@ def setup_folder(tmp_path, codes):
 
 
 def run(d, *args):
-    env = {**os.environ, "GS_NO_BROWSER": "1", "GS_NO_MDNS": "1"}
-    return subprocess.run(
-        ["bash", str(d / "start.sh"), *args],
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=30,
-        stdin=subprocess.DEVNULL,
-    )
+    # start.sh waits for the core's GUI to answer on EXGS_PORT before it would open a browser. The stub core never
+    # serves, so a dummy HTTP server stands in; otherwise the result depended on a real core running on port 8765.
+    import http.server
+    import threading
+
+    class _Quiet(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Quiet)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    env = {**os.environ, "GS_NO_BROWSER": "1", "GS_NO_MDNS": "1", "EXGS_PORT": str(srv.server_address[1])}
+    try:
+        return subprocess.run(
+            ["bash", str(d / "start.sh"), *args],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=30,
+            stdin=subprocess.DEVNULL,
+        )
+    finally:
+        srv.shutdown()
 
 
 def test_exit_42_restarts_and_other_codes_end(tmp_path):
