@@ -1,12 +1,25 @@
 {
   "name": "placeholder",
-  "comment": "Placeholder procedural ship, dimensions from system-architecture.md (Vehicle geometry). Body frame: +Z nose, belly -X, TL/BL on +Y, TR/BR on -Y, origin at the centre of mass. Flap angle 0 = extended along +-Y, increasing angle folds toward +X, 90 deg = folded flat. Replace a `primitive` source by { \"gltf\": \"models/<file>\", \"node\": null } to use a real model.",
+  "comment": "Ship model with the owner's real dimensions (2026-11-21), display only; every dimension is in `dimensions_m` (metres, measured from the bottom of the ship) and the values below are derived from it. Body frame: +Z nose, belly -X, TL/BL on +Y, TR/BR on -Y, origin on the axis at the centre of mass = middle of the ship (0.37 m from the bottom). Extended flaps lie in the Y-Z plane through the axis (not swept), hinge parallel to the axis on the tube surface. Flap angle 0 = extended along +-Y, increasing angle folds toward +X, 90 deg = folded flat. Replace a `primitive` source by { \"gltf\": \"models/<file>\", \"node\": null } to use a real model.",
+  "dimensions_m": {
+    "tube_diameter": 0.13,
+    "tube_height": 0.54,
+    "nose_height": 0.2,
+    "total_height": 0.74,
+    "origin_from_bottom": 0.37,
+    "top_flap_lower_edge_from_bottom": 0.53,
+    "top_flap_width": 0.07,
+    "top_flap_length": 0.14,
+    "bottom_flap_lower_edge_from_bottom": 0.1,
+    "bottom_flap_width": 0.08,
+    "bottom_flap_length": 0.21
+  },
   "body": {
     "source": {
       "primitive": "starship-placeholder",
       "height_m": 0.74,
       "radius_m": 0.065,
-      "nose_length_m": 0.08,
+      "nose_length_m": 0.2,
       "origin_from_bottom_m": 0.37
     },
     "model_to_body": {
@@ -44,13 +57,13 @@
         "translation_m": [
           0,
           0.065,
-          0.22
+          0.23
         ]
       },
       "pivot_body_m": [
         0,
         0.065,
-        0.22
+        0.23
       ],
       "axis_body": [
         0,
@@ -80,13 +93,13 @@
         "translation_m": [
           0,
           -0.065,
-          0.22
+          0.23
         ]
       },
       "pivot_body_m": [
         0,
         -0.065,
-        0.22
+        0.23
       ],
       "axis_body": [
         0,
@@ -116,13 +129,13 @@
         "translation_m": [
           0,
           0.065,
-          -0.255
+          -0.165
         ]
       },
       "pivot_body_m": [
         0,
         0.065,
-        -0.255
+        -0.165
       ],
       "axis_body": [
         0,
@@ -152,13 +165,13 @@
         "translation_m": [
           0,
           -0.065,
-          -0.255
+          -0.165
         ]
       },
       "pivot_body_m": [
         0,
         -0.065,
-        -0.255
+        -0.165
       ],
       "axis_body": [
         0,
