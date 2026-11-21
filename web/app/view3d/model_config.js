@@ -46,6 +46,19 @@ export function normalizeTransform(t) {
 export const flapRotationRad = (flap, angleRad) => flap.sign * (angleRad - flap.model_angle_deg * DEG2RAD);
 
 /**
+ * Fixed inward tilt of a flap ("cant"): the whole flap, hinge line included, is rotated about the body X axis through
+ * its lower hinge point (pivot minus half the flap length along the axis), so the lower point stays and the upper end
+ * moves toward the body axis. `cant_deg` is positive inward; the signed rotation about +X is cant for a flap on the
+ * +Y side and -cant on the -Y side. The flap deflection angle applies on top of it. Returns { point, angleRad }.
+ */
+export function flapCant(flap) {
+  const [px, py, pz] = flap.pivot_body_m;
+  const half = (flap.source?.height_m ?? 0) / 2;
+  const cant = (flap.cant_deg ?? 0) * DEG2RAD;
+  return { point: [px, py, pz - half], angleRad: py >= 0 ? cant : -cant };
+}
+
+/**
  * Flap angles to display, radians per FlapState element (tl, tr, bl, br).
  * `entry` is the store entry of FlapState (or undefined). Without usable data every flap shows the default angle.
  * Returns { angles: number[4], source: "data" | "default" }.

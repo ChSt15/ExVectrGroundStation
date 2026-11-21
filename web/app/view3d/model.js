@@ -2,7 +2,7 @@
 // (procedural placeholder) or `gltf` sources through the same path. Body frame: +Z nose, belly -X, +Y left.
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { flapOutline, flapRotationRad, normalizeTransform } from "./model_config.js";
+import { flapCant, flapOutline, flapRotationRad, normalizeTransform } from "./model_config.js";
 
 const DEG2RAD = Math.PI / 180;
 
@@ -106,9 +106,15 @@ export async function buildShip(cfg) {
     offset.add(model);
     const pivot = new THREE.Group();
     pivot.name = `flap-${f.id}`;
-    pivot.position.set(...f.pivot_body_m);
+    const cant = flapCant(f); // fixed inward tilt about the lower hinge point; the hinge rotates with it
+    pivot.position.set(...f.pivot_body_m.map((v, i) => v - cant.point[i]));
     pivot.add(offset);
-    group.add(pivot);
+    const cantGroup = new THREE.Group();
+    cantGroup.name = `flap-cant-${f.id}`;
+    cantGroup.position.set(...cant.point);
+    cantGroup.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), cant.angleRad);
+    cantGroup.add(pivot);
+    group.add(cantGroup);
     flaps.set(f.id, { cfg: f, pivot, angleRad: null });
   }
 
