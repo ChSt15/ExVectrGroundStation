@@ -346,7 +346,7 @@ tr.incomplete td { color: var(--dim); }
 .rq-note { font-size: var(--fs-s); color: var(--dim); margin-bottom: 6px; }
 .rq-group h4 { margin: 10px 0 4px; font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
 .rq-row { display: grid; grid-template-columns: minmax(10em, 16em) auto auto 1fr; gap: 4px 10px; align-items: center; padding: 2px 0; }
-.rq-btn { position: relative; overflow: hidden; text-align: left; touch-action: none; user-select: none; }
+.rq-btn { position: relative; overflow: hidden; text-align: left; touch-action: none; user-select: none;  -webkit-touch-callout: none; }
 .rq-btn .bar { position: absolute; left: 0; bottom: 0; height: 4px; width: 0; background: var(--warn); }
 .rq-btn:disabled { opacity: .5; }
 .rq-target, .rq-route { font-size: var(--fs-s); color: var(--dim); }
