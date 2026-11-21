@@ -16,6 +16,10 @@
         "label": "Commands (temp)"
       },
       {
+        "panel": "simwind",
+        "label": "Sim wind"
+      },
+      {
         "panel": "link",
         "label": "Link & power"
       },

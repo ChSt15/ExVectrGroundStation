@@ -40,6 +40,10 @@ from ..sources.base import Source, SourceKind
 log = logging.getLogger(__name__)
 
 MIN_INTERVAL_S = 0.5  # per client
+# Documented exception (owner approval 2026-11-21): two consecutive commands of the SAME non-empty `rate_group` from the
+# same client (the simulation wind group, applied as 5 frames by one hold) need only the vehicle's 100 ms tick spacing.
+# A command of any other group, or the first of a group, still needs 500 ms after the previous send of that client.
+GROUP_MIN_INTERVAL_S = 0.1
 RECENT_KEPT = 20
 VEHICLE_NODE = 1
 CODES = ("control_denied", "not_whitelisted", "confirm_required", "rate_limited", "no_route", "invalid_value")
@@ -87,7 +91,7 @@ class TelecommandController:
         self._control_hosts = None if control_hosts is None else list(control_hosts)
         self._by_name = {e.name: e for e in cfg.commands}
         self._recent: deque[TelecommandSent] = deque(maxlen=RECENT_KEPT)
-        self._last_by_client: dict[str, int] = {}
+        self._last_by_client: dict[str, tuple[int, str]] = {}
         self._n = 0
         self.on_change: Callable[[], None] | None = None
         self.sent_count = 0
@@ -132,6 +136,7 @@ class TelecommandController:
                 "param_float_min": e.param_float_min,
                 "param_float_max": e.param_float_max,
                 "param_float_name": e.param_float_name,
+                "rate_group": e.rate_group,
                 "confirm": e.confirm,
                 "note": e.note,
                 "route": route,
@@ -200,8 +205,12 @@ class TelecommandController:
             fvalue = float(param_float)
         now = self._clock.now()
         last = self._last_by_client.get(remote_addr)
-        if last is not None and now - last < int(MIN_INTERVAL_S * 1e9):
-            raise TelecommandError("rate_limited", f"at most one new telecommand per {MIN_INTERVAL_S * 1000:.0f} ms")
+        if last is not None:
+            t_last, g_last = last
+            same_group = bool(entry.rate_group) and entry.rate_group == g_last
+            limit = GROUP_MIN_INTERVAL_S if same_group else MIN_INTERVAL_S
+            if now - t_last < int(limit * 1e9):
+                raise TelecommandError("rate_limited", f"at most one new telecommand per {limit * 1000:.0f} ms")
         cands = self.candidates()
         if not cands:
             raise TelecommandError("no_route", "no connected source reaches the vehicle; nothing was sent or queued")
@@ -227,7 +236,7 @@ class TelecommandController:
             raise TelecommandError("no_route", "no connected source accepted the telecommand; nothing was sent")
         self.sent_count += 1
         self._n += 1
-        self._last_by_client[remote_addr] = now
+        self._last_by_client[remote_addr] = (now, entry.rate_group)
         rec = TelecommandSent(
             self._n, entry.name, entry.label, entry.type, entry.subsystem, value, fvalue, client, used, now
         )

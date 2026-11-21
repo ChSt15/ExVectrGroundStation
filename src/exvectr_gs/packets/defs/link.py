@@ -107,6 +107,13 @@ class TelecommandType(IntEnum):
     MissionSelect = 8
     MissionAbort = 9
     ZeroEstimators = 10
+    # Simulation wind (vehicle: simulation mode only; docs/telecommands.md). 11 speed m/s, 12 direction rad, 13 gust
+    # strength m/s, 14 gust period s, 15 gust seed. Value in the float, paramInt = magic 0x57.
+    SimWindSpeed = 11
+    SimWindDirection = 12
+    SimGustStrength = 13
+    SimGustPeriod = 14
+    SimGustSeed = 15
 
 
 @packet(
