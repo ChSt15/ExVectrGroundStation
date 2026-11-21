@@ -292,7 +292,7 @@ Version 1, direction `up`, nominal rate n/a, history: no.
 
 | Field | Kind | Unit | Description |
 |---|---|---|---|
-| `tc_type` | enum (TelecommandType: CalibStart=0, CalibApply=1, Load=2, Save=3, SystemReset=4, Arm=5, SimulationMode=6, MissionBegin=7, MissionSelect=8, MissionAbort=9, ZeroEstimators=10) | - | legacy command code |
+| `tc_type` | enum (TelecommandType: CalibStart=0, CalibApply=1, Load=2, Save=3, SystemReset=4, Arm=5, SimulationMode=6, MissionBegin=7, MissionSelect=8, MissionAbort=9, ZeroEstimators=10, SimWindSpeed=11, SimWindDirection=12, SimGustStrength=13, SimGustPeriod=14, SimGustSeed=15) | - | legacy command code |
 | `subsystem` | int | - | legacy Subsystem (0 gyro, 1 accel, 2 magneto, ...) |
 | `param_int` | int | - | int16 parameter (magic value or mission time) |
 | `param_float` | float | - | float32 parameter: 0 for every command except ZeroEstimators (duration in s) |
