@@ -90,8 +90,8 @@ class RequestsSection:
 
 
 TELECOMMAND_CONFIRM_LEVELS = ("hold",)
-# flight software `Subsystem` 0 gyro, 1 accel, ...; 0x10..0x13 = flap index + arm-for-descent bit
-TELECOMMAND_SUBSYSTEMS = (*range(0, 7), *range(0x10, 0x14))
+# flight software `Subsystem` 0 gyro, 1 accel, ...; SimFlapStuck/SimFlapSlow use the flap index 0..3
+TELECOMMAND_SUBSYSTEMS = tuple(range(0, 7))
 
 
 @dataclass(frozen=True)

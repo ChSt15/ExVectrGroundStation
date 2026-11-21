@@ -10,8 +10,7 @@ import { describeSent, lastSent } from "./telecommand_logic.js";
 
 export const FLAPS = ["TL", "TR", "BL", "BR"]; // flap index 0..3
 export const FLAP_NAMES = { TL: "top left", TR: "top right", BL: "bottom left", BR: "bottom right" };
-export const ARM_BIT = 0x10; // SimFlapStuck subsystem bit: the fault takes effect when the descent begins
-export const AT_CURRENT_ANGLE = -1.0; // SimFlapStuck special value: stick at the current angle
+export const AT_CURRENT_ANGLE = -1.0; // SimFlapStuck special value: hold the current angle
 export const TYPES = { SimFlapStuck: 16, SimFlapSlow: 17, SimFaultClear: 18 };
 export const FAULT_TYPES = Object.keys(TYPES);
 export const DEFAULT_STUCK_DEG = 42;
@@ -21,11 +20,11 @@ export const SIM_ONLY_LABEL = "simulation mode only";
 export const degToRad = (deg) => (deg * Math.PI) / 180;
 export const radToDeg = (rad) => (rad * 180) / Math.PI;
 
-/** The `subsystem` byte of SimFlapStuck: flap index in the low 2 bits, 0x10 = arm for the descent. */
-export function stuckSubsystem(flap, armed) {
+/** The `subsystem` byte of SimFlapStuck / SimFlapSlow: the flap index 0..3 only (no arm bit any more). */
+export function stuckSubsystem(flap) {
   const i = FLAPS.indexOf(flap);
   if (i < 0) throw new Error(`unknown flap ${flap}`);
-  return i | (armed ? ARM_BIT : 0);
+  return i;
 }
 
 /** The whitelist row with this telecommand type and subsystem byte, or null. */
@@ -42,11 +41,11 @@ export function parseRange(text, lo, hi) {
 }
 
 /**
- * The stuck-fault command for the form: {name, value, rad, text} or null when invalid.
- * `atCurrent` sends -1.0; otherwise degrees 0..90 are converted to radians.
+ * The force-flap command for the form: {name, value, rad, text} or null when invalid.
+ * `atCurrent` (hold the current angle) sends -1.0; otherwise degrees 0..90 are converted to radians.
  */
-export function stuckCommand(cmds, { flap, armed, atCurrent, deg }) {
-  const entry = findEntry(cmds, "SimFlapStuck", stuckSubsystem(flap, armed));
+export function stuckCommand(cmds, { flap, atCurrent, deg }) {
+  const entry = findEntry(cmds, "SimFlapStuck", stuckSubsystem(flap));
   if (!entry) return null;
   let rad;
   if (atCurrent) rad = AT_CURRENT_ANGLE;
@@ -72,8 +71,29 @@ export function clearCommand(cmds) {
   return entry ? { name: entry.name, value: 0 } : null;
 }
 
-/** The preset 'Replay last flight failure': top-left flap stuck at 42 deg when the descent begins. Fills the fields. */
-export const LAST_FLIGHT_PRESET = Object.freeze({ flap: "TL", armed: true, atCurrent: false, deg: DEFAULT_STUCK_DEG });
+export const FORCED_DIFF_RAD = degToRad(2); // 'forced?' hint: commanded vs true angle differ by more than this ...
+export const FORCED_HOLD_S = 1; // ... for more than this long
+
+/**
+ * Display-only 'forced?' hint per flap from FlapState {angle[4], cmd[4]} (rad), the vehicle's own report. `track` is a
+ * mutable {since:[4]} the caller keeps between calls; `now` in seconds. Returns {forced:[bool x4], angle:[deg|null x4]}.
+ * Never sent anywhere. Without FlapState (or without cmd) every flap is unknown (forced false, no hint).
+ */
+export function forcedFlaps(track, fs, now) {
+  const out = { forced: [false, false, false, false], angle: [null, null, null, null] };
+  if (!track.since) track.since = [null, null, null, null];
+  for (let i = 0; i < 4; i++) {
+    const a = fs && Array.isArray(fs.angle) ? fs.angle[i] : undefined;
+    const c = fs && Array.isArray(fs.cmd) ? fs.cmd[i] : undefined;
+    if (typeof a === "number" && Number.isFinite(a)) out.angle[i] = radToDeg(a);
+    if (!(typeof a === "number" && Number.isFinite(a) && typeof c === "number" && Number.isFinite(c))) { track.since[i] = null; continue; }
+    if (Math.abs(a - c) > FORCED_DIFF_RAD) {
+      if (track.since[i] === null) track.since[i] = now;
+      out.forced[i] = now - track.since[i] > FORCED_HOLD_S;
+    } else track.since[i] = null;
+  }
+  return out;
+}
 
 /** Enabled/disabled for any simulation test: same gating as the wind buttons. */
 export function simTestState(args) {

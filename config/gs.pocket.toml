@@ -436,12 +436,12 @@ note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode"
 
 # Simulation tests (owner approval 2026-11-21, docs/telecommands.md): simulation-only servo faults, types 16..18.
 # One frame each, no retry, hold 1 s, 500 ms per client (NO rate_group). The subsystem byte is fixed per entry:
-# flap index 0..3 (TL, TR, BL, BR), plus 0x10 = arm for the descent. The GUI page 'Simulation testing' picks the entry.
+# flap index 0..3 (TL, TR, BL, BR). The GUI page 'Simulation testing' picks the entry.
 
 [[telecommands.command]]
 name = "SimFlapStuckTLNow"
 type = "SimFlapStuck"
-label = "Flap TL stuck, now (rad)"
+label = "Force flap TL to an angle (rad)"
 group = "Simulation tests"
 subsystem = 0
 param_int = 0x57                               # the vehicle's magic value, fixed
@@ -454,7 +454,7 @@ note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs
 [[telecommands.command]]
 name = "SimFlapStuckTRNow"
 type = "SimFlapStuck"
-label = "Flap TR stuck, now (rad)"
+label = "Force flap TR to an angle (rad)"
 group = "Simulation tests"
 subsystem = 1
 param_int = 0x57                               # the vehicle's magic value, fixed
@@ -467,7 +467,7 @@ note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs
 [[telecommands.command]]
 name = "SimFlapStuckBLNow"
 type = "SimFlapStuck"
-label = "Flap BL stuck, now (rad)"
+label = "Force flap BL to an angle (rad)"
 group = "Simulation tests"
 subsystem = 2
 param_int = 0x57                               # the vehicle's magic value, fixed
@@ -480,61 +480,9 @@ note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs
 [[telecommands.command]]
 name = "SimFlapStuckBRNow"
 type = "SimFlapStuck"
-label = "Flap BR stuck, now (rad)"
+label = "Force flap BR to an angle (rad)"
 group = "Simulation tests"
 subsystem = 3
-param_int = 0x57                               # the vehicle's magic value, fixed
-param_float = 0.733
-param_float_min = -1.0
-param_float_max = 1.5708
-param_float_name = "angle_rad"
-note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs a line when it sets a fault; angle 0..pi/2 rad, -1.0 = stick at the current angle"
-
-[[telecommands.command]]
-name = "SimFlapStuckTLDescent"
-type = "SimFlapStuck"
-label = "Flap TL stuck, armed for the descent (rad)"
-group = "Simulation tests"
-subsystem = 16
-param_int = 0x57                               # the vehicle's magic value, fixed
-param_float = 0.733
-param_float_min = -1.0
-param_float_max = 1.5708
-param_float_name = "angle_rad"
-note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs a line when it sets a fault; angle 0..pi/2 rad, -1.0 = stick at the current angle"
-
-[[telecommands.command]]
-name = "SimFlapStuckTRDescent"
-type = "SimFlapStuck"
-label = "Flap TR stuck, armed for the descent (rad)"
-group = "Simulation tests"
-subsystem = 17
-param_int = 0x57                               # the vehicle's magic value, fixed
-param_float = 0.733
-param_float_min = -1.0
-param_float_max = 1.5708
-param_float_name = "angle_rad"
-note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs a line when it sets a fault; angle 0..pi/2 rad, -1.0 = stick at the current angle"
-
-[[telecommands.command]]
-name = "SimFlapStuckBLDescent"
-type = "SimFlapStuck"
-label = "Flap BL stuck, armed for the descent (rad)"
-group = "Simulation tests"
-subsystem = 18
-param_int = 0x57                               # the vehicle's magic value, fixed
-param_float = 0.733
-param_float_min = -1.0
-param_float_max = 1.5708
-param_float_name = "angle_rad"
-note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs a line when it sets a fault; angle 0..pi/2 rad, -1.0 = stick at the current angle"
-
-[[telecommands.command]]
-name = "SimFlapStuckBRDescent"
-type = "SimFlapStuck"
-label = "Flap BR stuck, armed for the descent (rad)"
-group = "Simulation tests"
-subsystem = 19
 param_int = 0x57                               # the vehicle's magic value, fixed
 param_float = 0.733
 param_float_min = -1.0

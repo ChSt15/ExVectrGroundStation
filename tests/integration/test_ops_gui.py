@@ -323,7 +323,7 @@ async def test_simulation_testing_page_is_greyed_out_until_the_vehicle_reports_s
 
     cfg = tomllib.loads((ROOT / "config" / "gs.example.toml").read_text())
     faults = [c for c in cfg["telecommands"]["command"] if c["group"] == "Simulation tests"]
-    assert len(faults) == 13
+    assert len(faults) == 9
     async with rig_with(tmp_path, commands=COMMANDS + faults) as rig, browser_check.Browser(1500, 1300, 9373) as b:
         await open_page(b, rig, ["telecommands", "simtests"])
         kind = "document.querySelector('[data-testid=source-banner]').dataset.kind"
@@ -331,7 +331,7 @@ async def test_simulation_testing_page_is_greyed_out_until_the_vehicle_reports_s
         assert await b.eval("window.exgs.simtests.sections().join()") == "wind,faults"
         # the generic Commands panel does not list the simulation entries
         assert await b.eval("!document.querySelector('[data-panel=telecommands] [data-name=SimFaultClearTL]')")
-        stuck = "[data-panel=simtests] .sf-preset"
+        stuck = "[data-panel=simtests] [data-section=faults] .sf-flap[data-flap=BR]"
         apply_ = "[data-panel=simtests] [data-section=faults] .rq-btn"
         if await b.eval(kind) == "sim":  # the fake vehicle starts in simulation: toggle it off first
             btn = "[data-panel=telecommands] .rq-btn[data-name=SimulationMode]"
@@ -363,12 +363,12 @@ async def test_simulation_testing_page_is_greyed_out_until_the_vehicle_reports_s
         await b.sleep(0.7)
         await b.eval(f"document.querySelector({stuck!r}).click()")
         assert "0.7330 rad" in await text(b, "[data-testid=sf-rad]")
-        stuck_btn = "[data-panel=simtests] [data-section=faults] .rq-btn:not(.sf-preset)"
+        stuck_btn = "[data-panel=simtests] [data-section=faults] .rq-btn"
         await press(b, stuck_btn)
         await until(lambda: len(rig.v1.received_telecommands) == 1, timeout=3, what="fault frame after the hold")
         await let_go(b, stuck_btn)
         tc = rig.v1.received_telecommands[0]
-        assert (tc["type"], tc["subsystem"], tc["param_int"]) == (16, 0x10, 0x57)
+        assert (tc["type"], tc["subsystem"], tc["param_int"]) == (16, 3, 0x57)
         assert abs(tc["param_float"] - 0.7330383) < 1e-6
         await b.sleep(1.5)
         assert len(rig.v1.received_telecommands) == 1  # once, no repeat

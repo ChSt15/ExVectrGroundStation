@@ -1,13 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  AT_CURRENT_ANGLE, LAST_FLIGHT_PRESET, clearCommand, degToRad, describeFaultSent, radToDeg, simTestState, slowCommand,
+  AT_CURRENT_ANGLE, clearCommand, degToRad, describeFaultSent, forcedFlaps, radToDeg, simTestState, slowCommand,
   stuckCommand, stuckSubsystem,
 } from "../app/telecommand/simtests_logic.js";
 
 const FL = ["TL", "TR", "BL", "BR"];
 const cmds = [
-  ...[false, true].flatMap((arm) => FL.map((f, i) => ({ name: `Stuck${f}${arm ? "D" : "N"}`, type: "SimFlapStuck", subsystem: i | (arm ? 0x10 : 0) }))),
+  ...FL.map((f, i) => ({ name: `Stuck${f}`, type: "SimFlapStuck", subsystem: i })),
   ...FL.map((f, i) => ({ name: `Slow${f}`, type: "SimFlapSlow", subsystem: i, param_float_min: 0.05, param_float_max: 1 })),
   { name: "Clear", type: "SimFaultClear", subsystem: 0 },
 ];
@@ -19,20 +19,19 @@ test("degrees to radians and back", () => {
   near(radToDeg(degToRad(42)), 42);
 });
 
-test("subsystem byte: flap index in the low 2 bits, 0x10 = armed for the descent", () => {
-  assert.deepEqual(FL.map((f) => stuckSubsystem(f, false)), [0, 1, 2, 3]);
-  assert.deepEqual(FL.map((f) => stuckSubsystem(f, true)), [0x10, 0x11, 0x12, 0x13]);
-  assert.throws(() => stuckSubsystem("XX", false));
+test("subsystem byte: the flap index only, no arm bit", () => {
+  assert.deepEqual(FL.map((f) => stuckSubsystem(f)), [0, 1, 2, 3]);
+  assert.throws(() => stuckSubsystem("XX"));
 });
 
-test("stuck command picks the entry, converts degrees, supports the current-angle value", () => {
-  const c = stuckCommand(cmds, { flap: "TL", armed: true, atCurrent: false, deg: "42" });
-  assert.equal(c.name, "StuckTLD");
-  near(c.value, degToRad(42));
-  assert.equal(stuckCommand(cmds, { flap: "BR", armed: false, atCurrent: false, deg: "90" }).name, "StuckBRN");
-  assert.equal(stuckCommand(cmds, { flap: "TL", armed: false, atCurrent: true, deg: "junk" }).value, AT_CURRENT_ANGLE);
-  for (const bad of ["", "91", "-1", "abc", "NaN"]) assert.equal(stuckCommand(cmds, { flap: "TL", armed: false, atCurrent: false, deg: bad }), null);
-  assert.equal(stuckCommand([], { flap: "TL", armed: false, atCurrent: false, deg: "42" }), null);
+test("force-flap command picks the entry, converts degrees, supports hold-current", () => {
+  const c = stuckCommand(cmds, { flap: "TL", atCurrent: false, deg: "42" });
+  assert.equal(c.name, "StuckTL");
+  near(c.value, 0.7330382858376184);
+  assert.equal(stuckCommand(cmds, { flap: "BR", atCurrent: false, deg: "90" }).name, "StuckBR");
+  assert.equal(stuckCommand(cmds, { flap: "BR", atCurrent: true, deg: "junk" }).value, AT_CURRENT_ANGLE);
+  for (const bad of ["", "91", "-1", "abc", "NaN"]) assert.equal(stuckCommand(cmds, { flap: "TL", atCurrent: false, deg: bad }), null);
+  assert.equal(stuckCommand([], { flap: "TL", atCurrent: false, deg: "42" }), null);
 });
 
 test("slow and clear commands", () => {
@@ -42,8 +41,15 @@ test("slow and clear commands", () => {
   assert.equal(clearCommand([]), null);
 });
 
-test("the last-flight preset is TL, armed for the descent, 42 degrees", () => {
-  assert.deepEqual({ ...LAST_FLIGHT_PRESET }, { flap: "TL", armed: true, atCurrent: false, deg: 42 });
+test("forced? hint: commanded vs true angle > 2 deg for > 1 s, display only", () => {
+  const tr = {};
+  const fs = { angle: [0.73, 0.5, 0.5, 0.5], cmd: [1.2, 0.51, 0.5, 0.5] };
+  assert.deepEqual(forcedFlaps(tr, fs, 10).forced, [false, false, false, false]); // just started
+  assert.ok(Math.abs(forcedFlaps(tr, fs, 10.5).angle[0] - radToDeg(0.73)) < 1e-9);
+  assert.deepEqual(forcedFlaps(tr, fs, 11.2).forced, [true, false, false, false]);
+  assert.deepEqual(forcedFlaps(tr, { angle: [0.73, 0.5, 0.5, 0.5], cmd: [0.73, 0.5, 0.5, 0.5] }, 12).forced, [false, false, false, false]);
+  assert.deepEqual(forcedFlaps({}, null, 1), { forced: [false, false, false, false], angle: [null, null, null, null] });
+  assert.deepEqual(forcedFlaps({}, { angle: [0.1, 0.1, 0.1, 0.1] }, 1).forced, [false, false, false, false]); // no cmd
 });
 
 test("gating: every simulation test needs the vehicle's own simulation flag, live view, control host, route", () => {

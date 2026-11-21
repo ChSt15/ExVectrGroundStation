@@ -29,27 +29,27 @@ def test_shipped_fault_entries(cfg):
     assert int(TelecommandType.SimFlapStuck) == 16
     assert int(TelecommandType.SimFlapSlow) == 17
     assert int(TelecommandType.SimFaultClear) == 18
-    for armed in (False, True):
-        for i, f in enumerate(FLAPS):
-            e = names[f"SimFlapStuck{f}{'Descent' if armed else 'Now'}"]
-            assert (e.type, e.subsystem, e.param_int, e.group, e.rate_group, e.confirm) == (
-                "SimFlapStuck", i | (0x10 if armed else 0), 0x57, "Simulation tests", "", "hold",
-            )  # fmt: skip
-            assert e.param_float_min == -1.0 and e.param_float_max >= math.pi / 2
+    assert not [n for n in names if n.endswith("Descent")]  # the arm-for-descent bit is gone (the vehicle refuses it)
+    for i, f in enumerate(FLAPS):
+        e = names[f"SimFlapStuck{f}Now"]
+        assert (e.type, e.subsystem, e.param_int, e.group, e.rate_group, e.confirm) == (
+            "SimFlapStuck", i, 0x57, "Simulation tests", "", "hold",
+        )  # fmt: skip
+        assert e.param_float_min == -1.0 and e.param_float_max >= math.pi / 2
     for i, f in enumerate(FLAPS):
         e = names[f"SimFlapSlow{f}"]
         assert (e.type, e.subsystem, e.param_float_min, e.param_float_max) == ("SimFlapSlow", i, 0.05, 1.0)
     c = names["SimFaultClear"]
     assert (c.type, c.subsystem, c.param_int, c.param_float_min) == ("SimFaultClear", 0, 0x57, None)
     sim = [e for e in names.values() if e.group == "Simulation tests"]
-    assert len(sim) == 13 and all(e.rate_group == "" for e in sim)  # the wind group exception is not widened
+    assert len(sim) == 9 and all(e.rate_group == "" for e in sim)  # the wind group exception is not widened
 
 
 @pytest.mark.parametrize(
     ("typ", "sub", "value", "hexbytes"),
     [
-        ("SimFlapStuck", 0, math.radians(42), "10 00 57 00 66 A8 3B 3F"),  # TL stuck 42 deg now
-        ("SimFlapStuck", 0x10, math.radians(42), "10 10 57 00 66 A8 3B 3F"),  # TL stuck 42 deg armed for the descent
+        ("SimFlapStuck", 0, math.radians(42), "10 00 57 00 66 A8 3B 3F"),  # TL forced to 42 deg
+        ("SimFlapStuck", 3, -1.0, "10 03 57 00 00 00 80 BF"),  # BR hold the current angle
         ("SimFlapStuck", 0, -1.0, "10 00 57 00 00 00 80 BF"),  # stick at the current angle
         ("SimFlapSlow", 0, 0.3, "11 00 57 00 9A 99 99 3E"),
         ("SimFaultClear", 0, 0.0, "12 00 57 00 00 00 00 00"),
@@ -76,9 +76,9 @@ async def rig():
 
 async def test_sent_once_with_flap_subsystem_and_500ms_rule():
     r = await rig()
-    await r.send("SimFlapStuckTLDescent", param_float=math.radians(42))
+    await r.send("SimFlapStuckBRNow", param_float=-1.0)
     pkt = r.usb.sent[0]
-    assert (int(pkt.tc_type), pkt.subsystem, pkt.param_int) == (16, 0x10, 0x57)
+    assert (int(pkt.tc_type), pkt.subsystem, pkt.param_int) == (16, 3, 0x57)
     r.clock.advance(0.15)  # no group exception: 150 ms is too fast
     with pytest.raises(TelecommandError) as e:
         await r.send("SimFaultClear")

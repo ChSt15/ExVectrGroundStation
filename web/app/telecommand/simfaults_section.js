@@ -4,8 +4,8 @@ import { h } from "../ui.js";
 import { holdButton } from "./hold_button.js";
 import { registerSimSection } from "./simtests_registry.js";
 import {
-  DEFAULT_SLOW_FACTOR, DEFAULT_STUCK_DEG, FAULT_TYPES, FLAPS, FLAP_NAMES, LAST_FLIGHT_PRESET, clearCommand,
-  describeFaultSent, simTestState, slowCommand, stuckCommand,
+  DEFAULT_SLOW_FACTOR, DEFAULT_STUCK_DEG, FAULT_TYPES, FLAPS, FLAP_NAMES, clearCommand,
+  describeFaultSent, forcedFlaps, simTestState, slowCommand, stuckCommand,
 } from "./simtests_logic.js";
 
 export function createSimFaultsSection(el, ctx) {
@@ -23,34 +23,19 @@ export function createSimFaultsSection(el, ctx) {
   }));
   const grid = h("div", { class: "sf-grid", role: "group", "aria-label": "flap" },
     flapBtns[0], flapBtns[1], h("div", { class: "sf-body", text: "nose up" }), flapBtns[2], flapBtns[3]);
-  const modeName = `sfm${Math.random().toString(36).slice(2, 7)}`;
-  const mkRadio = (value, label, checked) => h("label", { class: "sf-radio" },
-    h("input", { type: "radio", name: modeName, value, checked, "data-testid": `sf-mode-${value}` }), label);
-  const modeNow = mkRadio("now", "stuck now", false);
-  const modeArm = mkRadio("arm", "stuck when the descent begins", true);
-  const angle = h("input", { type: "number", class: "tc-param sf-deg", step: "any", min: "0", max: "90", value: String(DEFAULT_STUCK_DEG), "aria-label": "stuck angle in degrees" });
-  const atCur = h("input", { type: "checkbox", class: "sf-cur", "aria-label": "stick at the current angle" });
+  const angle = h("input", { type: "number", class: "tc-param sf-deg", step: "any", min: "0", max: "90", value: String(DEFAULT_STUCK_DEG), "aria-label": "forced angle in degrees" });
+  const atCur = h("input", { type: "checkbox", class: "sf-cur", "aria-label": "hold the current angle" });
   const factor = h("input", { type: "number", class: "tc-param sf-factor", step: "any", value: String(DEFAULT_SLOW_FACTOR), "aria-label": "servo rate factor" });
-  const armed = () => modeArm.querySelector("input").checked;
-  const form = () => ({ flap, armed: armed(), atCurrent: atCur.checked, deg: angle.value });
+  const track = {};
+  const forcedEl = h("div", { class: "sf-forced", "data-testid": "sf-forced" });
+  const form = () => ({ flap, atCurrent: atCur.checked, deg: angle.value });
 
-  const applyStuck = holdButton("Apply stuck fault (hold 1 s)", "hold 1 s to send one frame", () => send(stuckCommand(cmds, form()), "Stuck fault"));
+  const applyStuck = holdButton("Force flap (hold 1 s)", "hold 1 s to send one frame", () => send(stuckCommand(cmds, form()), "Force flap"));
   const applySlow = holdButton("Apply slow servo (hold 1 s)", "hold 1 s to send one frame", () => send(slowCommand(cmds, { flap, factor: factor.value }), "Slow servo"));
-  const clear = holdButton("Clear all faults (hold 1 s)", "hold 1 s to send one frame", () => send(clearCommand(cmds), "Clear"));
-  const preset = h("button", {
-    type: "button", class: "rq-btn sf-preset", "data-testid": "sf-preset",
-    title: "fills the fields only; sending still needs Apply and the 1 s hold",
-    text: "Replay last flight failure: top-left flap stuck at 42 deg when the descent begins",
-    onclick: () => {
-      const p = LAST_FLIGHT_PRESET;
-      flap = p.flap; angle.value = String(p.deg); atCur.checked = p.atCurrent;
-      (p.armed ? modeArm : modeNow).querySelector("input").checked = true;
-      render();
-    },
-  });
+  const clear = holdButton("Release all faults (hold 1 s)", "hold 1 s to send one frame", () => send(clearCommand(cmds), "Release"));
   const body = h("div", { class: "rq-body" });
   el.append(
-    h("div", { class: "tc-warn", text: "SIMULATION ONLY. One frame per button after a 1 s hold; no ACK, no retry. The vehicle refuses faults outside simulation mode and writes a log line (see the Console) when a fault is set, armed or cleared. A fault armed for the descent takes effect when the descent/bellyflop mission begins." }),
+    h("div", { class: "tc-warn", text: "SIMULATION ONLY. One frame per button after a 1 s hold; no ACK, no retry. The vehicle refuses faults outside simulation mode and writes a log line (see the Console) when a fault is set or released. Force flap sets the chosen flap's setting to the angle at once." }),
     body, msg, sentEl,
   );
 
@@ -84,14 +69,13 @@ export function createSimFaultsSection(el, ctx) {
     body.replaceChildren();
     if (listError) { body.append(h("div", { class: "rq-err", text: listError })); return; }
     for (const i of [angle, atCur, factor]) i.oninput = render;
-    for (const r of [modeNow, modeArm]) r.querySelector("input").onchange = render;
     body.append(
       h("div", { class: "sw-row" }, h("span", { text: "Flap:" }), grid),
-      h("div", { class: "sw-row" }, modeNow, modeArm),
-      h("div", { class: "sw-row" }, h("label", { text: "Stuck angle (degrees, 0..90) " }, angle), h("label", { class: "sf-radio" }, atCur, "at current angle"), h("span", { text: "vehicle value:" }), rad),
-      h("div", { class: "sw-row" }, applyStuck.btn, preset),
+      h("div", { class: "sw-row" }, h("label", { text: "Forced angle (degrees, 0..90) " }, angle), h("label", { class: "sf-radio" }, atCur, "hold the current angle"), h("span", { text: "vehicle value:" }), rad),
+      h("div", { class: "sw-row" }, applyStuck.btn),
       h("div", { class: "sw-row" }, h("label", { text: "Servo rate factor (0.05..1) " }, factor), applySlow.btn),
       h("div", { class: "sw-row" }, clear.btn),
+      forcedEl,
     );
   }
 
@@ -106,16 +90,18 @@ export function createSimFaultsSection(el, ctx) {
     const on = simTestState({ ...base, inputsOk: true }).enabled;
     for (const f of flapBtns) f.setAttribute("aria-pressed", String(f.dataset.flap === flap));
     for (const f of flapBtns) f.disabled = !on;
-    for (const i of [angle, atCur, factor, modeNow.querySelector("input"), modeArm.querySelector("input")]) i.disabled = !on;
+    for (const i of [angle, atCur, factor]) i.disabled = !on;
     angle.disabled = !on || atCur.checked;
-    preset.disabled = !on;
     const set = (b, c) => {
       const s = simTestState({ ...base, inputsOk: !!c });
       b.btn.disabled = !s.enabled; b.btn.dataset.why = s.reason;
       if (!s.enabled) b.stop();
     };
     set(applyStuck, stk); set(applySlow, slw); set(clear, clearCommand(cmds));
-    rad.textContent = atCur.checked ? "-1.0 (current angle)" : stk ? `${stk.value.toFixed(4)} rad` : "-";
+    rad.textContent = atCur.checked ? "-1.0 (hold current angle)" : stk ? `${stk.value.toFixed(4)} rad` : "-";
+    const fe = ctx.store.get(ctx.view(), "FlapState");
+    const fh = forcedFlaps(track, fe && fe.f ? fe.f : null, ctx.store.now(ctx.view()));
+    forcedEl.replaceChildren(h("div", { class: "rq-state", "data-tone": fh.forced.some(Boolean) ? "warn" : "dim", text: "Flaps reported by the vehicle: " + FLAPS.map((n, i) => `${n} ${fh.angle[i] === null ? "-" : fh.angle[i].toFixed(1) + " deg"}${fh.forced[i] ? " (forced?)" : ""}`).join(", ") }));
     const d = describeFaultSent(push, ctx.store.now("live"));
     sentEl.replaceChildren(h("div", { class: "rq-state", "data-tone": d.tone, text: d.text }));
   }
