@@ -254,6 +254,22 @@ def test_shipped_configs_whitelist_the_expected_commands():
         assert names["Arm"].param_int == 0xA5 and names["Disarm"].param_int == 0
         assert names["SystemReset"].param_int == 0xC5 and names["SimulationMode"].param_int == 0xA9
         assert all(e.confirm == "hold" for e in names.values())
+        assert names["MissionBegin"].param_int <= -18
+        cal = {k: v for k, v in names.items() if v.group == "Calibration"}
+        assert len(cal) == 16 and "CalibMagStop" in cal and "MagSave" not in cal
+        for n, sub in (("Gyro", 0), ("Accel", 1), ("Mag", 2)):
+            got = [
+                (cal[f"Calib{n}{a}"].type, cal[f"Calib{n}{a}"].subsystem, cal[f"Calib{n}{a}"].param_int)
+                for a in ("Start", "Stop", "Verify", "Discard", "Apply")
+            ]
+            assert got == [
+                ("CalibStart", sub, 1),
+                ("CalibStart", sub, 0),
+                ("CalibStart", sub, 2),
+                ("CalibStart", sub, -1),
+                ("CalibApply", sub, 0),
+            ]
+        assert (cal["CalibSave"].type, cal["CalibSave"].subsystem) == ("Save", 0)
         z = names["ZeroEstimators"]
         assert (z.type, z.subsystem, z.param_int) == ("ZeroEstimators", 0, 0x2E)
         assert (z.param_float, z.param_float_min, z.param_float_max, z.param_float_name) == (

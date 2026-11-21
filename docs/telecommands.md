@@ -64,13 +64,20 @@ Shipped in `config/gs.example.toml` and `config/gs.pocket.toml` (the values are 
 | `SystemReset` | SystemReset, 0, `0xC5` | resets the system state only (failures, mode, mission); **no longer zeroes the estimators** (flight software change 2026-11-20, use `ZeroEstimators`). Label in the GUI: "Reset system state (does NOT zero estimators)" |
 | `ZeroEstimators` | ZeroEstimators, 0, `0x2E`, float `duration_s` default 10, range 1..60 | zeroes the estimators for the duration (0 = the vehicle's default 10 s; the vehicle clamps to 1..60 s) and reports it in `VEHICLE_STATUS.flags` bit 7 `ZEROING`. The vehicle also zeroes by itself for 10 s after boot. One frame per confirmation, no retry, no ACK |
 | `SimulationMode` | SimulationMode, 0, `0xA9` | **toggles** simulation mode |
-| `MissionBegin` | MissionBegin, 0, default -10, range -3600..3600 | `paramInt` = initial mission time in s (-10 or less gives the full countdown); needs mode Ready; arming is not required |
+| `MissionBegin` | MissionBegin, 0, default -20, range -3600..3600 | `paramInt` = initial mission time in s (-18 or less is accepted in real mode); needs mode Ready; arming is not required |
 | `MissionAbort` | MissionAbort | in a running mission: return to home; otherwise actuators off, mission reset |
-| `CalibMagStart` / `CalibMagStop` | CalibStart, Magneto, 1 / 0 | `> 0` starts the magnetometer calibration, `<= 0` stops it |
-| `CalibMagApply` | CalibApply, Magneto | applies the fit to RAM until saved |
-| `MagSave` | Save, Magneto | writes the EEPROM image |
+| `Calib{Gyro,Accel,Mag}Start` | CalibStart, 0/1/2, 1 | starts the calibration session (needs disarmed, on the ground, not simulation) |
+| `Calib*Stop` | CalibStart, 0/1/2, 0 | stop and fit |
+| `Calib*Verify` | CalibStart, 0/1/2, 2 | verify the active calibration, no candidate |
+| `Calib*Discard` | CalibStart, 0/1/2, -1 | discard a candidate or end a collection |
+| `Calib*Apply` | CalibApply, 0/1/2 | the vehicle applies only a PASS or WARN candidate, RAM only until saved; invalidates the estimator zero |
+| `CalibSave` | Save, 0 | writes the whole EEPROM image (any subsystem saves all), read back and compared |
 
-Only the magnetometer is handled by the vehicle's calibration commands; `Load` and `MissionSelect` are not whitelisted (not handled or no-op). A range of -3600..3600 s for `MissionBegin` is the ground station's own bound (the vehicle takes any int16); change it in the config.
+The 16 calibration entries (user approval 2026-11-21, widening the whitelist for exactly these) follow the flight software's [calibration.md](../../flight-software/docs/project/calibration.md) (`feature/calibration-service`); the vehicle interprets them and logs progress as `LOG_TEXT` (Console panel). The GUI groups them as Calibration in the Telecommands panel with the same 1 s hold, one frame, no retry, control hosts only and never in replay rules. The ground station gates nothing on vehicle state. The `CALIBRATION` packet carries no session state; the raw sensor panel shows the per-sensor source bits (EEPROM, RAM only, ...). The older `CalibMag*` and `MagSave` names are replaced by these.
+
+`MissionBegin` default is now -20 s: while calibration is required the vehicle refuses a `paramInt` above -18 (simulation mode is exempt). The fixed 15 s countdown comes with T9b and is not implemented here.
+
+`Load` and `MissionSelect` are not whitelisted (not handled or no-op). A range of -3600..3600 s for `MissionBegin` is the ground station's own bound (the vehicle takes any int16); change it in the config.
 
 ## API and CLI
 
