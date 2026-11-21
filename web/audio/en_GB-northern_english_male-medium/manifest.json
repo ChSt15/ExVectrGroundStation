@@ -95,6 +95,11 @@
    "text": "Minus",
    "duration": 0.553
   },
+  "mission-beginning": {
+   "file": "mission-beginning.ogg",
+   "text": "Mission beginning",
+   "duration": 0.731
+  },
   "mission-start": {
    "file": "mission-start.ogg",
    "text": "Mission start",

@@ -1,42 +1,69 @@
 // Display smoothing of the 3D view's target position. DISPLAY ONLY: the smoothed point is drawn in the 3D view and
 // is never used for a value shown as "reported" (panels and plots keep the raw MissionState values).
 //
-// Between MissionState packets the shown position advances as sp_pos + sp_vel * (view time since the packet), at most
-// MAX_EXTRAP_S, then it holds. When a new packet arrives the shown position is not snapped: the difference to the
-// previous shown position decays exponentially (time constant BLEND_TAU_S). No extrapolation when sp_vel is missing
-// or not finite. Time is the view clock (seconds), so replay seeks and pauses behave.
+// A critically damped second-order follower (time constant TAU_S) of the reported sp_pos, with feed-forward velocity:
+// a continuous motion is tracked without lag, a guidance step (new waypoint, phase change) glides instead of teleporting.
+//   x'' = w^2 (r - x) + 2 w (vr - x'),  w = 1/tau,  r = P + v * min(dt, cap),  vr = v while dt < cap, else 0
+// P is the newest sp_pos packet and dt the view time since it. The velocity v is taken from sp_vel when it agrees with
+// the finite difference of the reported positions, else from the finite difference: the vehicle's sp_vel is not the
+// derivative of sp_pos in every phase (it is 0 while sp_pos moves in Deceleration and Landing, tools/analyse_target_smoothing.py).
+// An implied speed above STEP_SPEED_MPS between two packets is a guidance step: it gives no velocity (sp_vel is used).
+// The extrapolation never goes beyond one packet interval plus a margin (cap), so a 5 Hz source (AIR_MISSION over the
+// Router) is bridged and a lost packet is not extrapolated for long. Time is the view clock (seconds), so replay seeks
+// and pauses behave.
 
+export const TAU_S = 0.25;
 export const MAX_EXTRAP_S = 0.5;
-export const BLEND_TAU_S = 0.15;
-const OFFSET_EPS = 1e-3; // m: below this the blend counts as finished
+export const EXTRAP_FACTOR = 1.25; // cap = factor * packet interval + margin
+export const EXTRAP_MARGIN_S = 0.05;
+export const STEP_SPEED_MPS = 30;
+const SETTLE_EPS = 1e-3; // m and m/s
+const MAX_DT_S = 1.0; // a longer gap between packets gives no finite difference
 
 const vec3 = (v) => Array.isArray(v) && v.length === 3 && v.every((x) => typeof x === "number" && Number.isFinite(x));
+const norm = (a) => Math.hypot(a[0], a[1], a[2]);
 
 export class TargetSmoother {
-  constructor({ maxExtrapS = MAX_EXTRAP_S, tauS = BLEND_TAU_S } = {}) {
-    this.maxExtrapS = maxExtrapS;
+  constructor({ tauS = TAU_S } = {}) {
     this.tauS = tauS;
     this.reset();
   }
 
   reset() {
     this.pos = null; // raw sp_pos of the newest packet
-    this.vel = null; // raw sp_vel or null (not usable)
-    this.t = null; // packet time on the view clock
-    this.off = [0, 0, 0]; // blend offset at offT
-    this.offT = 0;
+    this.v = [0, 0, 0]; // velocity used for the extrapolation
+    this.t = null; // packet time (view clock)
+    this.interval = null; // smoothed packet interval
+    this.x = null; // drawn position
+    this.xv = [0, 0, 0];
+    this.tNow = 0; // time up to which the follower is integrated
   }
 
-  /** Extrapolated raw position at view time `now` (no blending), or null. */
-  _raw(now) {
-    if (!this.pos) return null;
-    if (!this.vel) return this.pos.slice();
-    const dt = Math.min(this.maxExtrapS, Math.max(0, now - this.t));
-    return this.pos.map((p, i) => p + this.vel[i] * dt);
+  _cap() {
+    return this.interval === null ? MAX_EXTRAP_S : Math.min(MAX_EXTRAP_S, EXTRAP_FACTOR * this.interval + EXTRAP_MARGIN_S);
   }
 
-  _decay(now) {
-    return Math.exp(-Math.max(0, now - this.offT) / this.tauS);
+  /** [r, vr] at view time t. */
+  _target(t) {
+    const cap = this._cap();
+    const dt = Math.min(cap, Math.max(0, t - this.t));
+    const r = this.pos.map((p, i) => p + this.v[i] * dt);
+    return [r, t - this.t < cap ? this.v : [0, 0, 0]];
+  }
+
+  _advance(now) {
+    if (!this.pos || now <= this.tNow) return;
+    const w = 1 / this.tauS;
+    const h = Math.max(0.005, (now - this.tNow) / 200); // bounded work after a long pause, stable for w*h < 2
+    while (this.tNow < now - 1e-12) {
+      const s = Math.min(h, now - this.tNow);
+      this.tNow += s;
+      const [r, vr] = this._target(this.tNow);
+      for (let i = 0; i < 3; i++) {
+        this.xv[i] += (w * w * (r[i] - this.x[i]) + 2 * w * (vr[i] - this.xv[i])) * s;
+        this.x[i] += this.xv[i] * s;
+      }
+    }
   }
 
   /**
@@ -44,34 +71,45 @@ export class TargetSmoother {
    * (same t) is ignored. Invalid pos clears the state. A packet time going backwards (replay seek) resets.
    */
   update(now, pos, vel, t) {
-    if (!vec3(pos) || !Number.isFinite(t)) return this.reset();
-    if (this.t !== null && (t < this.t || now < this.offT)) this.reset();
+    if (!vec3(pos) || !Number.isFinite(t) || !Number.isFinite(now)) return this.reset();
+    if (this.t !== null && (t < this.t || now < this.tNow)) this.reset();
     if (this.t === t && this.pos) return;
-    const prev = this.pos ? this.at(now) : null;
-    this.pos = pos.slice();
-    this.vel = vec3(vel) ? vel.slice() : null;
-    this.t = t;
-    this.offT = now;
-    this.off = [0, 0, 0];
-    if (prev) {
-      const raw = this._raw(now);
-      this.off = prev.map((p, i) => p - raw[i]);
+    const sp = vec3(vel) ? vel.slice() : [0, 0, 0];
+    if (!this.pos) {
+      this.x = pos.slice();
+      this.xv = [0, 0, 0];
+      this.tNow = now;
+      this.v = sp;
+    } else {
+      this._advance(now);
+      const dt = t - this.t;
+      let v = sp;
+      if (dt > 0.005 && dt < MAX_DT_S) {
+        const fd = pos.map((p, i) => (p - this.pos[i]) / dt);
+        if (norm(fd) <= STEP_SPEED_MPS) {
+          const agree = norm(fd.map((f, i) => f - sp[i])) < 0.3 + 0.1 * norm(sp);
+          v = vec3(vel) && agree ? sp : fd;
+          this.interval = this.interval === null ? dt : 0.7 * this.interval + 0.3 * dt;
+        }
+      }
+      this.v = v;
     }
+    this.pos = pos.slice();
+    this.t = t;
   }
 
   /** Position to draw at view time `now`, or null without a target. */
   at(now) {
-    const raw = this._raw(now);
-    if (!raw) return null;
-    const f = this._decay(now);
-    return raw.map((r, i) => r + this.off[i] * f);
+    if (!this.pos) return null;
+    this._advance(now);
+    return this.x.slice();
   }
 
-  /** True when the drawn position no longer changes with time (hold reached or no velocity, blend finished). */
+  /** True when the drawn position no longer changes with time (arrived at the held target, no extrapolation left). */
   settled(now) {
     if (!this.pos) return true;
-    const moving = this.vel && now - this.t < this.maxExtrapS && this.vel.some((v) => v !== 0);
-    const blending = Math.hypot(...this.off) * this._decay(now) > OFFSET_EPS;
-    return !moving && !blending;
+    this._advance(now);
+    const [r, vr] = this._target(now);
+    return norm(vr) === 0 && norm(this.xv) < SETTLE_EPS && Math.hypot(r[0] - this.x[0], r[1] - this.x[1], r[2] - this.x[2]) < SETTLE_EPS;
   }
 }

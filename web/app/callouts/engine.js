@@ -104,7 +104,8 @@ export class CalloutEngine {
 
     // ---- mission and altitude (stale data resets the baselines so that the first fresh pass is silent)
     this._countdown(c, mission, out);
-    this._phase(c, phase, mission || status, out);
+    this._mode(mode, out);
+    this._phase(c, phase, mode, mission || status, out);
     const airborne = mode === "Running" && (mission || status);
     this._altitude(c, airborne ? position : null, out);
     this._deviation(c, airborne ? position : null, mission, now, out);
@@ -197,15 +198,42 @@ export class CalloutEngine {
     if (last !== null) out.push(ev(`countdown.${last}`, "countdown", String(last), "info", PRIORITY.countdown, { maxAge: 1.5 }));
   }
 
-  _phase(c, phase, src, out) {
+  /** Mission begin: mission_mode leaves Idle (Initialisation / Startup, or straight to Running). First observation silent. */
+  _mode(mode, out) {
+    const st = this.s;
+    if (typeof mode !== "string") {
+      st.mode = undefined;
+      return;
+    }
+    const prev = st.mode;
+    st.mode = mode;
+    if (prev === "Idle" && (mode === "Initialisation" || mode === "Startup" || mode === "Running")) {
+      out.push(ev("mission.begin", "countdown", "Mission beginning", "info", PRIORITY.mission, { maxAge: 4 }));
+    }
+  }
+
+  /**
+   * Phase edges, only while the mission is Running (or Finished, for Landed). The vehicle reports Hover from Ready on
+   * and through Initialisation/Startup, so before Running the phase is not announced; when the mission becomes Running
+   * the current phase (Hover) is announced once.
+   */
+  _phase(c, phase, mode, src, out) {
     const st = this.s;
     if (typeof phase !== "string" || !src) {
       st.phase = undefined;
+      st.pre = false;
+      return;
+    }
+    if (typeof mode === "string" && mode !== "Running" && mode !== "Finished") {
+      st.phase = undefined;
+      st.pre = true; // seen before Running: announce the phase on entering Running
       return;
     }
     const prev = st.phase;
+    const pre = st.pre === true;
     st.phase = phase;
-    if (prev === undefined || prev === phase) return;
+    st.pre = false;
+    if ((prev === undefined && !pre) || prev === phase) return;
     const text = c.phaseNames[phase];
     if (text) out.push(ev(`phase.${phase}`, "phase", text, "info", PRIORITY.mission));
   }
