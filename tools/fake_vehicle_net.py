@@ -16,6 +16,7 @@ PORT_LINK_CONFIG, PORT_TELECOMMAND = 0x04, 0x7F  # the latter is the TEMPORARY l
 PORT_REQUEST, PORT_REQUEST_ACK = 0x11, 0x12
 PORT_VEHICLE_STATUS, PORT_AIR_POSE, PORT_AIR_ACTUATORS, PORT_AIR_MISSION = 0x20, 0x21, 0x22, 0x23
 PORT_POSE, PORT_ACTUATORS, PORT_MISSION, PORT_GNSS = 0x80, 0x81, 0x82, 0x83
+PORT_AIR_GNSS, PORT_AIR_GNSS_INFO, PORT_HOME_POSITION = 0x24, 0x25, 0x50
 PORT_IMU, PORT_ESTIMATOR, PORT_TIMING, PORT_CALIBRATION = 0x90, 0x91, 0x92, 0x93
 QOS = {PORT_RC_STATE: 0, PORT_VEHICLE_STATUS: 1, PORT_HANDSET: 1, PORT_LINK_STATS: 1, PORT_LOG_TEXT: 2}
 LATEST = {PORT_RC_STATE, PORT_VEHICLE_STATUS, PORT_HANDSET, PORT_LINK_STATS}  # everything else is telemetry state
@@ -207,7 +208,40 @@ def pack_gnss(t_us: int, g: dict, fix_type: int = 3) -> bytes:
     )
 
 
-def pack_vehicle_status(t_ns: int, vs: dict, mission_mode: int, mission_phase: int, flags_extra: int = 0) -> bytes:
+def pack_air_gnss(t_us: int, g: dict) -> bytes:
+    """AIR_GNSS (22 B): lat/lon i32 at 1e-7 deg, altitude i32 mm, NWU velocity i16 at 0.01 m/s; NaN = sentinel."""
+    ll = [_fx(math.degrees(g[k]) * 1e7 if math.isfinite(g[k]) else math.nan, 1.0, -(2**31) + 1, 2**31 - 1, -(2**31))
+          for k in ("lat", "lon")]  # fmt: skip
+    alt = _fx(g["alt"], 0.001, -(2**31) + 1, 2**31 - 1, -(2**31))
+    return struct.pack("<I3i3h", t_us, *ll, alt, *(i16(x, 0.01) for x in g["vel"]))
+
+
+def _u16_cm(v: float) -> int:
+    return _fx(v, 0.01, 0, 65534, 65535)
+
+
+def pack_air_gnss_info(t_us: int, g: dict) -> bytes:
+    """AIR_GNSS_INFO (10 B): fix type, satellites, h_acc and v_acc u16 at 1 cm (65535 = unknown)."""
+    return struct.pack("<IBBHH", t_us, g["fix_type"], g["num_sats"], _u16_cm(g["pos_acc"]), _u16_cm(g["alt_acc"]))
+
+
+def pack_home_position(h: dict) -> bytes:
+    """HOME_POSITION (25 B), from the packet table of the ExVectrPackets reference, independent of the generator."""
+    flags = (
+        (1 if h["latlon_valid"] else 0)
+        | (2 if h["alt_valid"] else 0)
+        | (4 if h["simulation"] else 0)
+        | (8 if h["zeroing"] else 0)
+    )
+    lat = _fx(math.degrees(h["lat"]) * 1e7 if h["latlon_valid"] else math.nan, 1.0, -(2**31) + 1, 2**31 - 1, -(2**31))
+    lon = _fx(math.degrees(h["lon"]) * 1e7 if h["latlon_valid"] else math.nan, 1.0, -(2**31) + 1, 2**31 - 1, -(2**31))
+    alt = _fx(h["alt"] if h["alt_valid"] else math.nan, 0.001, -(2**31) + 1, 2**31 - 1, -(2**31))
+    return struct.pack("<BiiiHBqB", flags, lat, lon, alt, _u16_cm(h["h_acc"]), h["epoch"], h["set_time"], 0)
+
+
+def pack_vehicle_status(
+    t_ns: int, vs: dict, mission_mode: int, mission_phase: int, flags_extra: int = 0, home_epoch: int | None = None
+) -> bytes:
     flags = (
         (1 if vs["armed"] else 0)
         | (2 if vs["sim"] else 0)
@@ -217,9 +251,10 @@ def pack_vehicle_status(t_ns: int, vs: dict, mission_mode: int, mission_phase: i
         | flags_extra
     )
     t_us = (t_ns // 1000) & 0xFFFFFFFF
-    return struct.pack(
+    pl = struct.pack(
         "<IqBBBBBIHHBH", t_us, t_ns, int(vs["mode"]), int(mission_mode), int(mission_phase), 2, flags, 0, 0x3F, 7, 0, 40
     )
+    return pl if home_epoch is None else pl + bytes([home_epoch])  # home_epoch appended (u8), absent = older sender
 
 
 def pack_handset(vs: dict, g: dict, a: dict, mode_text: str) -> bytes:

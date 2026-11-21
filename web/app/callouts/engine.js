@@ -3,6 +3,8 @@
 // it only says what the vehicle reported. Data older than `stale_s` never triggers mission, altitude or deviation
 // callouts. Category enable switches are applied by the caller, not here (baselines keep following the data).
 
+import { AltCheck } from "../gnss/gnss_logic.js";
+
 /** Spoken names of the failure_bits of VEHICLE_STATUS, same order as FAILURE_BITS (a test checks the length). */
 export const FAILURE_TEXT = [
   "Sensor failure", "Attitude failure", "Position failure", "Position out of bounds", "Attitude out of bounds", "Radio connection loss",
@@ -24,6 +26,7 @@ export class CalloutEngine {
   /** @param {() => object} getSettings complete settings (settings.js), read on every evaluation */
   constructor(getSettings) {
     this.cfg = getSettings;
+    this.alt = new AltCheck(() => ({ ...getSettings().altcheck, stale_s: getSettings().stale_s }));
     this.reset();
   }
 
@@ -31,6 +34,7 @@ export class CalloutEngine {
   reset() {
     this.s = { prevBits: 0, failsafe: false, fail: new Map(), lastNow: null, lost: false, routerUp: undefined };
     this.quiet = false;
+    this.alt.reset();
   }
 
   /** Re-baseline silently (replay seek, view change): the next data pass fires nothing. */
@@ -38,6 +42,7 @@ export class CalloutEngine {
     const keep = { lost: false };
     this.s = { prevBits: 0, failsafe: false, fail: new Map(), lastNow: null, ...keep, routerUp: undefined };
     this.quiet = true;
+    this.alt.reset();
   }
 
   /**
@@ -109,6 +114,7 @@ export class CalloutEngine {
     const airborne = mode === "Running" && (mission || status);
     this._altitude(c, airborne ? position : null, out);
     this._deviation(c, airborne ? position : null, mission, now, out);
+    this._altcheck(inp, now, out, clears);
 
     if (this.quiet && (status || mission || position)) {
       this.quiet = false;
@@ -118,6 +124,15 @@ export class CalloutEngine {
       out.length = 0;
     }
     return { events: out, clears, resynced };
+  }
+
+  /** GNSS vs estimated altitude (gnss/gnss_logic.js): "Altitude mismatch" once per excursion, only while both are fresh. */
+  _altcheck(inp, now, out, clears) {
+    const r = this.alt.update({ now, position: inp.position, gps: inp.gps, home: inp.home, status: inp.status });
+    const was = this.s.altMismatch === true;
+    this.s.altMismatch = r.mismatch;
+    if (r.mismatch && !was) out.push(ev("altcheck.mismatch", "altcheck", "Altitude mismatch", "warning", PRIORITY.warning, { key: "altcheck" }));
+    if (!r.mismatch && was) clears.push("altcheck");
   }
 
   _failures(c, f, now, out, clears) {

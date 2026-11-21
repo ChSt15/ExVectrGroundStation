@@ -4,6 +4,7 @@ import "./attitude.js";
 import "./mission.js";
 import "./failures.js";
 import "./position.js";
+import "./gnss.js";
 import "./guidance.js";
 import "./actuators.js";
 import "./sensors.js";

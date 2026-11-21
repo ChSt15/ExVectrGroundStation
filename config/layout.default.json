@@ -75,6 +75,9 @@
               "panel": "position"
             },
             {
+              "panel": "gnss"
+            },
+            {
               "panel": "actuators"
             },
             {
@@ -132,6 +135,9 @@
               "options": {
                 "compact": true
               }
+            },
+            {
+              "panel": "gnss"
             },
             {
               "panel": "actuators",

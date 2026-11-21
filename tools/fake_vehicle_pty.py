@@ -129,12 +129,13 @@ PACKERS = {
 DEFAULT_RATES = {"Attitude": 50.0, "Position": 25.0, "VehicleState": 10.0, "MissionState": 5.0, "Gps": 1.0}
 # exvectrnet-1, packet name -> Hz. Vehicle on USB sends the full set, the TX module forwards the radio set.
 NET_VEHICLE_RATES = {
-    "VEHICLE_STATUS": 20.0, "POSE": 50.0, "ACTUATORS": 10.0, "MISSION": 10.0, "GNSS": 5.0, "HANDSET_TELEM": 2.0,
+    "VEHICLE_STATUS": 20.0, "POSE": 50.0, "ACTUATORS": 10.0, "MISSION": 10.0, "GNSS": 10.0, "HOME_POSITION": 0.5,
+    "HANDSET_TELEM": 2.0,
     "IMU_RAW": 20.0, "ESTIMATOR": 10.0, "TASK_TIMING": 5.0, "CALIBRATION": 0.5,
 }  # fmt: skip
 NET_TX_RATES = {
     "VEHICLE_STATUS": 5.0, "AIR_POSE": 10.0, "AIR_ACTUATORS": 25.0, "AIR_MISSION": 5.0,
-    "HANDSET_TELEM": 2.0, "LINK_STATS_TX": 2.0, "LINK_STATS_RX": 2.0,
+    "AIR_GNSS": 10.0, "AIR_GNSS_INFO": 1.0, "HANDSET_TELEM": 2.0, "LINK_STATS_TX": 2.0, "LINK_STATS_RX": 2.0,
     "POCKET_RC": 25.0,
 }  # fmt: skip
 
@@ -343,6 +344,7 @@ class FakeVehiclePty:
                 ms["mission_mode"],
                 ms["mission_phase"],
                 flags_extra=128 if zeroing else 0,
+                home_epoch=sc.fields("VehicleStatus", t)["home_epoch"],
             )
             return self._data(src, 0, net.PORT_VEHICLE_STATUS, pl)
         if name == "POSE":
@@ -368,6 +370,12 @@ class FakeVehiclePty:
             return self._data(src, 0, net.PORT_MISSION, net.pack_mission(t_us, ms))
         if name == "GNSS":
             return self._data(src, 0, net.PORT_GNSS, net.pack_gnss(t_us, gps))
+        if name == "AIR_GNSS":
+            return self._data(src, 0, net.PORT_AIR_GNSS, net.pack_air_gnss(t_us, gps))
+        if name == "AIR_GNSS_INFO":
+            return self._data(src, 0, net.PORT_AIR_GNSS_INFO, net.pack_air_gnss_info(t_us, gps))
+        if name == "HOME_POSITION":  # the real vehicle answers a request; the fake repeats it for GUI testing
+            return self._data(src, 0, net.PORT_HOME_POSITION, net.pack_home_position(sc.fields("HomePosition", t)))
         if name == "HANDSET_TELEM":
             return self._data(src, 0, net.PORT_HANDSET, net.pack_handset(vs, gps, att, vs["mode"].name[:8]))
         if name == "IMU_RAW":

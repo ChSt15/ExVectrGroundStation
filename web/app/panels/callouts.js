@@ -76,6 +76,8 @@ registerPanel({
     altInput.addEventListener("change", () => set((s) => (s.altitude.levels = altInput.value.split(/[\s,;]+/).filter(Boolean).map(Number))));
     const hyst = num("co-hyst", "0.5", "0", "50", (v) => set((s) => (s.altitude.hysteresis_m = v)));
     const devLimit = num("co-dev-limit", "0.5", "0.1", "10000", (v) => set((s) => (s.deviation.limit_m = v)));
+    const altLimit = num("co-alt-limit", "0.5", "0.1", "10000", (v) => set((s) => (s.altcheck.limit_m = v)));
+    const altHold = num("co-alt-hold", "0.5", "0", "60", (v) => set((s) => (s.altcheck.hold_s = v)));
     const replay = h("input", { type: "checkbox", "data-testid": "co-replay" });
     replay.addEventListener("change", () => set((s) => (s.speakInReplay = replay.checked)));
     const t = section(el, "Thresholds");
@@ -83,6 +85,7 @@ registerPanel({
       h("div", { class: "co-row" }, h("span", { text: "Altitudes (m)" }), altInput),
       h("div", { class: "co-row" }, h("span", { text: "Hysteresis (m)" }), hyst, h("span", { class: "dim", text: "no repeat near a threshold" })),
       h("div", { class: "co-row" }, h("span", { text: "Deviation limit (m)" }), devLimit),
+      h("div", { class: "co-row" }, h("span", { text: "GNSS altitude check limit (m)" }), altLimit, h("span", { text: "for (s)" }), altHold, h("span", { class: "dim", text: "also the GNSS panel's warning" })),
       h("label", { class: "co-row" }, replay, " Speak and notify in replay (callouts follow the recorded timeline, never a seek)"),
     );
 
@@ -156,6 +159,8 @@ registerPanel({
       put(altInput, s.altitude.levels.join(", "));
       put(hyst, s.altitude.hysteresis_m);
       put(devLimit, s.deviation.limit_m);
+      put(altLimit, s.altcheck.limit_m);
+      put(altHold, s.altcheck.hold_s);
       replay.checked = s.speakInReplay;
       for (const n of STYLE_NAMES) for (const f of Object.keys(styleInputs[n])) put(styleInputs[n][f], s.styles[n][f]);
       voice.value = [...voice.options].some((o) => o.value === s.voice) ? s.voice : "";

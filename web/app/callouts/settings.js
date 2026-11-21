@@ -2,7 +2,7 @@
 // Pure functions (unit tested in web/test/callouts_settings.test.js). Display-only feature: nothing here is sent to
 // the vehicle.
 
-export const CATEGORIES = ["countdown", "phase", "altitude", "failure", "link", "state", "deviation"];
+export const CATEGORIES = ["countdown", "phase", "altitude", "failure", "link", "state", "deviation", "altcheck"];
 export const CATEGORY_LABELS = {
   countdown: "Countdown",
   phase: "Mission phases",
@@ -11,6 +11,7 @@ export const CATEGORY_LABELS = {
   link: "Link / telemetry",
   state: "State (armed, motors, zeroing, sim)",
   deviation: "Position deviation",
+  altcheck: "GNSS altitude cross-check",
 };
 export const VOICE_MODES = ["recorded", "browser", "beeps"];
 export const VOICE_MODE_LABELS = { recorded: "Recorded (default)", browser: "Browser voice", beeps: "Beeps only" };
@@ -24,9 +25,10 @@ export const DEFAULTS = {
   speakInReplay: false,
   voiceMode: "recorded", // "recorded" clips (web/audio) | "browser" speechSynthesis | "beeps" only
   voice: "", // browser voiceURI, "" = browser default
-  categories: { countdown: true, phase: true, altitude: true, failure: true, link: true, state: true, deviation: false },
+  categories: { countdown: true, phase: true, altitude: true, failure: true, link: true, state: true, deviation: false, altcheck: false },
   altitude: { levels: [25, 50, 100, 150, 200], hysteresis_m: 3 },
   deviation: { limit_m: 5, hold_s: 2, hysteresis_m: 1 },
+  altcheck: { limit_m: 5, hold_s: 1, hysteresis_m: 1 }, // GNSS vs estimated altitude (the GNSS panel uses the same limit)
   failure: { repeat_s: 5, repeats: 3 },
   telemetry: { timeout_s: 3 },
   stale_s: 3,
@@ -75,6 +77,11 @@ export function mergeSettings(base, over) {
     out.deviation.limit_m = num(over.deviation.limit_m, 0.1, 10000, out.deviation.limit_m);
     out.deviation.hold_s = num(over.deviation.hold_s, 0, 60, out.deviation.hold_s);
     out.deviation.hysteresis_m = num(over.deviation.hysteresis_m, 0, 1000, out.deviation.hysteresis_m);
+  }
+  if (isObj(over.altcheck)) {
+    out.altcheck.limit_m = num(over.altcheck.limit_m, 0.1, 10000, out.altcheck.limit_m);
+    out.altcheck.hold_s = num(over.altcheck.hold_s, 0, 60, out.altcheck.hold_s);
+    out.altcheck.hysteresis_m = num(over.altcheck.hysteresis_m, 0, 1000, out.altcheck.hysteresis_m);
   }
   if (isObj(over.failure)) {
     out.failure.repeat_s = num(over.failure.repeat_s, 1, 600, out.failure.repeat_s);

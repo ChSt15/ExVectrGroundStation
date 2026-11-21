@@ -55,6 +55,7 @@ class ExVectrNet1Profile:
         self._last_seq: dict[tuple[str, int, int], tuple[int, int]] = {}  # (source, node, port) -> (seq, t)
         self._incompat: dict[tuple[str, int], str] = {}  # (source, node) -> what differs
         self._tx_seq: dict[int, int] = {}  # port -> next sequence number
+        self._gnss: dict[tuple[str, int], dict[str, dict]] = {}  # (source, node) -> last "pos" / "info" fields
 
     def make_framer(self) -> NetFramer:
         return NetFramer(node_id=NODE_GS)
@@ -98,7 +99,22 @@ class ExVectrNet1Profile:
         out = mapping.MAPPERS[cls](wire, frame.t, src, frame.meta) if cls in mapping.MAPPERS else "no mapping"
         if isinstance(out, str):
             return [self._raw(frame, src, f"{cls.__name__}: {out}")]
+        if cls in (xp.AirGnss, xp.AirGnssInfo):
+            out = self._merge_gnss(out[0], cls is xp.AirGnss, src, node)
         return out
+
+    def _merge_gnss(self, gps: Packet, is_pos: bool, src: str, node: int) -> list[Packet]:
+        """AIR_GNSS (10 Hz position and velocity) and AIR_GNSS_INFO (1 Hz fix type, satellites, accuracy) feed one
+        `Gps` per source. Every AIR_GNSS emits a Gps carrying the last info values (None until the first
+        AIR_GNSS_INFO; `info_t` is the host time of that info, so a panel can show its age). AIR_GNSS_INFO only
+        updates the cache and emits nothing: re-emitting the last position under a new time stamp would make a
+        stale position look fresh."""
+        last = self._gnss.setdefault((src, node), {"pos": {}, "info": {}})
+        names = ("lat", "lon", "alt", "vel") if is_pos else ("num_sats", "fix_type", "pos_acc", "alt_acc", "info_t")
+        last["pos" if is_pos else "info"] = {n: getattr(gps, n) for n in names}
+        if not is_pos:
+            return []
+        return [type(gps)(t=gps.t, src=gps.src, **{**last["pos"], **last["info"]})]
 
     def _is_duplicate(self, frame: Frame, src: str, node: int) -> bool:
         """Receiver rule of network-design 3.4: accept if (seq - last) mod 256 is in 1..127."""

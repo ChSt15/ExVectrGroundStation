@@ -27,7 +27,8 @@ USB_RATES: dict[str, float] = {
     "FlapState": 50,
     "TvcState": 50,
     "MissionState": 10,
-    "Gps": 1,
+    "Gps": 10,
+    "HomePosition": 1,  # the real vehicle sends it only on request; the fake repeats it for GUI testing
     "ConsoleText": 0.5,
     # vehicle status and the USB debug set (tuning graphs, raw sensor panel)
     "VehicleStatus": 10,
@@ -45,6 +46,8 @@ RADIO_RATES: dict[str, float] = {
     # AIR_ACTUATORS: 25 frames/s with two samples each = 50 samples/s
     "Actuators": 50,
     "FlapState": 50,
+    "Gps": 10,  # AIR_GNSS 10 Hz, info fields merged
+    "HomePosition": 1,
     "RadioLinkStats": 2,
     "RcState": 10,
 }
@@ -56,6 +59,7 @@ RADIO_UNSUPPLIED: dict[str, set[str]] = {
     "Position": {"h_acc", "v_acc"},
     "VehicleState": {"tvc_thrust", "tvc_torque", "ground_dist", "ground_dist_cov"},
     "Actuators": {"ground_distance"},
+    "Gps": {"vel_acc", "info_t"},
     "FlapState": {"cmd", "enabled"},
 }
 # Fields only the radio set carries (AIR_ACTUATORS roll torque): None on the usb profile.

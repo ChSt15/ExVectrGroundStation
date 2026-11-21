@@ -91,6 +91,9 @@ export function describeVehicleStatus(entry, now, schemaType, zeroSent = null) {
   const nfRc = entry.nf && entry.nf.rc_age;
   items.push(item("rc_age", "RC age", typeof rcAge === "number" ? `${fmtNum(rcAge, 2)} s` : nfRc === "nan" || rcAge === null ? "none (NaN)" : "n/s"));
 
+  const he = f.home_epoch;
+  items.push(item("home_epoch", "Home epoch", he === undefined ? "n/s" : he === 0 ? "no home yet (0)" : String(he), "", { title: "VEHICLE_STATUS home_epoch: increments whenever the vehicle's home reference changes (0 = none yet). A HOME_POSITION with this epoch, if one was received, is shown in the GNSS panel." }));
+
   const rid = f.last_req_id;
   const rst = f.last_req_status;
   items.push(item("last_req", "Last request", rid === undefined ? "n/s" : rid === 0 ? "none (id 0)" : `id ${rid}: ${REQUEST_STATUS_NAMES[rst] ?? `#${rst}`}`, rid && rst !== 0 && rst !== 1 ? "bad" : ""));

@@ -34,21 +34,22 @@ Version 1, direction `down`, nominal rate 10 Hz, history: yes.
 
 ## Gps
 
-GNSS fix, lat/lon in radians (provisional-1: legacy wire holds rad x 1e7, a known issue).
+GNSS solution, lat/lon in radians. USB GNSS (0x83) fills every field; the radio's AIR_GNSS (10 Hz: position and velocity) and AIR_GNSS_INFO (1 Hz: fix type, satellites, accuracy) are merged by the wire profile into one Gps per source, the info fields carried until the next AIR_GNSS_INFO. Unknown values (wire sentinels) are None.
 
-Version 1, direction `down`, nominal rate 1 Hz, history: no.
+Version 1, direction `down`, nominal rate 10 Hz, history: yes.
 
 | Field | Kind | Unit | Description |
 |---|---|---|---|
-| `lat` | float | rad |  |
-| `lon` | float | rad |  |
-| `alt` | float | m |  |
-| `vel` | float_array[3] | m/s | Elements: x, y, z. |
+| `lat` | float | rad | None = no fix |
+| `lon` | float | rad | None = no fix |
+| `alt` | float | m | receiver altitude (u-blox: height above the WGS-84 ellipsoid), None = unknown |
+| `vel` | float_array[3] | m/s | NWU, None = unknown Elements: x, y, z. |
 | `num_sats` | int | - |  |
 | `fix_type` | int | - | GNSS fix type as reported (exvectrnet-1 profile only) |
-| `pos_acc` | float | m |  |
-| `alt_acc` | float | m |  |
-| `vel_acc` | float | m/s |  |
+| `pos_acc` | float | m | horizontal accuracy, None = unknown |
+| `alt_acc` | float | m | vertical accuracy, None = unknown |
+| `vel_acc` | float | m/s | speed accuracy (USB GNSS only) |
+| `info_t` | time_ns | ns | host time of the AIR_GNSS_INFO the info fields come from (radio path only) |
 
 ## VehicleState
 
@@ -146,6 +147,26 @@ Version 1, direction `down`, nominal rate 5 Hz, history: no.
 | `last_req_id` | int | - | last executed REQUEST id, 0 = none |
 | `last_req_status` | int | - |  |
 | `rc_age` | float | s | age of the last accepted RC_STATE on the vehicle, NaN = none |
+| `home_epoch` | int | - | increments whenever the vehicle's home reference changes, 0 = no home yet; None = older sender |
+
+## HomePosition
+
+Home reference as the vehicle reports it (HOME_POSITION, the position estimator's origin). Display only: the ground station decodes one if it arrives; the request path is not part of this version.
+
+Version 1, direction `down`, nominal rate n/a, history: no.
+
+| Field | Kind | Unit | Description |
+|---|---|---|---|
+| `latlon_valid` | bool | - |  |
+| `alt_valid` | bool | - |  |
+| `simulation` | bool | - | the reference comes from the simulator, not from GNSS |
+| `zeroing` | bool | - | an estimator zeroing window was active (the reference may still be refined) |
+| `lat` | float | rad | None when not valid |
+| `lon` | float | rad | None when not valid |
+| `alt` | float | m | same datum as the GNSS altitude, None when not valid |
+| `h_acc` | float | m | None = unknown |
+| `epoch` | int | - | the VEHICLE_STATUS.home_epoch value this copy belongs to |
+| `set_time` | time_ns | ns | vehicle time when set or refined, 0 = never |
 
 ## Actuators
 

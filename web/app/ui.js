@@ -102,7 +102,7 @@ export class Bindings {
   /** Label + value row appended to `parent`. */
   row(parent, label, spec, opts = {}) {
     const cell = this.cell(spec, opts);
-    const row = h("div", { class: "row" }, h("span", { class: "lbl", text: label }), cell);
+    const row = h("div", { class: "row", "data-key": opts.key || null }, h("span", { class: "lbl", text: label }), cell);
     parent.append(row);
     return cell;
   }

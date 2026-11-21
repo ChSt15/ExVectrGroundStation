@@ -19,6 +19,10 @@ T_DESCENT = 16.0
 T_LANDING = 26.0
 T_DONE = 30.0
 G = 9.81
+HOME_LAT = 0.8996  # rad, fake home point (about 51.54 deg N, 0 deg E)
+HOME_LON = 0.0
+HOME_ALT = 100.0  # m, GNSS datum
+R_EARTH = 6_378_137.0
 
 # (start time, vehicle mode, mission mode, mission phase)
 TIMELINE = [
@@ -122,15 +126,32 @@ class Scenario:
         return {"pos": self.pos(t), "vel": self.vel(t), "h_acc": 0.4, "v_acc": 0.2}
 
     def _f_Gps(self, t: float) -> dict[str, Any]:
+        """Position around the fake home point, following the fake NWU position (x north, y west, z up)."""
+        x, y, z = self.pos(t)
         return {
-            "lat": 0.8996,
-            "lon": 0.0,
-            "alt": 100.0 + self.pos(t)[2],
+            "lat": HOME_LAT + x / R_EARTH,
+            "lon": HOME_LON - y / (R_EARTH * math.cos(HOME_LAT)),
+            "alt": HOME_ALT + z,
             "vel": self.vel(t),
             "num_sats": 12,
+            "fix_type": 3,
             "pos_acc": 1.5,
             "alt_acc": 2.0,
             "vel_acc": 0.1,
+        }
+
+    def _f_HomePosition(self, t: float) -> dict[str, Any]:
+        return {
+            "latlon_valid": True,
+            "alt_valid": True,
+            "simulation": True,
+            "zeroing": False,
+            "lat": HOME_LAT,
+            "lon": HOME_LON,
+            "alt": HOME_ALT,
+            "h_acc": 1.0,
+            "epoch": 1,
+            "set_time": int(T_READY * 1e9),
         }
 
     def _f_VehicleState(self, t: float) -> dict[str, Any]:
@@ -223,6 +244,7 @@ class Scenario:
             "last_req_id": 0,
             "last_req_status": 0,
             "rc_age": None,
+            "home_epoch": 1 if ready else 0,
         }
 
     def _f_Actuators(self, t: float) -> dict[str, Any]:

@@ -15,7 +15,7 @@ def test_all_section_3_2_types_registered():
         "RadioLinkStats", "LinkStats", "ConsoleText", "RawFrame", "GsEvent", "Note",
             "VehicleStatus", "Actuators", "HandsetTelem", "ImuRaw", "Estimator", "TaskTiming", "TxModuleStats",
             "RxModuleStats", "RequestAck", "NetworkStatus", "Request", "LinkConfig", "Telecommand", "Calibration",
-            "LegacyRow",
+            "LegacyRow", "HomePosition",
     }  # fmt: skip
 
 
