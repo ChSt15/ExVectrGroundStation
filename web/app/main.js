@@ -168,6 +168,7 @@ function ensureAllApi() {
         for (const m of mounted) {
           if (m.def.mode === "all" && m.inst.onPacket && (m.def.consumes.includes(it.type) || m.def.consumes.includes("*"))) m.inst.onPacket(it);
         }
+        if (it.type === "ConsoleText") callouts?.log.onLog(it); // vehicle log notifications (display only)
       }
     },
   });
@@ -416,12 +417,22 @@ function renderDockLock() {
 }
 
 function renderDockBadges() {
+  // the Console counts as read while its tab is open and the dock is visible
+  if (dockTab === "console" && dockMode !== "rail") callouts?.log.markRead();
   for (const m of mounted) {
     if (m.area !== "dock") continue;
     const t = dockTabs.get(m.def.id);
     const a = m.inst.alert?.();
-    t.dot.hidden = !a;
+    const n = m.inst.badge?.() || 0; // unread count (Console)
+    t.dot.hidden = !a && !n;
     t.dot.dataset.tone = a || "";
+    if (n) {
+      t.dot.dataset.count = String(n);
+      t.dot.textContent = n > 99 ? "99+" : String(n);
+    } else {
+      delete t.dot.dataset.count;
+      t.dot.textContent = "";
+    }
     t.b.dataset.alert = a || "";
   }
 }

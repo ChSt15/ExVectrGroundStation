@@ -504,6 +504,9 @@ body[data-layout="flight"] .tiles.t4 .val.big .v { font-size: calc(var(--fs-tile
 .co-history li[data-tone="ok"] { border-color: var(--ok); } .co-history li[data-tone="info"] { border-color: var(--info); }
 
 /* Software tab and update badge (docs/updating.md) */
+.cal-chip { cursor: pointer; font-weight: 700; border-color: var(--warn); background: var(--warn-bg); }
+.cal-chip[hidden] { display: none; }
+.tab-dot[data-count] { width: auto; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 7px; font-size: 10px; line-height: 14px; font-weight: 700; color: #000; text-align: center; }
 .upd-chip { cursor: pointer; font-weight: 700; background: transparent; }
 .upd-chip[data-tone="info"] { border-color: var(--info); } .upd-chip[data-tone="warn"] { border-color: var(--warn); background: var(--warn-bg); }
 .up-version { font-family: var(--mono, monospace); font-size: var(--fs-s); margin-bottom: 4px; word-break: break-word; }

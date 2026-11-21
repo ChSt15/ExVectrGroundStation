@@ -35,6 +35,9 @@ export function createHeader(ctx, opts) {
   // software update badge (docs/updating.md): shown when a check found new commits or a restart is pending
   const upd = h("button", { class: "chip upd-chip", "data-testid": "update-badge", hidden: true, "aria-label": "software update available: open the Software tab" });
   upd.addEventListener("click", () => window.exgs?.dock?.open("update"));
+  // vehicle calibration problem chip (callouts/logwatch.js): from the repeated warning line, clears when it stops
+  const calChip = h("button", { class: "chip cal-chip", "data-testid": "cal-chip", hidden: true, "aria-label": "vehicle calibration problem: open the Console" });
+  calChip.addEventListener("click", () => window.exgs?.dock?.open("console"));
   // recorder block
   const recDot = h("span", { class: "rec-dot" });
   const recState = h("span", { class: "rec-state", "data-testid": "rec-state" }, recDot, h("span", { class: "rec-t" }));
@@ -69,6 +72,7 @@ export function createHeader(ctx, opts) {
     views,
     toggle,
     h("span", { class: "grow" }),
+    calChip,
     upd,
     rc,
     link,
@@ -96,6 +100,12 @@ export function createHeader(ctx, opts) {
     rc.dataset.mode = open && r ? r.mode : "";
     rc.dataset.sending = String(!!(open && r && r.sending));
     const ub = badgeState(ctx.update && ctx.update());
+    const cc = opts.callouts?.()?.log.chip() || null;
+    calChip.hidden = !cc;
+    if (cc) {
+      calChip.textContent = cc.text;
+      calChip.title = `reported by the vehicle (gyro ${cc.detail.gyro ?? "?"}, accel ${cc.detail.accel ?? "?"}, mag ${cc.detail.mag ?? "?"}); click to open the Console`;
+    }
     upd.hidden = !ub.show;
     upd.textContent = ub.text;
     upd.dataset.tone = ub.tone || "";
