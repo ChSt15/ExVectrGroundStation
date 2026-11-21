@@ -36,6 +36,9 @@ kind = "vehicle_usb"
 match = { vid = "16c0", pid = "0483" }         # Teensy USB serial; or device = "/dev/serial/by-id/..."
 rc_role = "control"
 enabled = false                                # set true when the Teensy is on USB (or use tools/fake_vehicle_pty.py)
+# transport = "serial"                         # default (pyserial, /dev/ttyACM*). "usb": userspace CDC-ACM with pyusb for hosts
+#                                              # without the kernel cdc_acm driver (the Steam Frame); needs match vid and pid.
+#                                              # "auto": serial if the tty exists, else usb. docs/usb-transport.md
 
 # Peer 2: the Router (the ExVectrLink Pocket module) on USB (node 2). It also forwards the vehicle's radio set (node 1), the
 # ship radio node (node 3) and the Pocket's RC_STATE (handset origin), plus its own LINK_STATS. In master the
@@ -48,6 +51,7 @@ match = { device = "/dev/serial/by-id/usb-Silicon_Labs_CP2102_XXXX-if00-port0" }
 baud = 921600
 rc_role = "control"
 enabled = false
+# The Router on a host without cdc_acm (the Frame):  transport = "usb"  and  match = { vid = "303a", pid = "1001" }
 
 [[source]]
 id = "fake"

@@ -13,7 +13,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+usb = ["pyusb>=1.2"]  # transport = "usb" (userspace CDC-ACM, docs/usb-transport.md); needs libusb-1.0 on the host
 dev = [
+    "pyusb>=1.2",
     "pytest>=8",
     "pytest-asyncio>=0.23",
     "hypothesis>=6.100",
