@@ -98,3 +98,15 @@ test("target attitude ghost uses the ship's conversion: equal setpoint and attit
   // the ghost for a 90 degree yaw setpoint points body +X West (-Z in Three.js)
   near(bodyToThree(quatFromAxisAngle([0, 0, 1], Math.PI / 2), [1, 0, 0]), [0, 0, -1]);
 });
+
+import { tvcThrustVector } from "../app/view3d/frames.js";
+
+test("tvcThrustVector: straight, tilted, magnitude kept, unusable input", () => {
+  near(tvcThrustVector([0, 0], 5), [0, 0, 5]);
+  const v = tvcThrustVector([0.2, -0.1], 7);
+  assert.ok(Math.abs(Math.hypot(...v) - 7) < 1e-9);
+  assert.ok(Math.abs(Math.atan2(v[0], v[2]) - 0.2) < 1e-9 && Math.abs(Math.atan2(v[1], v[2]) + 0.1) < 1e-9);
+  assert.equal(tvcThrustVector([0, 0], 0), null);
+  assert.equal(tvcThrustVector(null, 5), null);
+  assert.equal(tvcThrustVector([NaN, 0], 5), null);
+});
