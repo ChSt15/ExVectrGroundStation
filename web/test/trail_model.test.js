@@ -86,16 +86,16 @@ test("out_top puts the chamfer at the top (nose side, +z) of the outer edge, out
 });
 
 test("flap cant: lower hinge point unchanged, upper end moves toward the axis by length*sin(cant)", () => {
-  const top = { pivot_body_m: [0, 0.065, 0.23], source: { height_m: 0.14 }, cant_deg: 5 };
+  const top = { pivot_body_m: [0, 0.065, 0.23], source: { height_m: 0.14 }, cant_deg: 10 };
   const rot = (c, y, z, a) => [y * Math.cos(a) - z * Math.sin(a), y * Math.sin(a) + z * Math.cos(a)];
   for (const side of [1, -1]) {
     const f = { ...top, pivot_body_m: [0, side * 0.065, 0.23] };
     const { point, angleRad } = flapCant(f);
     assert.deepEqual(point.map((v) => +v.toFixed(6)), [0, side * 0.065, 0.16]);
     const [y, z] = rot(0, 0, 0.14, angleRad); // upper end relative to the lower hinge point
-    assert.ok(Math.abs(y + side * 0.14 * Math.sin(5 * Math.PI / 180)) < 1e-12, "upper end moves toward the axis");
+    assert.ok(Math.abs(y + side * 0.14 * Math.sin(10 * Math.PI / 180)) < 1e-12, "upper end moves toward the axis");
     assert.ok(Math.abs(side * 0.065 + y) < Math.abs(side * 0.065));
-    assert.ok(z < 0.14 && z > 0.139);
+    assert.ok(Math.abs(z - 0.14 * Math.cos(10 * Math.PI / 180)) < 1e-12);
   }
   assert.equal(flapCant({ pivot_body_m: [0, 0.065, -0.255], source: { height_m: 0.21 } }).angleRad, 0);
 });

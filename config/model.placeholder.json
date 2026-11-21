@@ -13,7 +13,7 @@
     "bottom_flap_lower_edge_from_bottom": 0.01,
     "bottom_flap_width": 0.08,
     "bottom_flap_length": 0.21,
-    "top_flap_cant_deg": 5
+    "top_flap_cant_deg": 10
   },
   "body": {
     "source": {
@@ -73,7 +73,7 @@
       ],
       "sign": -1,
       "model_angle_deg": 0,
-      "cant_deg": 5
+      "cant_deg": 10
     },
     {
       "id": "tr",
@@ -110,7 +110,7 @@
       ],
       "sign": 1,
       "model_angle_deg": 0,
-      "cant_deg": 5
+      "cant_deg": 10
     },
     {
       "id": "bl",

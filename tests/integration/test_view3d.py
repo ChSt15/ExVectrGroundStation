@@ -46,7 +46,7 @@ def test_placeholder_model_config_has_the_real_dimensions_and_conventions():
     assert math.isclose(flaps["tl"]["pivot_body_m"][2] - 0.07, d["top_flap_lower_edge_from_bottom"] - 0.37)
     assert math.isclose(flaps["bl"]["pivot_body_m"][2] - 0.105, d["bottom_flap_lower_edge_from_bottom"] - 0.37)
     assert math.isclose(flaps["bl"]["pivot_body_m"][2], 0.115 - 0.37)
-    assert d["top_flap_cant_deg"] == 5 and flaps["tl"]["cant_deg"] == flaps["tr"]["cant_deg"] == 5
+    assert d["top_flap_cant_deg"] == 10 and flaps["tl"]["cant_deg"] == flaps["tr"]["cant_deg"] == 10
     assert "cant_deg" not in flaps["bl"] and "cant_deg" not in flaps["br"]
     assert cfg["thrust_arrow"]["origin_body_m"] == [0, 0, -0.37]
 
@@ -79,7 +79,7 @@ async def open_view(rig, b, wait=3.0):
     return json.loads(await b.eval(DEBUG))
 
 
-CANT_DEG = {"tl": 5, "tr": 5, "bl": 0, "br": 0}
+CANT_DEG = {"tl": 10, "tr": 10, "bl": 0, "br": 0}
 
 
 def flap_tip_expected(side, zc, w, angle_rad, h=0.0, cant_deg=0.0):
