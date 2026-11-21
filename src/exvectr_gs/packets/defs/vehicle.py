@@ -144,6 +144,11 @@ class VehicleState(Packet):
 class MissionState(Packet):
     sp_vel: list[float] = f(unit="m/s", labels=("x", "y", "z"), desc="velocity setpoint, NWU")
     sp_pos: list[float] = f(unit="m", labels=("x", "y", "z"), desc="position setpoint, NWU")
+    sp_q: list[float] = f(
+        labels=("w", "x", "y", "z"),
+        desc="attitude setpoint quaternion, body -> world, NWU (as Attitude.q); None = no attitude setpoint "
+        "(all four zero, NaN from an older sender, or a link that does not carry it)",
+    )
     mission_mode: MissionMode = f()
     mission_phase: MissionPhase = f()
     t_mission: int = f(unit="ns", kind="time_ns", desc="mission time, negative during countdown")

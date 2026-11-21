@@ -162,12 +162,16 @@ def pack_air_actuators(t_us: int, prev_age: float, new: dict, old: dict | None) 
     )
 
 
+def _sp_q(m: dict) -> list[float]:
+    return list(m.get("sp_q") or [0.0, 0.0, 0.0, 0.0])  # all zero = no attitude setpoint
+
+
 def pack_air_mission(t_us: int, m: dict, waypoint: int = 255) -> bytes:
     ms = _fx(m["t_mission"] / 1e9, 0.001, -(2**31) + 1, 2**31 - 1, -(2**31))
     pos = [_fx(x, 0.001, -(2**31) + 1, 2**31 - 1, -(2**31)) for x in m["sp_pos"]]
     vel = [i16(x, 0.01) for x in m["sp_vel"]]
     return struct.pack(
-        "<IiBBBB3i3h",
+        "<IiBBBB3i3h4h",
         t_us,
         ms,
         int(m["mission_mode"]),
@@ -176,12 +180,15 @@ def pack_air_mission(t_us: int, m: dict, waypoint: int = 255) -> bytes:
         waypoint,
         *pos,
         *vel,
+        *(i16(x, 1 / 32768) for x in _sp_q(m)),
     )
 
 
 def pack_mission(t_us: int, m: dict) -> bytes:
     ms = _fx(m["t_mission"] / 1e9, 0.001, -(2**31) + 1, 2**31 - 1, -(2**31))
-    return struct.pack("<I3f3fiBB", t_us, *m["sp_pos"], *m["sp_vel"], ms, m["mission_index"], int(m["mission_phase"]))
+    return struct.pack(
+        "<I3f3fiBB4f", t_us, *m["sp_pos"], *m["sp_vel"], ms, m["mission_index"], int(m["mission_phase"]), *_sp_q(m)
+    )
 
 
 def pack_gnss(t_us: int, g: dict, fix_type: int = 3) -> bytes:

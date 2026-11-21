@@ -90,6 +90,7 @@ export class Scene3D {
     this.bodyAxes = new THREE.AxesHelper(0.25);
     this.bodyAxes.visible = false;
     this.ship.group.add(this.bodyAxes);
+    this.buildTargetAttitude();
     const ta = this.cfg.thrust_arrow || {};
     this.thrustCfg = { m_per_n: ta.m_per_n ?? 0.02, max_m: ta.max_m ?? 0.6, origin: ta.origin_body_m ?? [0, 0, -0.4] };
     this.thrust = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(), 0.1, 0xd29922, 0.04, 0.025);
@@ -271,6 +272,47 @@ export class Scene3D {
     this.thrust.setLength(len, Math.min(0.06, len * 0.5), 0.03);
     this.thrust.line.material.opacity = this.thrust.cone.material.opacity = ghost ? 0.3 : 1;
     this.thrust.line.material.transparent = this.thrust.cone.material.transparent = true;
+    this.dirty = true;
+  }
+
+  /**
+   * Target attitude: the wanted body axes drawn as dashed, semi-transparent "ghost" axes at the ship position, in the
+   * same colours as the real body axes (AxesHelper: X red, Y green, Z blue). Placed under worldRoot with the vehicle
+   * quaternion exactly like the ship group, so they coincide with the real axes when the vehicle tracks perfectly.
+   */
+  buildTargetAttitude() {
+    const L = 0.35;
+    const g = (this.attGhost = new THREE.Group());
+    this.attGhostMats = [];
+    for (const [dir, col] of [[[L, 0, 0], 0xff0000], [[0, L, 0], 0x00ff00], [[0, 0, L], 0x0000ff]]) {
+      const mat = new THREE.LineDashedMaterial({ color: col, dashSize: 0.03, gapSize: 0.02, transparent: true, opacity: 0.6, depthTest: false });
+      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(...dir)]), mat);
+      line.computeLineDistances();
+      line.renderOrder = 2;
+      g.add(line);
+      this.attGhostMats.push(mat);
+    }
+    g.visible = false;
+    this.root.add(g);
+    this.attGhostEnabled = true;
+  }
+
+  /** pos NWU [x,y,z] (ship position) or null, sp vehicle quaternion [w,x,y,z] or null (hidden), shown: the toggle. */
+  setTargetAttitude(pos, sp) {
+    if (!this.attGhost) return;
+    const qt = sp && vehicleQuatToThree(sp);
+    const ok = this.attGhostEnabled && qt && Array.isArray(pos) && pos.every(Number.isFinite);
+    this.attGhost.visible = !!ok;
+    if (ok) {
+      this.attGhost.position.set(...pos);
+      this.attGhost.quaternion.set(qt.x, qt.y, qt.z, qt.w);
+    }
+    this.dirty = true;
+  }
+
+  setTargetAttitudeEnabled(on) {
+    this.attGhostEnabled = on;
+    if (!on && this.attGhost) this.attGhost.visible = false;
     this.dirty = true;
   }
 

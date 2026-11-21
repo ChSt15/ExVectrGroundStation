@@ -2,6 +2,7 @@
 
 import itertools
 import math
+import struct
 
 import exvectr_packets as xp
 import pytest
@@ -177,6 +178,9 @@ def test_independent_fake_vehicle_encoder_matches_the_air_vectors():
     m = {"t_mission": -9.5e9, "mission_mode": 1, "mission_phase": 1, "mission_index": 1}
     m |= {"sp_pos": v["setpoint_pos"], "sp_vel": v["setpoint_vel"]}
     assert net.pack_air_mission(77, m) == pl
+    assert net.pack_air_mission(77, m | {"sp_q": [0.5, -0.5, 0.5, -0.5]})[-8:] == struct.pack(
+        "<4h", 16384, -16384, 16384, -16384
+    )
 
 
 def test_air_actuators_without_previous_sample_gives_only_the_newest():
@@ -191,7 +195,10 @@ def test_air_mission_maps_to_mission_state_and_waypoint_255_is_none():
     assert m.TYPE == "MissionState" and m.t == S
     assert m.t_mission == -9_500_000_000 and m.mission_index == 1 and m.mission_phase == 1 and m.mission_mode == 1
     assert m.sp_pos == pytest.approx(vals["setpoint_pos"]) and m.sp_vel == pytest.approx(vals["setpoint_vel"])
-    assert m.waypoint is None
+    assert m.waypoint is None and m.sp_q is None  # vector has all four zero
+    q = [0.5, -0.5, 0.5, -0.5]
+    m2 = PROFILE.decode_many(frame(0x23, pl[:-8] + struct.pack("<4h", *(round(x * 32768) for x in q))), "radio")[0]
+    assert m2.sp_q == pytest.approx(q, abs=1e-4)
     pl = bytearray(pl)
     pl[11] = 3
     assert PROFILE.decode_many(frame(0x23, bytes(pl)), "radio")[0].waypoint == 3
@@ -236,6 +243,11 @@ def test_actuators_mission_gnss():
     m = by_type(PROFILE.decode_many(frame(0x82, pl), "usb"))["MissionState"]
     assert m.t_mission == round(vals["mission_time"] * 1e9) and m.mission_index == vals["index"]
     assert m.sp_pos == pytest.approx(vals["setpoint_pos"]) and m.mission_mode is None
+    assert m.sp_q == pytest.approx(vals["setpoint_q"])
+    # all four zero = no attitude setpoint; NaN (older sender) = none as well
+    for q in ([0.0] * 4, [math.nan] * 4):
+        pl2 = pl[:-16] + struct.pack("<4f", *q)
+        assert by_type(PROFILE.decode_many(frame(0x82, pl2), "usb"))["MissionState"].sp_q is None
     vals, pl = case_payload("gnss")
     g = by_type(PROFILE.decode_many(frame(0x83, pl), "usb"))["Gps"]
     assert (g.lat, g.lon, g.num_sats, g.fix_type) == (vals["latitude"], vals["longitude"], 14, 3)

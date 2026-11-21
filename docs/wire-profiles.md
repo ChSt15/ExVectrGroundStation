@@ -28,6 +28,8 @@ Package `src/exvectr_gs/wire/exvectrnet_1/`: `framing.py` (stream frame, network
 
 ### Dependencies
 
+**Pin (2026-11-21):** `lib/ExVectrPackets` is at commit `18b6884` (branch `feature/setpoint-attitude`, on GitHub as `origin/feature/setpoint-attitude`), schema hash **`0xBFF82392`**. New since `53a7020`: `setpoint_q` (4 values, quaternion [w,x,y,z] body to world, NWU, as `POSE.q`) appended to `MISSION` (f32) and `AIR_MISSION` (fixed i16, scale 1/32768), mapped to `MissionState.sp_q`. All four zero (no attitude controller active) or NaN (older sender) gives `sp_q = None` (not available). A node on an older hash is still flagged as a mismatch. Previous pin text follows.
+
 **Pin (2026-11-20, updated again):** `lib/ExVectrPackets` is at commit `53a7020` (local-only commit from `flight-software/lib/ExVectrPackets`, branch `feature/split-reset-zero`; not on GitHub yet), schema hash **`0x761D5378`**. New since `2c9c121` (`0x4FE838D2`): `VEHICLE_STATUS.flags` bit 7 `ZEROING` (generated constant `FLAGS_ZEROING` = 128, mapped to `VehicleStatus.zeroing`, status bar cell "Estimators"), and the air packets `AIR_ACTUATORS` (0x22) and `AIR_MISSION` (0x23), mapped below. Earlier pins: `2c9c121` (`AIR_POSE.pos` i32 at 1 mm, flag `UART_PEER_SEEN`), `a96bd7b` (`0x8D56E26D`: `LINK_REBOOT`, `LINK_CONFIG` port 0x04) and the vehicle packet `CALIBRATION` (0x93). A node on another schema hash is flagged by the mismatch banner in the status bar and `NetworkStatus.incompatible` until it is reflashed to the pinned hash.
 
 
@@ -67,10 +69,10 @@ Decoded values are SI already. Where the wire does not carry a field, the GS fie
 | 0x20 | `VEHICLE_STATUS` | `VehicleStatus`, `VehicleState` | `VehicleState` gets `mode`, `armed`, `sim` only (what the wire states directly) |
 | 0x21 | `AIR_POSE` | `Attitude` (`q` only), `Position` (`pos`, `vel`) | radio set; fixed point values already scaled |
 | 0x22 | `AIR_ACTUATORS` | `Actuators`, `FlapState` | **two samples per frame** (25 frames/s, 50 samples/s): the newest at the frame's host receive time `t`, the previous at `t - prev_age` (about 20 ms older), emitted older first; each sample gives one `Actuators` (`flaps`, `tvc`, `thrust`, new optional field `roll_torque` in N*m) and one `FlapState` (`angle`). A NaN `prev_age` means no previous sample: only the newest is emitted. Sentinels decode to NaN. `ground_distance`, `FlapState.cmd`, `enabled` not supplied. Air only |
-| 0x23 | `AIR_MISSION` | `MissionState` | `mission_time` to `t_mission` ns (negative in the countdown), `mission_mode`, `phase`, `index`, `setpoint_pos`/`setpoint_vel` to `sp_pos`/`sp_vel`, new optional field `waypoint` (255 = not the waypoint mission becomes `None`). Air only, 5 Hz |
+| 0x23 | `AIR_MISSION` | `MissionState` | `mission_time` to `t_mission` ns (negative in the countdown), `mission_mode`, `phase`, `index`, `setpoint_pos`/`setpoint_vel` to `sp_pos`/`sp_vel`, new optional field `waypoint` (255 = not the waypoint mission becomes `None`). Air only, 5 Hz; `setpoint_q` to `sp_q` (zero or NaN = None) |
 | 0x80 | `POSE` | `Attitude` (`omega`, `q`), `Position` (`pos`, `vel`) | USB; accuracy fields not supplied |
 | 0x81 | `ACTUATORS` | `Actuators`, `FlapState` (`angle` = flaps) | `FlapState.cmd` and `enabled` not supplied |
-| 0x82 | `MISSION` | `MissionState` | `mission_time` in seconds to `t_mission` ns; `mission_mode` not on this packet (see `VehicleStatus`) |
+| 0x82 | `MISSION` | `MissionState` | `mission_time` in seconds to `t_mission` ns; `mission_mode` not on this packet (see `VehicleStatus`); `setpoint_q` to `sp_q` (zero or NaN = None) |
 | 0x83 | `GNSS` | `Gps` | radians; `h_acc`, `v_acc`, `s_acc` to `pos_acc`, `alt_acc`, `vel_acc`; new field `fix_type` |
 | 0x90 | `IMU_RAW` | `ImuRaw` | debug set, USB only |
 | 0x91 | `ESTIMATOR` | `Estimator` | debug set; `att_std` is the 1 sigma about the WORLD axes [North, West, Up] (packet version 2 here) |

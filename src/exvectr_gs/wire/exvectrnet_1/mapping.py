@@ -42,6 +42,14 @@ def _fl(xs: Any) -> list[float]:
     return [float(x) for x in xs]
 
 
+def _setpoint_q(xs: Any) -> list[float] | None:
+    """Attitude setpoint quaternion: all zero (no attitude controller active) or any NaN (older sender) = None."""
+    q = _fl(xs)
+    if any(not math.isfinite(x) for x in q) or not any(q):
+        return None
+    return q
+
+
 def _vehicle_status(p: xp.VehicleStatus, t: int, src: str, meta: dict) -> list[Packet]:
     armed = _flag(p.flags, xp.VehicleStatus, "FLAGS_ARMED")
     sim = _flag(p.flags, xp.VehicleStatus, "FLAGS_SIMULATION")
@@ -124,6 +132,7 @@ def _air_mission(p: xp.AirMission, t: int, src: str, meta: dict) -> list[Packet]
             src=src,
             sp_vel=_fl(p.setpoint_vel),
             sp_pos=_fl(p.setpoint_pos),
+            sp_q=_setpoint_q(p.setpoint_q),
             mission_mode=_enum(V.MissionMode, p.mission_mode),
             mission_phase=_enum(V.MissionPhase, p.phase),
             t_mission=t_mission,
@@ -141,6 +150,7 @@ def _mission(p: xp.Mission, t: int, src: str, meta: dict) -> list[Packet]:
             src=src,
             sp_vel=_fl(p.setpoint_vel),
             sp_pos=_fl(p.setpoint_pos),
+            sp_q=_setpoint_q(p.setpoint_q),
             mission_phase=_enum(V.MissionPhase, p.phase),
             t_mission=t_mission,
             mission_index=p.index,
