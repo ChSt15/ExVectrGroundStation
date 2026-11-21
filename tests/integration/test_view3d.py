@@ -42,7 +42,7 @@ def test_placeholder_model_config_has_the_real_dimensions_and_conventions():
     d = cfg["dimensions_m"]
     assert (d["tube_height"], d["nose_height"], src["nose_length_m"]) == (0.54, 0.20, 0.20)
     assert math.isclose(d["tube_height"] + d["nose_height"], d["total_height"]) and d["total_height"] == src["height_m"]
-    # top flaps: lower edge 53 cm from the bottom (z = +0.16); bottom flaps: lower edge 10 cm from the bottom (z = -0.27)
+    # top flaps: lower edge 53 cm from the bottom (z = +0.16); bottom flaps: lower edge 10 cm (z = -0.27)
     assert math.isclose(flaps["tl"]["pivot_body_m"][2] - 0.07, d["top_flap_lower_edge_from_bottom"] - 0.37)
     assert math.isclose(flaps["bl"]["pivot_body_m"][2] - 0.105, d["bottom_flap_lower_edge_from_bottom"] - 0.37)
     assert cfg["thrust_arrow"]["origin_body_m"] == [0, 0, -0.37]
