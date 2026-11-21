@@ -85,3 +85,16 @@ export function attitudeErrorDeg(q, sp) {
   const dot = Math.abs((q[0] * sp[0] + q[1] * sp[1] + q[2] * sp[2] + q[3] * sp[3]) / (nq * ns));
   return (2 * Math.acos(Math.min(1, dot)) * 180) / Math.PI;
 }
+
+/**
+ * Thrust vector in the body frame from the ACTUATORS values the vehicle reports: `tvc` = [atan2(Tx, Tz), atan2(Ty, Tz)]
+ * (rad, telemetry_mapping.cpp `tvcDeflection`) and `thrust` = |T| (N). Display only. null when unusable.
+ */
+export function tvcThrustVector(tvc, thrust) {
+  if (!Array.isArray(tvc) || tvc.length < 2 || !Number.isFinite(thrust) || thrust <= 0) return null;
+  const tx = Math.tan(tvc[0]);
+  const ty = Math.tan(tvc[1]);
+  if (!Number.isFinite(tx) || !Number.isFinite(ty)) return null;
+  const k = thrust / Math.sqrt(tx * tx + ty * ty + 1);
+  return [tx * k, ty * k, k];
+}

@@ -3,12 +3,12 @@
 import { registerPanel } from "./registry.js";
 import { h } from "../ui.js";
 import { describe, fmtAge } from "../fmt.js";
-import { isValidQuat, isUsableSetpointQuat, attitudeErrorDeg } from "../view3d/frames.js";
+import { isValidQuat, isUsableSetpointQuat, attitudeErrorDeg, tvcThrustVector } from "../view3d/frames.js";
 import { validateModel, resolveFlapAngles, radToDeg } from "../view3d/model_config.js";
 import { Trail } from "../view3d/trail.js";
 import { TargetSmoother } from "../view3d/target_smooth.js";
 
-const CONSUMES = ["Attitude", "Position", "MissionState", "FlapState", "VehicleState"];
+const CONSUMES = ["Attitude", "Position", "MissionState", "FlapState", "VehicleState", "Actuators"];
 const MODES = [["follow", "Follow"], ["observer", "Observer"], ["top", "Top"]];
 
 registerPanel({
@@ -161,8 +161,17 @@ registerPanel({
       const err = spq && validQ && !stale ? attitudeErrorDeg(q, spq) : null;
       if (err !== null) extra.push([`attitude error (setpoint vs estimate): ${err.toFixed(1)}°`, "dim"]);
       state.attErr = err;
+      // thrust arrow: the legacy full vector when present (old recordings), else built from the ACTUATORS values
+      // (deflection angles + magnitude) that the vehicle reports over exvectrnet-1
       const th = desc("VehicleState", "tvc_thrust");
-      scene.setThrust(usable(th) ? th.value : null, stale || th.state === "stale");
+      if (usable(th)) {
+        scene.setThrust(th.value, stale || th.state === "stale");
+      } else {
+        const tv = desc("Actuators", "tvc");
+        const tn = desc("Actuators", "thrust");
+        const vec = usable(tv) && usable(tn) ? tvcThrustVector(tv.value, tn.value) : null;
+        scene.setThrust(vec, stale || tv.state === "stale" || tn.state === "stale");
+      }
       // trail
       if (now !== null) {
         trail.prune(now);
