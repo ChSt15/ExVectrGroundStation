@@ -17,7 +17,7 @@ import "./rawsensors.js";
 import "./radio.js";
 import "./requests.js";
 import "./telecommands.js";
-import "./simwind.js";
+import "./simtests.js";
 import "./update.js";
 import "./rcsticks.js";
 import "./tuning.js";

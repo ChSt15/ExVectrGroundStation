@@ -90,7 +90,8 @@ class RequestsSection:
 
 
 TELECOMMAND_CONFIRM_LEVELS = ("hold",)
-TELECOMMAND_SUBSYSTEMS = range(0, 7)  # flight software `Subsystem`: 0 gyro, 1 accel, 2 magneto, 3 baro, 4 gnss, ...
+# flight software `Subsystem` 0 gyro, 1 accel, ...; 0x10..0x13 = flap index + arm-for-descent bit
+TELECOMMAND_SUBSYSTEMS = (*range(0, 7), *range(0x10, 0x14))
 
 
 @dataclass(frozen=True)
@@ -277,7 +278,7 @@ def _telecommands(data: dict) -> TelecommandsSection:
             raise ConfigError(f"{where}: unknown telecommand type {typ!r}")
         sub = d.get("subsystem", 0)
         if isinstance(sub, bool) or sub not in TELECOMMAND_SUBSYSTEMS:
-            raise ConfigError(f"{where}: subsystem must be 0..6")
+            raise ConfigError(f"{where}: subsystem must be 0..6 or 0x10..0x13")
         param = i16(where, "param_int", d.get("param_int", 0))
         lo, hi = d.get("param_min"), d.get("param_max")
         if (lo is None) != (hi is None):

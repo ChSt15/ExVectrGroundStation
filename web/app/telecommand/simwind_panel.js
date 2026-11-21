@@ -2,8 +2,9 @@
 // telecommands through `telecommand.send`, one frame each, 150 ms apart, after one 1 s hold per group. Rules in
 // simwind_logic.js; the core enforces whitelist, control hosts, group rate limit and confirmation again.
 import { h } from "../ui.js";
+import { holdButton } from "./hold_button.js";
 import {
-  DIRECTION_MODES, HoldTimer, TELECOMMAND_HOLD_MS, WIND_NAMES, applySequence, clearSequence, degToVehicleRad,
+  DIRECTION_MODES, WIND_NAMES, applySequence, clearSequence, degToVehicleRad,
   describeSent, lastSent, parseNumber, reportedSimulation, runSequence, windState,
 } from "./simwind_logic.js";
 
@@ -32,28 +33,6 @@ export function createSimWindPanel(el, ctx) {
     h("div", { class: "tc-warn", text: "TEMPORARY, SIMULATION ONLY. Apply sends 5 telecommands (one frame each, 150 ms apart) after a 1 s hold. No ACK, no retry; the vehicle refuses them outside simulation mode and clamps out-of-range values. Wind and gusts reset when simulation mode switches." }),
     sim, body, msg, stateEl,
   );
-
-  function holdButton(label, title, onDone) {
-    const bar = h("span", { class: "bar" });
-    const btn = h("button", { class: "rq-btn", title }, h("span", { class: "rq-label", text: label }), bar);
-    let anim = null;
-    const stopAnim = () => { if (anim !== null) clearInterval(anim); anim = null; bar.style.width = "0"; };
-    const timer = new HoldTimer(() => { stopAnim(); onDone(); }, undefined, TELECOMMAND_HOLD_MS);
-    const stop = () => { timer.cancel(); stopAnim(); };
-    const start = () => {
-      if (btn.disabled || timer.holding) return;
-      timer.start();
-      anim = setInterval(() => { bar.style.width = `${Math.round(timer.progress() * 100)}%`; }, 40);
-    };
-    btn.addEventListener("pointerdown", (e) => {
-      try { btn.setPointerCapture(e.pointerId); } catch (err) { /* synthetic pointer ids have no capture */ }
-      start();
-    });
-    for (const ev of ["pointerup", "pointercancel", "lostpointercapture", "pointerleave", "blur"]) btn.addEventListener(ev, stop);
-    btn.addEventListener("keydown", (e) => { if ((e.key === " " || e.key === "Enter") && !e.repeat) { start(); e.preventDefault(); } });
-    btn.addEventListener("keyup", (e) => { if (e.key === " " || e.key === "Enter") stop(); });
-    return { btn, stop };
-  }
 
   const applyB = holdButton("Apply wind (hold 1 s)", "hold 1 s to send 5 frames, once each", () => run(applySequence(values()), "Apply"));
   const clearB = holdButton("Clear wind (hold 1 s)", "hold 1 s to send wind speed 0 and gust 0", () => run(clearSequence(), "Clear"));
