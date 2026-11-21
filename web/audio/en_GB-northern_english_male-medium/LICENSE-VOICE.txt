@@ -1,0 +1,9 @@
+Voice: Piper en_GB-northern_english_male-medium (rhasspy/piper-voices, https://huggingface.co/rhasspy/piper-voices)
+Training data: Crowdsourced high-quality UK and Ireland English Dataset (OpenSLR 83, http://www.openslr.org/83/)
+Licence of the voice data and of audio generated from it: CC-BY-SA 4.0 International
+https://creativecommons.org/licenses/by-sa/4.0/
+Finetuned from the U.S. English lessac voice (medium quality) by the Piper voices project.
+The clips in this folder were generated with length scale 1.1, silence trimmed and encoded;
+they are adapted material: credit the source above, indicate the changes,
+and share the clips under the same licence.
+The licence applies to the audio in this folder only, not to the ground-station code.

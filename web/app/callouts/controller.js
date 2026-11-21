@@ -39,7 +39,7 @@ export function createCallouts({ store, getView, getCoreStatus, ls, speaker, not
   const changed = () => listeners.forEach((f) => f());
 
   function audioState() {
-    if (!speaker.supported) return "unsupported";
+    if (!speaker.canSound) return "unsupported";
     if (!audioChoice) return "off";
     return activated ? "on" : "blocked";
   }
@@ -64,7 +64,7 @@ export function createCallouts({ store, getView, getCoreStatus, ls, speaker, not
     audioChoice = true;
     ls.set(LS_AUDIO, "1");
     speaker.unlock();
-    activated = speaker.supported;
+    activated = speaker.canSound;
     changed();
   }
 

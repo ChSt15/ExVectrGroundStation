@@ -14,6 +14,8 @@ import { createCallouts, CALLOUT_CONSUMES } from "./callouts/controller.js";
 import { initDisplay } from "./display_settings.js";
 import { Notifier } from "./callouts/notify.js";
 import { Speaker } from "./callouts/speech.js";
+import { ClipPlayer } from "./callouts/clipplayer.js";
+import { VOICE_ID } from "./callouts/clips.js";
 
 // Hold-to-confirm buttons (telecommands, requests, unlock) need an uninterrupted press of 1 s. Touch screens and the
 // Steam Frame's controller pointer turn a press held for about 500 ms into a context-menu (right click), which cancels
@@ -508,7 +510,7 @@ async function loadCalloutDefaults() {
 async function main() {
   layout = await loadLayout();
   notifier = new Notifier();
-  speaker = new Speaker({ getSettings: () => callouts.settings() });
+  speaker = new Speaker({ getSettings: () => callouts.settings(), clips: new ClipPlayer({ baseUrl: `/static/audio/${VOICE_ID}/` }) });
   callouts = createCallouts({ store, getView: () => view, getCoreStatus: () => status, ls: { get: lsGet, set: lsSet }, speaker, notifier, defaults: await loadCalloutDefaults() });
   renderAudioBar();
   const base = makeCtx(null, null);

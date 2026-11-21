@@ -20,6 +20,8 @@ dev = [
     "ruff>=0.5",
 ]
 
+voice = ["piper-tts"]  # only for tools/generate_voice_clips.py, not a runtime dependency
+
 [project.scripts]
 exgs = "exvectr_gs.cli.main:main"
 

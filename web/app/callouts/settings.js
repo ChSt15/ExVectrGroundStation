@@ -12,6 +12,8 @@ export const CATEGORY_LABELS = {
   state: "State (armed, motors, zeroing, sim)",
   deviation: "Position deviation",
 };
+export const VOICE_MODES = ["recorded", "browser", "beeps"];
+export const VOICE_MODE_LABELS = { recorded: "Recorded (default)", browser: "Browser voice", beeps: "Beeps only" };
 export const STYLE_NAMES = ["normal", "warning", "failure"];
 export const BEEP_BASE_GAIN = 0.35;
 export const DEFAULT_VOLUME = 0.8;
@@ -20,7 +22,8 @@ export const DEFAULTS = {
   master: true,
   volume: DEFAULT_VOLUME, // master volume 0..1, scales every style volume and the beep
   speakInReplay: false,
-  voice: "", // voiceURI, "" = browser default
+  voiceMode: "recorded", // "recorded" clips (web/audio) | "browser" speechSynthesis | "beeps" only
+  voice: "", // browser voiceURI, "" = browser default
   categories: { countdown: true, phase: true, altitude: true, failure: true, link: true, state: true, deviation: false },
   altitude: { levels: [25, 50, 100, 150, 200], hysteresis_m: 3 },
   deviation: { limit_m: 5, hold_s: 2, hysteresis_m: 1 },
@@ -59,6 +62,7 @@ export function mergeSettings(base, over) {
   if (!isObj(over)) return out;
   if (typeof over.master === "boolean") out.master = over.master;
   if (typeof over.speakInReplay === "boolean") out.speakInReplay = over.speakInReplay;
+  if (VOICE_MODES.includes(over.voiceMode)) out.voiceMode = over.voiceMode;
   if (typeof over.voice === "string") out.voice = over.voice;
   out.volume = num(over.volume, 0, 1, out.volume);
   out.stale_s = num(over.stale_s, 0.5, 60, out.stale_s);

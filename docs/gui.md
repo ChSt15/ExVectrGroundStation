@@ -158,7 +158,7 @@ Panel `radio` (`web/app/radio/`; first tab of the Operations dock). **Safety-rel
 
 ## Callouts
 
-Audio callouts and notifications (display only, `docs/callouts.md`): a rule engine over the vehicle-reported values, speech through the Web Speech API with severity styles and a WebAudio beep for failures, a toast stack top right (clear of the status bar and of the Operations dock) and a history. Settings are the Operations dock tab **Callouts** (master switch, volume slider 0 to 100 % default 80 %, categories with TEST buttons, altitude list, deviation limit, voice styles, voice, speak in replay, history); the header speaker icon shows muted / audio on / audio not enabled and opens the tab. Defaults come from `/config/callouts.json`.
+Audio callouts and notifications (display only, `docs/callouts.md`): a rule engine over the vehicle-reported values, pre-recorded voice clips by default (Piper, WebAudio, no system voice needed; setting Voice: Recorded / Browser voice / Beeps only), browser speech with severity styles as an option, and a WebAudio beep for failures, a toast stack top right (clear of the status bar and of the Operations dock) and a history. Settings are the Operations dock tab **Callouts** (master switch, volume slider 0 to 100 % default 80 %, categories with TEST buttons, altitude list, deviation limit, voice styles, voice, speak in replay, history); the header speaker icon shows muted / audio on / audio not enabled and opens the tab. Defaults come from `/config/callouts.json`.
 
 ## Display settings (UI scale and 3D resolution)
 
