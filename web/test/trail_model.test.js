@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Trail } from "../app/view3d/trail.js";
 import {
-  DEFAULT_FLAP_DEG, validateModel, flapRotationRad, resolveFlapAngles, flapOutline, polygonArea, normalizeTransform,
+  DEFAULT_FLAP_DEG, validateModel, flapRotationRad, resolveFlapAngles, flapOutline, polygonArea, normalizeTransform, flapCant,
 } from "../app/view3d/model_config.js";
 
 test("trail: live samples are added, thinned and pruned to the window", () => {
@@ -83,4 +83,19 @@ test("out_top puts the chamfer at the top (nose side, +z) of the outer edge, out
   const bot = flapOutline({ width_m: 0.08, height_m: 0.21, chamfer_m: 0.08, chamfer_corner: "out_bottom" });
   assert.equal(maxZAtOuter(bot, 0.08), 0.105);
   assert.ok(minZAtOuter(bot, 0.08) > -0.105 + 0.04);
+});
+
+test("flap cant: lower hinge point unchanged, upper end moves toward the axis by length*sin(cant)", () => {
+  const top = { pivot_body_m: [0, 0.065, 0.23], source: { height_m: 0.14 }, cant_deg: 5 };
+  const rot = (c, y, z, a) => [y * Math.cos(a) - z * Math.sin(a), y * Math.sin(a) + z * Math.cos(a)];
+  for (const side of [1, -1]) {
+    const f = { ...top, pivot_body_m: [0, side * 0.065, 0.23] };
+    const { point, angleRad } = flapCant(f);
+    assert.deepEqual(point.map((v) => +v.toFixed(6)), [0, side * 0.065, 0.16]);
+    const [y, z] = rot(0, 0, 0.14, angleRad); // upper end relative to the lower hinge point
+    assert.ok(Math.abs(y + side * 0.14 * Math.sin(5 * Math.PI / 180)) < 1e-12, "upper end moves toward the axis");
+    assert.ok(Math.abs(side * 0.065 + y) < Math.abs(side * 0.065));
+    assert.ok(z < 0.14 && z > 0.139);
+  }
+  assert.equal(flapCant({ pivot_body_m: [0, 0.065, -0.255], source: { height_m: 0.21 } }).angleRad, 0);
 });

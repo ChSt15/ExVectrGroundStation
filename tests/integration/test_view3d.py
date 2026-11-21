@@ -21,8 +21,8 @@ R = 0.065
 FLAPS = {  # id: (side along Y, hinge z, width, height)
     "tl": (+1, 0.23, 0.07, 0.14),
     "tr": (-1, 0.23, 0.07, 0.14),
-    "bl": (+1, -0.165, 0.08, 0.21),
-    "br": (-1, -0.165, 0.08, 0.21),
+    "bl": (+1, -0.255, 0.08, 0.21),
+    "br": (-1, -0.255, 0.08, 0.21),
 }
 DEBUG = "JSON.stringify(window.exgs.view3d.debug())"
 
@@ -42,9 +42,12 @@ def test_placeholder_model_config_has_the_real_dimensions_and_conventions():
     d = cfg["dimensions_m"]
     assert (d["tube_height"], d["nose_height"], src["nose_length_m"]) == (0.54, 0.20, 0.20)
     assert math.isclose(d["tube_height"] + d["nose_height"], d["total_height"]) and d["total_height"] == src["height_m"]
-    # top flaps: lower edge 53 cm from the bottom (z = +0.16); bottom flaps: lower edge 10 cm (z = -0.27)
+    # top flaps: lower edge 53 cm from the bottom (z = +0.16); bottom flaps: lower edge 1 cm (z = -0.36)
     assert math.isclose(flaps["tl"]["pivot_body_m"][2] - 0.07, d["top_flap_lower_edge_from_bottom"] - 0.37)
     assert math.isclose(flaps["bl"]["pivot_body_m"][2] - 0.105, d["bottom_flap_lower_edge_from_bottom"] - 0.37)
+    assert math.isclose(flaps["bl"]["pivot_body_m"][2], 0.115 - 0.37)
+    assert d["top_flap_cant_deg"] == 5 and flaps["tl"]["cant_deg"] == flaps["tr"]["cant_deg"] == 5
+    assert "cant_deg" not in flaps["bl"] and "cant_deg" not in flaps["br"]
     assert cfg["thrust_arrow"]["origin_body_m"] == [0, 0, -0.37]
 
 
@@ -76,9 +79,19 @@ async def open_view(rig, b, wait=3.0):
     return json.loads(await b.eval(DEBUG))
 
 
-def flap_tip_expected(side, zc, w, angle_rad):
-    """Outer edge of the flap in the body frame: 0 deg = out along +-Y, increasing angle folds toward +X."""
-    return [w * math.sin(angle_rad), side * (R + w * math.cos(angle_rad)), zc]
+CANT_DEG = {"tl": 5, "tr": 5, "bl": 0, "br": 0}
+
+
+def flap_tip_expected(side, zc, w, angle_rad, h=0.0, cant_deg=0.0):
+    """Outer edge of the flap (centre height) in the body frame: 0 deg = out along +-Y, increasing angle folds toward
+    +X. The cant tilts the flap inward about its lower hinge point (z = zc - h/2)."""
+    phi = math.radians(cant_deg) * side
+    y, z = side * w * math.cos(angle_rad), h / 2
+    return [
+        w * math.sin(angle_rad),
+        side * R + y * math.cos(phi) - z * math.sin(phi),
+        zc - h / 2 + y * math.sin(phi) + z * math.cos(phi),
+    ]
 
 
 @needs_browser
@@ -95,9 +108,9 @@ async def test_browser_view_frames_flaps_and_overlays_with_flap_data():
             assert nose[1] > 0.95 and belly[0] < -0.9, (nose, belly)
             # flaps follow the reported angles (checked against the geometry of the convention)
             assert d["flap_source"] == "data"
-            for fid, (side, zc, w, _h) in FLAPS.items():
+            for fid, (side, zc, w, h) in FLAPS.items():
                 f = d["flaps"][fid]
-                exp = flap_tip_expected(side, zc, w, math.radians(f["angle_deg"]))
+                exp = flap_tip_expected(side, zc, w, math.radians(f["angle_deg"]), h, CANT_DEG[fid])
                 assert f["tip_body"] == pytest.approx(exp, abs=2e-3), (fid, f, exp)
             assert d["setpoint"]["visible"] and d["trail_points"] > 0 and d["thrust_visible"]
             # the only overlay line is the attitude error readout (Running: the fake source supplies sp_q)
@@ -133,10 +146,10 @@ async def test_browser_flaps_default_to_45_degrees_without_flap_data():
         async with browser_check.Browser(1500, 1000, 9352) as b:
             d = await open_view(rig, b)
             assert d["flap_source"] == "default"
-            for fid, (side, zc, w, _h) in FLAPS.items():
+            for fid, (side, zc, w, h) in FLAPS.items():
                 assert d["flaps"][fid]["angle_deg"] == pytest.approx(45)
                 assert d["flaps"][fid]["tip_body"] == pytest.approx(
-                    flap_tip_expected(side, zc, w, math.pi / 4), abs=2e-3
+                    flap_tip_expected(side, zc, w, math.pi / 4, h, CANT_DEG[fid]), abs=2e-3
                 )
             assert "flap data: none (default 45" in d["overlay"]
             hint = await b.eval("document.querySelector('[data-panel=actuators] [data-testid=noflaps]')?.hidden")
