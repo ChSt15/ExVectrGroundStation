@@ -64,3 +64,15 @@ export function checkNotes(c) {
   if (c.more_commits) n.push(`... and ${c.more_commits} more commit(s)`);
   return n;
 }
+
+export const QUIT_NOTE = "Stops the core: recording ends, RC sending stops, the Router link drops.";
+export const QUIT_RC_WARNING = "RC control is active: quitting stops sending RC state";
+
+/** The Quit button: { enabled, reason, notes[] }. Allowed with an RC lease (extra warning), needs a control host. */
+export function quitState({ apiState, canControl, rc }) {
+  const notes = [QUIT_NOTE];
+  if (rc && rc.lease) notes.push(QUIT_RC_WARNING);
+  if (apiState !== "open") return { enabled: false, reason: "no connection to the core", notes };
+  if (!canControl) return { enabled: false, reason: "this client is on a view-only host", notes };
+  return { enabled: true, reason: "", notes };
+}

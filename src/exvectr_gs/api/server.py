@@ -119,6 +119,7 @@ class ApiServer:
             "update.status": self._op_update_status,
             "update.check": self._op_update_check,
             "update.apply": self._op_update_apply,
+            "core.quit": self._op_core_quit,
         }
         self._setup_views()
 
@@ -622,6 +623,18 @@ class ApiServer:
             raise ProtocolError("invalid_value", "update.apply needs confirm: true")
         log.warning("update.apply requested by %s (%s)", client.name or client.id, client.addr)
         return await self._update_call(svc.apply)
+
+    async def _op_core_quit(self, client: Client, msg: dict) -> dict:
+        """Control hosts only, `confirm: true` required. Not a vehicle uplink: the core shuts down cleanly (recording
+        closed, RC lease released and sender stopped, sources closed) and exits with code 0; start.sh does not
+        restart."""
+        if not client.can_control:
+            raise ProtocolError("control_denied", "only a control host may stop the core")
+        if msg.get("confirm") is not True:
+            raise ProtocolError("invalid_value", "core.quit needs confirm: true")
+        log.warning("core.quit requested by %s (%s)", client.name or client.id, client.addr)
+        self.ctx.request_quit(f"{client.name or client.id} ({client.addr})")
+        return {"ok": True, "message": "the core is stopping"}
 
     def _update_msg(self) -> dict | None:
         up = self._mod("update")

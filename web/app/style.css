@@ -512,3 +512,7 @@ body[data-layout="flight"] .tiles.t4 .val.big .v { font-size: calc(var(--fs-tile
 .up-commits { margin: 6px 0; padding-left: 18px; font-size: var(--fs-s); }
 .up-notes { font-size: var(--fs-xs); color: var(--warn); }
 .up-out { max-height: 14em; overflow: auto; background: var(--surface-2); border: 1px solid var(--line); padding: 6px; font-size: var(--fs-xs); white-space: pre-wrap; }
+.up-quit { margin-top: 16px; padding-top: 8px; border-top: 1px solid var(--line, #444); display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.up-quit-notes { font-size: 0.9em; opacity: 0.85; }
+.up-quit-notes div:nth-child(2) { color: var(--warn, #e8a33d); font-weight: 600; }
+.gs-stopped { position: fixed; top: 0; left: 0; right: 0; z-index: 9999; padding: 12px; text-align: center; font-weight: 700; background: #b3261e; color: #fff; }

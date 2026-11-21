@@ -45,3 +45,7 @@ For when no core runs: the same steps and refusals (dirty tree, wrong branch, no
 - Without a launcher that restarts on code 42 (`start.sh`), the core simply stops after an update.
 - An installed copy that is not a git checkout reports `git: false` and cannot update.
 - Rollback: see [install-frame.md](install-frame.md).
+
+## Quit (stop the core)
+
+Software tab, "Quit ground station" (hold 1 s), or `exgs quit --confirm`, or the API op `core.quit {confirm: true}` (control hosts only). Not an update and not a vehicle uplink. The note beside the button reads "Stops the core: recording ends, RC sending stops, the Router link drops."; with an RC lease held it adds "RC control is active: quitting stops sending RC state", but quitting is still allowed. The core shuts down like Ctrl-C (recorder closed, RC lease released, sources and serial/USB closed) and exits with code 0; `start.sh` ends without restart or "Press Enter" prompt (only code 42 restarts). The GUI shows a "Ground station stopped" banner and tries `window.close()` (browsers may ignore it for a window they did not open by script).
