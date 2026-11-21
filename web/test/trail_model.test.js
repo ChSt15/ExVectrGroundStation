@@ -30,7 +30,7 @@ test("trail: load from history skips null entries and sorts by time", () => {
   assert.deepEqual(tr.pts.map((p) => p.t), [1, 3]);
 });
 
-const flap = (over = {}) => ({ id: "tl", index: 0, source: { primitive: "flap" }, pivot_body_m: [0, 0.065, 0.22], axis_body: [0, 0, 1], sign: -1, model_angle_deg: 0, ...over });
+const flap = (over = {}) => ({ id: "tl", index: 0, source: { primitive: "flap" }, pivot_body_m: [0, 0.065, 0.23], axis_body: [0, 0, 1], sign: -1, model_angle_deg: 0, ...over });
 
 test("flap rotation = sign * (angle - model angle)", () => {
   assert.ok(Math.abs(flapRotationRad(flap(), Math.PI / 2) + Math.PI / 2) < 1e-12);

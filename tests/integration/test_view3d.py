@@ -19,10 +19,10 @@ needs_browser = pytest.mark.skipif(browser_check.find_browser() is None, reason=
 # Body frame, NWU world; metres. Dimensions from docs/system-architecture.md (Vehicle geometry).
 R = 0.065
 FLAPS = {  # id: (side along Y, hinge z, width, height)
-    "tl": (+1, 0.22, 0.07, 0.14),
-    "tr": (-1, 0.22, 0.07, 0.14),
-    "bl": (+1, -0.255, 0.08, 0.21),
-    "br": (-1, -0.255, 0.08, 0.21),
+    "tl": (+1, 0.23, 0.07, 0.14),
+    "tr": (-1, 0.23, 0.07, 0.14),
+    "bl": (+1, -0.165, 0.08, 0.21),
+    "br": (-1, -0.165, 0.08, 0.21),
 }
 DEBUG = "JSON.stringify(window.exgs.view3d.debug())"
 
@@ -39,9 +39,13 @@ def test_placeholder_model_config_has_the_real_dimensions_and_conventions():
         assert f["pivot_body_m"] == [0, side * R, zc]
         assert f["axis_body"] == [0, 0, 1] and f["sign"] == -side and f["model_angle_deg"] == 0
         assert (f["source"]["width_m"], f["source"]["height_m"], f["source"]["chamfer_m"]) == (w, h, 0.08)
-    # top flaps: bottom edge 52 cm from the bottom (z = +0.15); bottom flaps: 1 cm above the bottom (z = -0.36)
-    assert math.isclose(flaps["tl"]["pivot_body_m"][2] - 0.07, 0.52 - 0.37)
-    assert math.isclose(flaps["bl"]["pivot_body_m"][2] - 0.105, 0.01 - 0.37)
+    d = cfg["dimensions_m"]
+    assert (d["tube_height"], d["nose_height"], src["nose_length_m"]) == (0.54, 0.20, 0.20)
+    assert math.isclose(d["tube_height"] + d["nose_height"], d["total_height"]) and d["total_height"] == src["height_m"]
+    # top flaps: lower edge 53 cm from the bottom (z = +0.16); bottom flaps: lower edge 10 cm from the bottom (z = -0.27)
+    assert math.isclose(flaps["tl"]["pivot_body_m"][2] - 0.07, d["top_flap_lower_edge_from_bottom"] - 0.37)
+    assert math.isclose(flaps["bl"]["pivot_body_m"][2] - 0.105, d["bottom_flap_lower_edge_from_bottom"] - 0.37)
+    assert cfg["thrust_arrow"]["origin_body_m"] == [0, 0, -0.37]
 
 
 def test_every_vendored_three_file_is_present_with_its_license():
