@@ -287,8 +287,12 @@ registerPanel({
       freshness: () => ({ state: "fresh", age: null }),
       debug() {
         const rings = {};
-        for (const [k, r] of feeder.rings) rings[k] = r.length;
-        return { graphs: graphs.map((g) => ({ title: g.title, series: g.series.map((x) => x.sig) })), windowS: Number.isFinite(windowS) ? windowS : "all", paused, points, frameMs, rings, supplied: [...feeder.supplied], status };
+        const ranges = {};
+        for (const [k, r] of feeder.rings) {
+          rings[k] = r.length;
+          if (r.length) ranges[k] = [r.firstT, r.lastT];
+        }
+        return { ranges, graphs: graphs.map((g) => ({ title: g.title, series: g.series.map((x) => x.sig) })), windowS: Number.isFinite(windowS) ? windowS : "all", paused, points, frameMs, rings, supplied: [...feeder.supplied], status };
       },
     };
     (window.exgs ??= {}).tuning = inst;
