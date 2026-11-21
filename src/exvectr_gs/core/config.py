@@ -116,6 +116,9 @@ class TelecommandEntry:
     param_float_min: float | None = None
     param_float_max: float | None = None
     param_float_name: str = ""  # label of the float field in the GUI/CLI (for example "duration_s")
+    # Entries sharing a non-empty `rate_group` (the simulation wind commands) may follow each other from one client
+    # at GROUP_MIN_INTERVAL_S instead of 500 ms; the vehicle handles one command per 100 ms tick. Nothing else.
+    rate_group: str = ""
 
 
 @dataclass
@@ -258,7 +261,7 @@ def _telecommands(data: dict) -> TelecommandsSection:
         where = f"[[telecommands.command]] #{i + 1}"
         unknown = set(d) - {
             "name", "type", "label", "group", "subsystem", "param_int", "param_min", "param_max", "confirm", "note",
-            "param_float", "param_float_min", "param_float_max", "param_float_name",
+            "param_float", "param_float_min", "param_float_max", "param_float_name", "rate_group",
         }  # fmt: skip
         if unknown:
             raise ConfigError(f"{where}: unknown key(s) {sorted(unknown)}")
@@ -297,6 +300,9 @@ def _telecommands(data: dict) -> TelecommandsSection:
         fname = d.get("param_float_name", "")
         if not isinstance(fname, str):
             raise ConfigError(f"{where}: param_float_name must be a string")
+        rate_group = d.get("rate_group", "")
+        if not isinstance(rate_group, str):
+            raise ConfigError(f"{where}: rate_group must be a string")
         confirm = d.get("confirm", "hold")
         if confirm not in TELECOMMAND_CONFIRM_LEVELS:
             raise ConfigError(f"{where}: confirm must be one of {TELECOMMAND_CONFIRM_LEVELS}")
@@ -304,7 +310,9 @@ def _telecommands(data: dict) -> TelecommandsSection:
         if not all(isinstance(x, str) for x in (label, group, note)) or not label or not group:
             raise ConfigError(f"{where}: label and group must be non-empty strings, note a string")
         sec.commands.append(
-            TelecommandEntry(name, typ, label, group, sub, param, lo, hi, confirm, note, fval, flo, fhi, fname)
+            TelecommandEntry(
+                name, typ, label, group, sub, param, lo, hi, confirm, note, fval, flo, fhi, fname, rate_group
+            )
         )
     return sec
 

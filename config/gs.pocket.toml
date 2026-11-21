@@ -367,6 +367,73 @@ subsystem = 0
 note = "writes the whole image; any subsystem saves all"
 
 
+# Simulation wind (owner approval 2026-11-21, docs/telecommands.md): simulation-only, five types 11..15.
+# Applied as a group by the GUI 'Sim wind' panel, 150 ms apart, one frame each, no retry.
+[[telecommands.command]]
+name = "SimWindSpeed"
+type = "SimWindSpeed"
+label = "Wind speed (m/s)"
+group = "Simulation wind"
+rate_group = "simwind"                         # may follow another simwind command after 100 ms (GUI sends 150 ms apart)
+param_int = 0x57                               # the vehicle's magic value, fixed
+param_float = 0.0
+param_float_min = 0.0
+param_float_max = 20.0
+param_float_name = "speed_mps"
+note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode"
+
+[[telecommands.command]]
+name = "SimWindDirection"
+type = "SimWindDirection"
+label = "Wind direction, air moves toward (rad)"
+group = "Simulation wind"
+rate_group = "simwind"                         # may follow another simwind command after 100 ms (GUI sends 150 ms apart)
+param_int = 0x57                               # the vehicle's magic value, fixed
+param_float = 0.0
+param_float_min = -3.1416
+param_float_max = 3.1416
+param_float_name = "direction_rad"
+note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode"
+
+[[telecommands.command]]
+name = "SimGustStrength"
+type = "SimGustStrength"
+label = "Gust strength (m/s)"
+group = "Simulation wind"
+rate_group = "simwind"                         # may follow another simwind command after 100 ms (GUI sends 150 ms apart)
+param_int = 0x57                               # the vehicle's magic value, fixed
+param_float = 0.0
+param_float_min = 0.0
+param_float_max = 10.0
+param_float_name = "gust_mps"
+note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode"
+
+[[telecommands.command]]
+name = "SimGustPeriod"
+type = "SimGustPeriod"
+label = "Gust period (s)"
+group = "Simulation wind"
+rate_group = "simwind"                         # may follow another simwind command after 100 ms (GUI sends 150 ms apart)
+param_int = 0x57                               # the vehicle's magic value, fixed
+param_float = 4.0
+param_float_min = 0.5
+param_float_max = 30.0
+param_float_name = "period_s"
+note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode"
+
+[[telecommands.command]]
+name = "SimGustSeed"
+type = "SimGustSeed"
+label = "Gust seed"
+group = "Simulation wind"
+rate_group = "simwind"                         # may follow another simwind command after 100 ms (GUI sends 150 ms apart)
+param_int = 0x57                               # the vehicle's magic value, fixed
+param_float = 0.0
+param_float_min = 0.0
+param_float_max = 16777215.0
+param_float_name = "seed"
+note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode"
+
 [radio]
 config = "config/radio.pocket.toml"
 

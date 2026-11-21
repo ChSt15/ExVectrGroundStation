@@ -518,3 +518,6 @@ body[data-layout="flight"] .tiles.t4 .val.big .v { font-size: calc(var(--fs-tile
 .up-quit-notes { font-size: 0.9em; opacity: 0.85; }
 .up-quit-notes div:nth-child(2) { color: var(--warn, #e8a33d); font-weight: 600; }
 .gs-stopped { position: fixed; top: 0; left: 0; right: 0; z-index: 9999; padding: 12px; text-align: center; font-weight: 700; background: #b3261e; color: #fff; }
+.sw-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.sw-row label { display: flex; gap: 8px; align-items: center; }
+.sw-sent { margin-top: 6px; font-size: 0.9em; }
