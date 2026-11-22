@@ -90,7 +90,7 @@ def test_pocket_config_loads_with_safe_defaults():
     ch = cfg.channels_us(cfg.default_state())
     assert ch[:4] == [1500, 1500, 1000, 1500]  # sticks neutral, throttle low
     assert ch[4:10] == [1000] * 6 and ch[10:] == [1500] * 6
-    assert {c.id: c.meaning for c in cfg.controls}["SD"] == "motor enable"  # informational label only
+    assert {c.id: c.meaning for c in cfg.controls}["SD"].startswith("motor interlock")  # informational label only
 
 
 def test_stick_display_mapping_defaults():

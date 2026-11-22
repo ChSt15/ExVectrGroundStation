@@ -130,9 +130,9 @@ test("failure bits: one callout per bit, unknown bits named, failsafe, cleared, 
   const { run, step } = rig();
   run();
   const r = step(0.2, { vs: { failure_bits: 0b100001 | (1 << 9) } });
-  assert.deepEqual(texts(r), ["Sensor failure", "Radio connection loss", "Failure bit 9"]);
+  assert.deepEqual(texts(r), ["Sensor failure", "Control source lost", "Gyro failure"]);
   assert.ok(r.events.every((e) => e.severity === "failure" && e.priority === 0 && e.sticky));
-  const names = ["Sensor failure", "Attitude failure", "Position failure", "Position out of bounds", "Attitude out of bounds", "Radio connection loss"];
+  const names = ["Sensor failure", "Attitude failure", "Position failure", "Position out of bounds", "Attitude out of bounds", "Control source lost"];
   const { run: run2, step: step2 } = rig();
   run2();
   for (let i = 0; i < 6; i++) {
@@ -179,8 +179,8 @@ test("failsafe rising says Failsafe", () => {
 test("state: armed, disarmed, motors enabled (said twice), zeroing and zero complete", () => {
   const { run, step } = rig();
   run();
-  assert.deepEqual(texts(step(0.1, { vs: { armed: false } })), ["Disarmed"]);
-  assert.deepEqual(texts(step(0.1, { vs: { armed: true } })), ["Armed"]);
+  assert.deepEqual(texts(step(0.1, { vs: { armed: false } })), ["Interlock closed"]);
+  assert.deepEqual(texts(step(0.1, { vs: { armed: true } })), ["Interlock open"]);
   const m = step(0.1, { vs: { motors_enabled: true } });
   assert.deepEqual(texts(m), ["Motors enabled"]);
   assert.equal(m.events[0].priority, 0);
@@ -293,4 +293,17 @@ test("position deviation: needs the limit for the hold time, own hysteresis, fir
   s.step(0.5, { pos: { pos: [0, 0, 20] } });
   assert.deepEqual(texts(s.step(0.5, { pos: { pos: [0, 0, 10] } })), []);
   assert.equal(w.now > 0, true);
+});
+
+test("T9b-4: interlock watchdog failure, SD toggle needed and a refused go (reason in the toast label)", () => {
+  const { run, step } = rig();
+  run();
+  assert.deepEqual(texts(step(0.1, { vs: { failure_bits: 1 << 13, ctrl_flags: 0, go_refusal: 0 } })), ["Interlock watchdog failure"]);
+  const t = step(0.1, { vs: { failure_bits: 0, ctrl_flags: 1 } });
+  assert.deepEqual(texts(t), ["Failure cleared", "Toggle SD off, then on"]);
+  assert.deepEqual(texts(step(0.1, { vs: { ctrl_flags: 1 } })), []); // once per rising edge
+  const g = step(0.1, { vs: { ctrl_flags: 0, go_refusal: 4 } });
+  assert.deepEqual(texts(g), ["Go refused"]);
+  assert.equal(g.events[0].label, "Go refused: SC invalid, reserved or different from the vehicle mode");
+  assert.deepEqual(texts(step(0.1, { vs: { go_refusal: 4 } })), []);
 });

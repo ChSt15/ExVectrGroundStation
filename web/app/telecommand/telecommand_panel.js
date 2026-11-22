@@ -13,7 +13,8 @@ export function createTelecommandPanel(el, ctx) {
   const sim = h("div", { class: "tc-sim", "data-testid": "tc-sim" });
   const body = h("div", { class: "rq-body" });
   el.append(
-    h("div", { class: "tc-warn", text: "TEMPORARY legacy telecommands, until the flight software's T9b. Hold a button for 1 s to send ONE frame. No ACK, no retry; the vehicle de-duplicates nothing." }),
+    h("div", { class: "tc-warn", text: "TEMPORARY legacy telecommands (non-safety only), until the flight software's T9b-5. Hold a button for 1 s to send ONE frame. No ACK, no retry; the vehicle de-duplicates nothing." }),
+    h("div", { class: "tc-warn", "data-testid": "tc-radio-note", text: "Safety commands are now given with the virtual radio switches (Virtual radio panel, hold master): SA go/abort, SB profile, SC simulation/real, SD motor interlock, SE short press = reset system state, SE hold = zero estimators. The vehicle ignores the old Arm, SimulationMode, MissionBegin, MissionSelect, MissionAbort and SystemReset telecommands." }),
     sim, body, msg,
   );
 

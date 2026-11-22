@@ -10,9 +10,9 @@ const fresh = (f) => ({ status: { failure_bits: 0, failsafe: false, sensor_state
 
 test("everything ready and clear is green, in the documented order", () => {
   const r = systemsStatus({ ...fresh({ calib_gyro_ok: true, calib_accel_ok: true, calib_mag_ok: true, ready_to_arm: true }), gps: { fix_type: 3, num_sats: 12 } });
-  assert.deepEqual(r.map((x) => x.key), ["imu", "baro", "mag", "gnss", "attkf", "poskf", "b0", "b1", "b2", "b3", "b4", "b5", "failsafe", "calib.gyro", "calib.accel", "calib.mag", "calib.ready"]);
+  assert.deepEqual(r.map((x) => x.key), ["imu", "baro", "mag", "gnss", "attkf", "poskf", "b0", "b1", "b2", "b3", "b4", "b5", "b6", "b7", "b8", "b9", "b10", "b11", "b12", "b13", "failsafe", "calib.gyro", "calib.accel", "calib.mag", "calib.ready"]);
   assert.ok(r.every((x) => x.tone === "ok"), JSON.stringify(r.filter((x) => x.tone !== "ok")));
-  assert.deepEqual(systemsSummary(r), { ok: 17, warn: 0, bad: 0, none: 0 });
+  assert.deepEqual(systemsSummary(r), { ok: 25, warn: 0, bad: 0, none: 0 });
 });
 
 test("sensor states: Init and Calib are yellow, Failure red, reason names the state and the raw value", () => {
@@ -98,7 +98,7 @@ test("health sections: issue texts, most severe first, good and no data split", 
   assert.ok(texts.includes("bad:IMU: Failure"));
   assert.ok(texts.includes("warn:mag: Init"));
   assert.ok(texts.includes("warn:GNSS: no fix"));
-  assert.ok(texts.includes("bad:radio connection loss"));
+  assert.ok(texts.includes("bad:control source lost"));
   assert.ok(texts.includes("bad:failsafe active"));
   assert.ok(texts.includes("bad:gyro cal: bias too large"));
   assert.ok(texts.includes("bad:not ready to arm"));
@@ -111,5 +111,5 @@ test("health sections: no VehicleStatus puts everything under no data, nothing u
   const sec = healthSections(systemsStatus({}));
   assert.equal(sec.issues.length, 0);
   assert.equal(sec.good.length, 0);
-  assert.equal(sec.noData.length, 17);
+  assert.equal(sec.noData.length, 25);
 });

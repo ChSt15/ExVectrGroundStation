@@ -250,11 +250,13 @@ def test_shipped_configs_whitelist_the_expected_commands():
     for name in ("gs.example.toml", "gs.pocket.toml"):
         c = parse_config(tomllib.loads((Path(__file__).parents[2] / "config" / name).read_text()))
         names = {e.name: e for e in c.telecommands.commands}
-        assert {"Arm", "Disarm", "SystemReset", "SimulationMode", "MissionBegin", "MissionAbort"} <= set(names)
-        assert names["Arm"].param_int == 0xA5 and names["Disarm"].param_int == 0
-        assert names["SystemReset"].param_int == 0xC5 and names["SimulationMode"].param_int == 0xA9
+        # T9b-4: the vehicle ignores these six, so they are not whitelisted (safety commands are RC switches)
+        removed = {"Arm", "Disarm", "SystemReset", "SimulationMode", "MissionBegin", "MissionSelect", "MissionAbort"}
+        assert not removed & set(names)
+        types = {e.type for e in names.values()}
+        assert not types & {"Arm", "SystemReset", "SimulationMode", "MissionBegin", "MissionAbort"}
+        assert "ZeroEstimators" in names
         assert all(e.confirm == "hold" for e in names.values())
-        assert names["MissionBegin"].param_int <= -18
         cal = {k: v for k, v in names.items() if v.group == "Calibration"}
         assert len(cal) == 16 and "CalibMagStop" in cal and "MagSave" not in cal
         for n, sub in (("Gyro", 0), ("Accel", 1), ("Mag", 2)):
@@ -278,7 +280,6 @@ def test_shipped_configs_whitelist_the_expected_commands():
             60.0,
             "duration_s",
         )
-        assert "NOT zero estimators" in names["SystemReset"].label
         reb = {(e.action, e.target): e for e in c.requests.actions if e.action == "LINK_REBOOT"}
         assert set(reb) == {("LINK_REBOOT", 2), ("LINK_REBOOT", 3)}
         assert all(e.confirm == "danger" and e.warning for e in reb.values())

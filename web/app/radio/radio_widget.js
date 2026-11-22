@@ -10,6 +10,8 @@
 import { h } from "../ui.js";
 import { stickConfig, stickState } from "./sticks.js";
 import { createSticks } from "./sticks_widget.js";
+import { commandPathRows } from "../status/command_path.js";
+import { renderCommandPath } from "../status/command_path_view.js";
 import {
   HEARTBEAT_MS, MomentaryHold, HoldTimer, SLIDER_INTERVAL_MS, Throttle, controlEnabled, cyclePosition, describeRadio,
   needsReleasePrompt, nextToggle, showPadlock, sliderFromPointer, stateFromChannels, switchPosFromFraction, unlockRemaining,
@@ -74,7 +76,8 @@ export function createRadioWidget(el, ctx) {
   const foot = h("div", { class: "hint", text: "Controls show the state the core reports as sent. Applied state: not reported by the vehicle." });
   const lockNote = h("div", { class: "lock-note", "data-testid": "radio-lock", hidden: "" });
   const stickBox = h("div", { class: "rc-sticks" });
-  el.append(role, banner, warn, lockNote, h("div", { class: "toolbar" }, take, release), msg, stage, stickBox, foot);
+  const pathBox = h("div", { class: "cp-box", "data-testid": "radio-path" });
+  el.append(role, banner, warn, lockNote, h("div", { class: "toolbar" }, take, release), msg, stage, pathBox, stickBox, foot);
   // Stick display (read-only): the Pocket's sticks in slave, what the core sends in master (the channel defaults:
   // no stick sending exists), the recorded RcState in replay.
   const sticks = createSticks(stickBox);
@@ -330,6 +333,7 @@ export function createRadioWidget(el, ctx) {
       }
     }
     banner.textContent = b.text + sub;
+    renderCommandPath(pathBox, commandPathRows(ctx.store.get(view, "VehicleStatus")));
     renderSticks(view, r, ch);
     role.textContent = b.roleText;
     role.dataset.role = b.role;

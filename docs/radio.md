@@ -119,6 +119,16 @@ yaw = 4
 
 The core validates it (`rc/radio_config.py`: known keys, mode 1 or 2, distinct channels within `channel_count`, no channel shared with a control when the table is given) and never uses it for sending. The GUI maps pulse widths to −1..1 (centred axes, 1500 µs = 0) and 0..1 (throttle, 1000 µs = 0) in `web/app/radio/sticks.js`.
 
-## Intended Pocket SE mapping (flight software T9b, nothing to do in the ground station)
+## Switch meanings on the vehicle (flight software T9b-4): the virtual radio gives all safety commands
 
-Planned for the vehicle (not implemented yet, flight-software task T9b): **SE single press = reset system state** (the `SystemReset` effect), **SE held longer than 1 s = zero the estimators while held**. The ground station needs no change for the Pocket: its SE state already arrives in `RC_STATE` and is displayed; the GS's own `SE` momentary control (master mode) sends the same channel 9 value. Until T9b lands, the temporary telecommands `SystemReset` and `ZeroEstimators` ([telecommands.md](telecommands.md)) cover both actions.
+Since T9b-4 the vehicle takes every safety command from RC state, from the Pocket or from this virtual radio (the `bench` source on USB, master mode), and ignores the old Arm, SimulationMode, MissionBegin, MissionSelect, MissionAbort and SystemReset telecommands. The ground station still interprets nothing: the `meaning` texts of `config/radio.pocket.toml` are labels and `mapping_note` names the firmware table revision. The virtual switches behave like the Pocket's:
+
+| Switch | Ch | Vehicle meaning (vehicle docs `hardware-and-drivers.md` section 5) |
+|---|---|---|
+| SA | 5 | up = go (only an observed down-to-up change starts a mission, never a level; a held SA gives no second go), down = abort: RTH in flight, reset and stop in the countdown |
+| SB | 6 | mission profile 0/1/2, read at the go edge and latched; only profile 2 flies, 0 and 1 refuse the go (`go_refusal` 5) |
+| SC | 7 | simulation (0) / real (1). **The vehicle boots real.** Simulation is entered only by an observed change (0 -> 1 -> 0, i.e. the edge into position 0), real by an observed 0 -> 1, only on the ground and not committed; otherwise `SC_MISMATCH`, and a go is refused (`go_refusal` 4). Position 2 is reserved |
+| SD | 8 | motor interlock: off, then on opens it (`ARMED` now means "interlock open"); the vehicle asks `INTERLOCK_NEED_TOGGLE` ("Toggle SD off, then on") when SD shows on without an observed edge. The GUI guards it with the padlock |
+| SE | 9 | momentary: a short press resets the system state (on the ground, interlock closed; clears latches); held for 1 s or more it zeroes the estimators while held (the vehicle stops at release, staleness or 60 s) |
+
+The GUI SE button sends 1 every 100 ms while pressed (the `hold_s` mechanism of `rc.set` / `exgs rc ... --hold` does the same from scripts, for example `exgs rc set SE=1 --hold 3`). The go countdown is fixed on the vehicle (about 15 s) and is not set by the ground station. The Virtual radio panel and the Simulation testing page show the vehicle's own answers from `VEHICLE_STATUS` (mode, interlock, `SC_MISMATCH`, `SE_HOLD_ZEROING`, `SE_REFUSED`, `FAILSAFE_LATCHED`, `INTERLOCK_NEED_TOGGLE`, the go refusal reason, the profile): see [gui.md](gui.md).
