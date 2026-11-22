@@ -26,7 +26,7 @@ TX_RATES = {"VEHICLE_STATUS": 5.0, "LINK_STATS_TX": 4.0, "LINK_STATS_RX": 4.0, "
 
 
 @contextlib.asynccontextmanager
-async def rig_with(tmp_path, usb_kw=None, tx_kw=None, with_usb=True):
+async def rig_with(tmp_path, usb_kw=None, tx_kw=None, with_usb=True, commands=None):
     v1 = FakeVehiclePty(tmp_path / "usb", speed=2.0, profile="exvectrnet-1", hb_hz=10.0, **(usb_kw or {}))
     v2 = FakeVehiclePty(
         tmp_path / "radio",
@@ -60,7 +60,7 @@ async def rig_with(tmp_path, usb_kw=None, tx_kw=None, with_usb=True):
                 "server": {"bind": "127.0.0.1", "port": 1},
                 "source": sources,
                 "recorder": {"directory": tempfile.mkdtemp(prefix="exgs-test-rec-")},
-                "telecommands": {"command": COMMANDS},
+                "telecommands": {"command": commands or COMMANDS},
             }
         )
     )
@@ -315,3 +315,61 @@ def test_calibration_vectors_for_the_js_tests_match_the_packets_vectors():
     C = xp.Calibration
     assert (C.GYRO_SOURCE_CALIB_EEPROM, C.GYRO_SOURCE_TRANSFORM_EEPROM, C.GYRO_SOURCE_OFFSET_OVERRIDE) == (1, 2, 4)
     assert (C.GYRO_SOURCE_RAM_ONLY, C.GYRO_SOURCE_MEMORY_CLEARED) == (8, 16)
+
+
+@needs_browser
+async def test_simulation_testing_page_is_greyed_out_until_the_vehicle_reports_simulation(tmp_path):
+    import tomllib
+
+    cfg = tomllib.loads((ROOT / "config" / "gs.example.toml").read_text())
+    faults = [c for c in cfg["telecommands"]["command"] if c["group"] == "Simulation tests"]
+    assert len(faults) == 9
+    async with rig_with(tmp_path, commands=COMMANDS + faults) as rig, browser_check.Browser(1500, 1300, 9373) as b:
+        await open_page(b, rig, ["telecommands", "simtests"])
+        kind = "document.querySelector('[data-testid=source-banner]').dataset.kind"
+        await until(lambda: b.eval(f"[{kind!r}.length][0] && {kind} !== undefined"), what="banner")
+        assert await b.eval("window.exgs.simtests.sections().join()") == "wind,faults"
+        # the generic Commands panel does not list the simulation entries
+        assert await b.eval("!document.querySelector('[data-panel=telecommands] [data-name=SimFaultClearTL]')")
+        stuck = "[data-panel=simtests] [data-section=faults] .sf-flap[data-flap=BR]"
+        apply_ = "[data-panel=simtests] [data-section=faults] .rq-btn"
+        if await b.eval(kind) == "sim":  # the fake vehicle starts in simulation: toggle it off first
+            btn = "[data-panel=telecommands] .rq-btn[data-name=SimulationMode]"
+            await b.eval("window.exgs.dock.open('telecommands')")
+            await until(lambda: b.eval(f"!document.querySelector({btn!r}).disabled"), what="toggle enabled")
+            await press(b, btn)
+            await until(lambda: len(rig.v1.received_telecommands) == 1, timeout=3, what="toggle sent")
+            await let_go(b, btn)
+            await until(lambda: b.eval(f"{kind} === 'real'"), timeout=5, what="reported real")
+            rig.v1.received_telecommands.clear()
+            await b.eval("window.exgs.dock.open('simtests')")
+            await b.sleep(0.7)
+        assert "simulation mode only" in await text(b, "[data-panel=simtests] .st-why")
+        assert await b.eval(f"document.querySelector({stuck!r}).disabled") is True
+        assert await b.eval(f"[...document.querySelectorAll({apply_!r})].every(e => e.disabled)") is True
+        assert await b.eval("document.querySelectorAll('[data-panel=simtests] .st-off').length") == 2
+        assert await b.eval("[...document.querySelectorAll('[data-panel=simtests] .st-tag')].length") == 2
+        btn = "[data-panel=telecommands] .rq-btn[data-name=SimulationMode]"
+        await b.eval("window.exgs.dock.open('telecommands')")
+        await b.sleep(0.3)
+        await press(b, btn)
+        await until(lambda: len(rig.v1.received_telecommands) == 1, timeout=3, what="toggle sent")
+        await let_go(b, btn)
+        await until(lambda: b.eval(f"{kind} === 'sim'"), timeout=5, what="reported sim")
+        await b.eval("window.exgs.dock.open('simtests')")
+        await b.sleep(0.3)
+        await until(lambda: b.eval(f"!document.querySelector({stuck!r}).disabled"), what="enabled when reported")
+        rig.v1.received_telecommands.clear()
+        await b.sleep(0.7)
+        await b.eval(f"document.querySelector({stuck!r}).click()")
+        assert "0.7330 rad" in await text(b, "[data-testid=sf-rad]")
+        stuck_btn = "[data-panel=simtests] [data-section=faults] .rq-btn"
+        await press(b, stuck_btn)
+        await until(lambda: len(rig.v1.received_telecommands) == 1, timeout=3, what="fault frame after the hold")
+        await let_go(b, stuck_btn)
+        tc = rig.v1.received_telecommands[0]
+        assert (tc["type"], tc["subsystem"], tc["param_int"]) == (16, 3, 0x57)
+        assert abs(tc["param_float"] - 0.7330383) < 1e-6
+        await b.sleep(1.5)
+        assert len(rig.v1.received_telecommands) == 1  # once, no repeat
+        assert "no ACK exists" in await text(b, "[data-testid=sf-sent]")

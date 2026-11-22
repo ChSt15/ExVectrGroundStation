@@ -12,6 +12,8 @@ export const CATEGORY_LABELS = {
   state: "State (armed, motors, zeroing, sim)",
   deviation: "Position deviation",
 };
+import { LOG_CATEGORIES } from "./log_patterns.js";
+
 export const VOICE_MODES = ["recorded", "browser", "beeps"];
 export const VOICE_MODE_LABELS = { recorded: "Recorded (default)", browser: "Browser voice", beeps: "Beeps only" };
 export const STYLE_NAMES = ["normal", "warning", "failure"];
@@ -42,6 +44,13 @@ export const DEFAULTS = {
   },
 };
 
+/** Vehicle log notifications (logwatch.js): master, which categories raise toasts, which also beep. */
+DEFAULTS.log = {
+  enabled: true,
+  categories: Object.fromEntries(LOG_CATEGORIES.map((c) => [c, true])),
+  audio: Object.fromEntries(LOG_CATEGORIES.map((c) => [c, c === "abort"])), // audio on only for critical
+};
+
 const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
 const isObj = (x) => x && typeof x === "object" && !Array.isArray(x);
 const num = (x, lo, hi, dflt) => (typeof x === "number" && Number.isFinite(x) ? clamp(x, lo, hi) : dflt);
@@ -67,6 +76,13 @@ export function mergeSettings(base, over) {
   out.volume = num(over.volume, 0, 1, out.volume);
   out.stale_s = num(over.stale_s, 0.5, 60, out.stale_s);
   if (isObj(over.categories)) for (const c of CATEGORIES) if (typeof over.categories[c] === "boolean") out.categories[c] = over.categories[c];
+  if (isObj(over.log)) {
+    if (typeof over.log.enabled === "boolean") out.log.enabled = over.log.enabled;
+    for (const k of ["categories", "audio"]) {
+      if (!isObj(over.log[k])) continue;
+      for (const c of LOG_CATEGORIES) if (typeof over.log[k][c] === "boolean") out.log[k][c] = over.log[k][c];
+    }
+  }
   if (isObj(over.altitude)) {
     out.altitude.levels = cleanLevels(over.altitude.levels, out.altitude.levels);
     out.altitude.hysteresis_m = num(over.altitude.hysteresis_m, 0, 50, out.altitude.hysteresis_m);

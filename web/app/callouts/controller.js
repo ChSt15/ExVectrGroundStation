@@ -2,6 +2,7 @@
 // in localStorage, guarded) and the audio state. Display-only: nothing here sends anything to the vehicle.
 import { CalloutEngine } from "./engine.js";
 import { CalloutQueue, Suppressor } from "./queue.js";
+import { LogWatcher } from "./logwatch.js";
 import { CATEGORIES, DEFAULTS, mergeSettings } from "./settings.js";
 
 export const CALLOUT_CONSUMES = ["VehicleStatus", "MissionState", "Position"];
@@ -35,6 +36,20 @@ export function createCallouts({ store, getView, getCoreStatus, ls, speaker, not
   let audioChoice = ls.get(LS_AUDIO) === "1";
   let activated = false;
   let lastView = null;
+
+  // vehicle log lines -> toasts (own master/categories/audio under settings.log; off in replay unless speakInReplay)
+  let logView = "live";
+  const logAllowed = () => settings.master && settings.log.enabled && (logView !== "replay" || settings.speakInReplay);
+  const logwatch = new LogWatcher({
+    clock,
+    emit(c, repeat) {
+      if (!logAllowed() || !settings.log.categories[c.category]) return;
+      const key = `log:${c.title}`;
+      if (repeat && !notifier.toasts.some((x) => x.key === key)) return; // inside the 10 s window and already gone: stay quiet
+      notifier.show({ id: `log.${c.category}`, category: "log", text: c.title, severity: c.severity, key, sticky: c.sticky });
+      if (!repeat && settings.log.audio[c.category] && audioState() === "on" && settings.volume > 0) speaker.beep(settings.volume);
+    },
+  });
 
   const changed = () => listeners.forEach((f) => f());
 
@@ -89,6 +104,11 @@ export function createCallouts({ store, getView, getCoreStatus, ls, speaker, not
 
   function tick() {
     const view = getView();
+    if (view !== logView) {
+      logView = view;
+      logwatch.reset();
+    }
+    logwatch.tick();
     if (view !== lastView) {
       if (lastView !== null) {
         queue.cancelAll();
@@ -170,5 +190,14 @@ export function createCallouts({ store, getView, getCoreStatus, ls, speaker, not
     },
     engine,
     queue,
+    /** Vehicle log watcher: `onLog(packet)` for each ConsoleText packet of the active view. */
+    log: {
+      onLog: (pkt) => pkt?.f && typeof pkt.f.text === "string" && logwatch.feed(pkt.f.text),
+      /** The calibration problem chip {text, detail} or null (not shown in replay unless the callouts are enabled there). */
+      chip: () => (logAllowed() ? logwatch.chip() : null),
+      unread: () => logwatch.unread(),
+      markRead: () => logwatch.markRead(),
+      watcher: logwatch,
+    },
   };
 }

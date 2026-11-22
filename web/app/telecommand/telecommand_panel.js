@@ -19,8 +19,8 @@ export function createTelecommandPanel(el, ctx) {
 
   async function load() {
     try {
-      // entries with a rate_group (simulation wind) have their own panel 'Sim wind'
-      commands = (await ctx.api.request("telecommand.list", {}, 5000)).commands.filter((c) => !c.rate_group);
+      // simulation entries (rate_group wind, group 'Simulation tests') live on the 'Simulation testing' page
+      commands = (await ctx.api.request("telecommand.list", {}, 5000)).commands.filter((c) => !c.rate_group && c.group !== "Simulation tests");
       listError = "";
     } catch (e) {
       listError = `telecommand.list: ${e.message}`;

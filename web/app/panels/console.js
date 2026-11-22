@@ -53,6 +53,8 @@ registerPanel({
         }
       },
       onTick: render,
+      /** Unread WARNING/ERROR lines since the tab was last open (dock tab badge). */
+      badge: () => ctx.callouts?.()?.log.unread() || 0,
       onViewChange: () => {
         lines.length = 0;
         dirty = true;

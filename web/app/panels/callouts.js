@@ -3,6 +3,7 @@
 import { registerPanel } from "./registry.js";
 import { h, section } from "../ui.js";
 import { CATEGORIES, CATEGORY_LABELS, STYLE_NAMES, VOICE_MODES, VOICE_MODE_LABELS } from "../callouts/settings.js";
+import { LOG_CATEGORIES, LOG_CATEGORY_LABELS } from "../callouts/log_patterns.js";
 import { toneOf } from "../callouts/notify.js";
 
 const STYLE_HELP = {
@@ -70,6 +71,24 @@ registerPanel({
       c.append(h("div", { class: "co-row" }, h("label", { class: "co-grow" }, box, " ", CATEGORY_LABELS[k]), test));
     }
     c.append(h("div", { class: "hint", text: "Position deviation is off by default: see docs/callouts.md (the setpoint is the guidance reference, not verified as a hard target)." }));
+
+    // ---- vehicle log notifications (callouts/logwatch.js)
+    const logMaster = h("input", { type: "checkbox", "data-testid": "co-log-enabled" });
+    logMaster.addEventListener("change", () => set((s) => (s.log.enabled = logMaster.checked)));
+    const logCat = {};
+    const logAudio = {};
+    const lg = section(el, "Vehicle log notifications");
+    lg.append(h("label", { class: "co-row" }, logMaster, " Show vehicle log notifications (WARNING and ERROR lines and the events below as toasts; the Console keeps every line)"));
+    for (const k of LOG_CATEGORIES) {
+      const box = h("input", { type: "checkbox", "data-testid": `co-log-cat-${k}` });
+      box.addEventListener("change", () => set((s) => (s.log.categories[k] = box.checked)));
+      const au = h("input", { type: "checkbox", "data-testid": `co-log-audio-${k}`, title: "alert beep when this category appears" });
+      au.addEventListener("change", () => set((s) => (s.log.audio[k] = au.checked)));
+      logCat[k] = box;
+      logAudio[k] = au;
+      lg.append(h("div", { class: "co-row" }, h("label", { class: "co-grow" }, box, " ", LOG_CATEGORY_LABELS[k]), h("label", {}, au, " beep")));
+    }
+    lg.append(h("div", { class: "hint", text: "Repeats of the same text within 10 s show one toast with a count. Beeps need audio enabled and use the alert beep (default: only the countdown abort). Off in replay unless 'Speak and notify in replay' is on. The calibration problem chip in the header and the unread count on the Console tab are always shown." }));
 
     // ---- thresholds
     const altInput = h("input", { type: "text", class: "co-list", "data-testid": "co-altitudes", "aria-label": "altitude list in metres" });
@@ -153,6 +172,11 @@ registerPanel({
       put(vol, Math.round(s.volume * 100));
       volPct.textContent = `${Math.round(s.volume * 100)} %`;
       for (const k of CATEGORIES) catBoxes[k].checked = s.categories[k];
+      logMaster.checked = s.log.enabled;
+      for (const k of LOG_CATEGORIES) {
+        logCat[k].checked = s.log.categories[k];
+        logAudio[k].checked = s.log.audio[k];
+      }
       put(altInput, s.altitude.levels.join(", "));
       put(hyst, s.altitude.hysteresis_m);
       put(devLimit, s.deviation.limit_m);

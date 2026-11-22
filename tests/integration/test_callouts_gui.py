@@ -9,7 +9,7 @@ from pathlib import Path
 from ..support_logs import T0_NS, make_log
 from .test_api import make_app
 from .test_api import running as api_running
-from .test_ops_gui import needs_browser, open_page, rig_with
+from .test_ops_gui import needs_browser, open_page, rig_with, text
 from .test_radio_widget import until
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -206,3 +206,56 @@ async def test_replay_follows_the_timeline_and_a_seek_is_silent(tmp_path):
         assert "Ascent" in before  # normal speed: the recorded timeline is followed
         assert "Belly flop" not in after and "Landing" not in after and "Landed" not in after
         assert after == before  # nothing at all was said for the seek
+
+
+FEED = "(t => window.exgs.callouts().log.onLog({type: 'ConsoleText', src: 'usb', f: {text: t}}))"
+WHY = "gyro: ok, accel: parameters out of range, mag: ok"
+TOASTS = "[...document.querySelectorAll('[data-testid=toasts] .toast')].map(t => t.textContent)"
+
+
+@needs_browser
+async def test_vehicle_log_lines_raise_toasts_chip_and_console_badge(tmp_path):
+    """ConsoleText lines are fed through the controller (the transport is covered elsewhere): toasts with dedupe, the
+    calibration chip, the unread badge on the Console tab and the settings switches."""
+    async with rig_with(tmp_path) as rig, browser_check.Browser(1366, 768, 9386) as b:
+        await start(b, rig)
+        feed = FEED
+        await b.eval("window.exgs.callouts().update(s => { s.speakInReplay = true; })")  # view-independent
+        for line in (
+            "[node 1 INFO] Calibration: Accel: 2 poses captured (moving)",  # progress: nothing
+            f"[node 1 WARNING] WARNING calibration invalid, Arm and MissionBegin are refused (repeats every 10 s): {WHY}",  # noqa: E501
+            f"[node 1 WARNING] Arm refused: calibration invalid ({WHY})",
+            f"[node 1 WARNING] Arm refused: calibration invalid ({WHY})",
+            "[node 1 INFO] Calibration: Accel: pose 4 captured, move to the next one",
+            "[node 1 WARNING] Odd thing",
+        ):
+            await b.eval(f"({feed})({json.dumps(line)})")
+        toasts = await b.eval(TOASTS)
+        assert any(t.startswith("Calibration invalid: accel") for t in toasts), toasts
+        assert any("Accel pose 4 captured" in t for t in toasts), toasts
+        assert any(t.startswith("Odd thing") for t in toasts), toasts
+        assert not any("2 poses captured" in t for t in toasts), toasts
+        refused = [t for t in toasts if t.startswith("Arm refused")]
+        assert len(refused) == 1 and "×2" in refused[0], refused  # identical lines: one toast with a count
+        # chip in the header, click opens the Console
+        chip = "document.querySelector('[data-testid=cal-chip]')"
+        await until(lambda: b.eval(f"!{chip}.hidden"), what="calibration chip")
+        assert await text(b, "[data-testid=cal-chip]") == "Calibration invalid: accel"
+        # unread badge on the Console tab: 4 WARNING lines (3 + 1), the INFO ones do not count
+        await b.eval("window.exgs.dock.open('callouts')")
+        dot = "document.querySelector('[data-tab=console] .tab-dot')"
+        await until(lambda: b.eval(f"{dot}.dataset.count === '4'"), what="badge")
+        await b.eval("document.querySelector('[data-testid=cal-chip]').click()")
+        assert await b.eval("window.exgs.dock.tab()") == "console"
+        await until(lambda: b.eval(f"{dot}.hidden"), what="badge cleared")
+        # master switch off: no toast for a new line
+        await b.eval("window.exgs.callouts().update(s => { s.log.enabled = false; })")
+        await b.eval(f"({feed})('[node 1 WARNING] silent now')")
+        assert not any(t.startswith("silent now") for t in await b.eval(TOASTS))
+        # Router/ship node INFO is ignored, its WARNING is shown
+        await b.eval("window.exgs.callouts().update(s => { s.log.enabled = true; })")
+        await b.eval(f"({feed})('[node 2 INFO] Arm refused: nothing')")
+        await b.eval(f"({feed})('[node 2 WARNING] Radio retry')")
+        toasts = await b.eval(TOASTS)
+        assert any(t.startswith("node 2: Radio retry") for t in toasts)
+        assert not any("nothing" in t for t in toasts)

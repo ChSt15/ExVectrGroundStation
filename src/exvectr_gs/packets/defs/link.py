@@ -114,6 +114,12 @@ class TelecommandType(IntEnum):
     SimGustStrength = 13
     SimGustPeriod = 14
     SimGustSeed = 15
+    # Simulation servo faults (vehicle: simulation mode only; docs/telecommands.md). 16 force flap: subsystem = flap
+    # (0 TL, 1 TR, 2 BL, 3 BR), float = the flap's setting is forced to this angle at once, rad 0..pi/2, -1.0 = hold
+    # the current angle. 17 flap slow: subsystem = flap, float = servo rate factor 0.05..1. 18 release all faults.
+    SimFlapStuck = 16
+    SimFlapSlow = 17
+    SimFaultClear = 18
 
 
 @packet(

@@ -16,8 +16,8 @@
         "label": "Commands (temp)"
       },
       {
-        "panel": "simwind",
-        "label": "Sim wind"
+        "panel": "simtests",
+        "label": "Simulation testing"
       },
       {
         "panel": "link",

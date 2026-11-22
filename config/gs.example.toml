@@ -436,6 +436,125 @@ param_float_max = 16777215.0
 param_float_name = "seed"
 note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode"
 
+# Simulation tests (owner approval 2026-11-21, docs/telecommands.md): simulation-only servo faults, types 16..18.
+# One frame each, no retry, hold 1 s, 500 ms per client (NO rate_group). The subsystem byte is fixed per entry:
+# flap index 0..3 (TL, TR, BL, BR). The GUI page 'Simulation testing' picks the entry.
+
+[[telecommands.command]]
+name = "SimFlapStuckTL"
+type = "SimFlapStuck"
+label = "Force flap TL to an angle (rad)"
+group = "Simulation tests"
+subsystem = 0
+param_int = 0x57                               # the vehicle's magic value, fixed
+param_float = 0.733
+param_float_min = -1.0
+param_float_max = 1.5708
+param_float_name = "angle_rad"
+note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs a line when it sets a fault; angle 0..pi/2 rad, -1.0 = stick at the current angle"
+
+[[telecommands.command]]
+name = "SimFlapStuckTR"
+type = "SimFlapStuck"
+label = "Force flap TR to an angle (rad)"
+group = "Simulation tests"
+subsystem = 1
+param_int = 0x57                               # the vehicle's magic value, fixed
+param_float = 0.733
+param_float_min = -1.0
+param_float_max = 1.5708
+param_float_name = "angle_rad"
+note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs a line when it sets a fault; angle 0..pi/2 rad, -1.0 = stick at the current angle"
+
+[[telecommands.command]]
+name = "SimFlapStuckBL"
+type = "SimFlapStuck"
+label = "Force flap BL to an angle (rad)"
+group = "Simulation tests"
+subsystem = 2
+param_int = 0x57                               # the vehicle's magic value, fixed
+param_float = 0.733
+param_float_min = -1.0
+param_float_max = 1.5708
+param_float_name = "angle_rad"
+note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs a line when it sets a fault; angle 0..pi/2 rad, -1.0 = stick at the current angle"
+
+[[telecommands.command]]
+name = "SimFlapStuckBR"
+type = "SimFlapStuck"
+label = "Force flap BR to an angle (rad)"
+group = "Simulation tests"
+subsystem = 3
+param_int = 0x57                               # the vehicle's magic value, fixed
+param_float = 0.733
+param_float_min = -1.0
+param_float_max = 1.5708
+param_float_name = "angle_rad"
+note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs a line when it sets a fault; angle 0..pi/2 rad, -1.0 = stick at the current angle"
+
+[[telecommands.command]]
+name = "SimFlapSlowTL"
+type = "SimFlapSlow"
+label = "Flap TL slow servo (rate factor)"
+group = "Simulation tests"
+subsystem = 0
+param_int = 0x57                               # the vehicle's magic value, fixed
+param_float = 0.3
+param_float_min = 0.05
+param_float_max = 1.0
+param_float_name = "rate_factor"
+note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs a line when it sets a fault"
+
+[[telecommands.command]]
+name = "SimFlapSlowTR"
+type = "SimFlapSlow"
+label = "Flap TR slow servo (rate factor)"
+group = "Simulation tests"
+subsystem = 1
+param_int = 0x57                               # the vehicle's magic value, fixed
+param_float = 0.3
+param_float_min = 0.05
+param_float_max = 1.0
+param_float_name = "rate_factor"
+note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs a line when it sets a fault"
+
+[[telecommands.command]]
+name = "SimFlapSlowBL"
+type = "SimFlapSlow"
+label = "Flap BL slow servo (rate factor)"
+group = "Simulation tests"
+subsystem = 2
+param_int = 0x57                               # the vehicle's magic value, fixed
+param_float = 0.3
+param_float_min = 0.05
+param_float_max = 1.0
+param_float_name = "rate_factor"
+note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs a line when it sets a fault"
+
+[[telecommands.command]]
+name = "SimFlapSlowBR"
+type = "SimFlapSlow"
+label = "Flap BR slow servo (rate factor)"
+group = "Simulation tests"
+subsystem = 3
+param_int = 0x57                               # the vehicle's magic value, fixed
+param_float = 0.3
+param_float_min = 0.05
+param_float_max = 1.0
+param_float_name = "rate_factor"
+note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs a line when it sets a fault"
+
+[[telecommands.command]]
+name = "SimFaultClear"
+type = "SimFaultClear"
+label = "Clear all simulated faults and armed faults"
+group = "Simulation tests"
+subsystem = 0
+param_int = 0x57                               # the vehicle's magic value, fixed
+param_float = 0.0
+note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs a line when it sets a fault"
+
+
 [radio]
 config = "config/radio.pocket.toml"
 
