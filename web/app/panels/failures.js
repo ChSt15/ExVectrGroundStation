@@ -5,6 +5,7 @@ import { registerPanel } from "./registry.js";
 import { h } from "../ui.js";
 import { describe, fmtAge } from "../fmt.js";
 import { FAILURE_BITS } from "../status/status_logic.js";
+import { CALIB_REFUSAL_NOTE, CALIB_SENSORS, calibAnyBad, calibRows } from "../status/calib_rows.js";
 
 registerPanel({
   id: "failures",
@@ -20,6 +21,16 @@ registerPanel({
       el.append(r);
       return { n, st, note, r };
     });
+    // calibration rows (vehicle log watcher, display only)
+    const calRows = CALIB_SENSORS.map((c) => {
+      const st = h("span", { class: "pill" });
+      const note = h("span", { class: "note" });
+      const r = h("div", { class: "frow", "data-key": `calib.${c.key}` }, h("span", { class: "lbl", text: c.label }), st, note);
+      el.append(r);
+      return { c, st, note };
+    });
+    const calHint = h("div", { class: "note", "data-testid": "calib-hint", hidden: true, text: CALIB_REFUSAL_NOTE });
+    el.append(calHint);
     const reset = () => {
       for (const k of Object.keys(lastSet)) delete lastSet[k];
     };
@@ -37,6 +48,14 @@ registerPanel({
         x.st.dataset.state = d.state;
         x.note.textContent = lastSet[x.n.key] !== undefined && now !== null ? `last set ${fmtAge(now - lastSet[x.n.key])} ago` : "";
       }
+      const co = ctx.callouts && ctx.callouts();
+      const cr = calibRows(co ? co.log.calibState() : null);
+      cr.forEach((r, i) => {
+        calRows[i].st.textContent = r.text;
+        calRows[i].st.dataset.tone = r.tone;
+        calRows[i].note.textContent = r.note;
+      });
+      calHint.hidden = !calibAnyBad(cr);
       ctx.setTitle(!e ? "Failures" : any ? "Failures (ACTIVE)" : "Failures (all clear)");
     };
     return {

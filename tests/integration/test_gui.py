@@ -108,8 +108,22 @@ async def test_browser_panels_show_fresh_then_stale_values_and_views_switch():
                 assert early[pid]["fresh"] > 0, (pid, early[pid])
             for pid in ("attitude", "position", "mission", "link"):
                 assert early[pid]["tagged"] > 0, (pid, early[pid])
-            fail = await b.eval("[...document.querySelectorAll('[data-panel=failures] .pill')].map(e => e.textContent)")
+            fail = await b.eval(
+                "[...document.querySelectorAll('[data-panel=failures] .frow:not([data-key^=\"calib.\"]) .pill')].map(e => e.textContent)"  # noqa: E501
+            )
             assert fail and all(t == "ok" for t in fail), fail  # VehicleStatus failure bits, all clear
+            # calibration rows: grey without information, red with the vehicle's reason after its warning line
+            cal = await b.eval("[...document.querySelectorAll('[data-panel=failures] [data-key^=\"calib.\"] .pill')].map(e => e.textContent)")  # noqa: E501
+            assert cal == ["—", "—", "—"], cal
+            await b.eval(
+                "window.exgs.callouts().log.onLog({f: {text: '[node 1 WARNING] WARNING calibration invalid, Arm and MissionBegin are refused (repeats every 10 s): gyro: ok, accel: parameters out of range, mag: ok'}})"  # noqa: E501
+            )
+            await b.sleep(0.8)
+            cal = await b.eval(
+                "[...document.querySelectorAll('[data-panel=failures] [data-key^=\"calib.\"]')].map(e => [e.querySelector('.pill').textContent, e.querySelector('.pill').dataset.tone, e.querySelector('.note').textContent])"  # noqa: E501
+            )
+            assert cal == [["ok", "ok", ""], ["INVALID", "bad", "parameters out of range"], ["ok", "ok", ""]], cal
+            assert await b.eval("document.querySelector('[data-testid=calib-hint]').hidden") is False
             # Attitude stops (dropout from t=1.5 s sim time): its values go stale and show an age
             await b.sleep(5.0)
             late = await b.eval(JS_PANEL_STATES)

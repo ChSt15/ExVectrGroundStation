@@ -195,6 +195,8 @@ export function createCallouts({ store, getView, getCoreStatus, ls, speaker, not
       onLog: (pkt) => pkt?.f && typeof pkt.f.text === "string" && logwatch.feed(pkt.f.text),
       /** The calibration problem chip {text, detail} or null (not shown in replay unless the callouts are enabled there). */
       chip: () => (logAllowed() ? logwatch.chip() : null),
+      /** Calibration state for the Failures panel rows: {state, detail}. */
+      calibState: () => (logAllowed() ? logwatch.calibState() : { state: "unknown", detail: {} }),
       unread: () => logwatch.unread(),
       markRead: () => logwatch.markRead(),
       watcher: logwatch,

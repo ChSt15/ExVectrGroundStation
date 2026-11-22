@@ -20,6 +20,7 @@ export class LogWatcher {
   reset() {
     this.seen = new Map(); // title -> last emit time
     this.problem = null; // {bad, detail, text, t}
+    this.checked = false; // true once the vehicle has said calibration is fine (checked line, or its warning stopped)
     this.unreadCount = 0;
     this.unreadErrors = 0;
   }
@@ -34,7 +35,10 @@ export class LogWatcher {
       if (c.level === "ERROR") this.unreadErrors += 1;
     }
     const had = this.problem ? chipText(this.problem) : null;
-    if (c.calib === "ok") this.problem = null;
+    if (c.calib === "ok") {
+      this.problem = null;
+      this.checked = true;
+    }
     else if (c.calib === "problem") {
       const p = calibrationProblem(c.text);
       this.problem = p ? { ...p, t } : { bad: [], detail: {}, t };
@@ -52,12 +56,21 @@ export class LogWatcher {
   /** Time-driven: drop a calibration problem that has not been repeated for CHIP_STALE_S. */
   tick() {
     const t = this.clock();
-    if (this.problem && t - this.problem.t > CHIP_STALE_S) this.problem = null;
+    if (this.problem && t - this.problem.t > CHIP_STALE_S) {
+      this.problem = null;
+      this.checked = true;
+    }
     if (this.seen.size > 200) for (const [k, v] of this.seen) if (t - v > DEDUPE_S) this.seen.delete(k);
   }
 
   chip() {
     return this.problem ? { text: chipText(this.problem), detail: this.problem.detail } : null;
+  }
+
+  /** {state: "problem"|"ok"|"unknown", detail} for the Failures panel rows. */
+  calibState() {
+    if (this.problem) return { state: "problem", detail: this.problem.detail };
+    return { state: this.checked ? "ok" : "unknown", detail: {} };
   }
 
   unread() {
