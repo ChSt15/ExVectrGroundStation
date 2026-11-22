@@ -30,7 +30,7 @@
   },
   "failure": {
     "repeat_s": 5,
-    "repeats": 3
+    "repeats": 0
   },
   "telemetry": {
     "timeout_s": 3

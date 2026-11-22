@@ -31,7 +31,7 @@ export const DEFAULTS = {
   altitude: { levels: [25, 50, 100, 150, 200], hysteresis_m: 3 },
   deviation: { limit_m: 5, hold_s: 2, hysteresis_m: 1 },
   altcheck: { limit_m: 5, hold_s: 1, hysteresis_m: 1 }, // GNSS vs estimated altitude (the GNSS panel uses the same limit)
-  failure: { repeat_s: 5, repeats: 3 },
+  failure: { repeat_s: 5, repeats: 0 },
   telemetry: { timeout_s: 3 },
   stale_s: 3,
   suppress: { normal_s: 2, failure_s: 8 },
