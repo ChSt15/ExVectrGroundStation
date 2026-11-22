@@ -228,6 +228,17 @@ class VehicleStatus(Packet):
     home_epoch: int | None = f(
         desc="increments whenever the vehicle's home reference changes, 0 = no home yet; None = older sender"
     )
+    calib_state: int | None = f(
+        desc="VEHICLE_STATUS.calib_state bits: 0 gyro, 1 accel, 2 mag calibration valid, 3 calibration session "
+        "active, 4 ready to arm; None or 0 = unknown (older sender); use the calib_* fields below"
+    )
+    calib_gyro_ok: bool | None = f(desc="gyro calibration valid; None = unknown (calib_state 0 or absent)")
+    calib_accel_ok: bool | None = f(desc="accel calibration valid; None = unknown")
+    calib_mag_ok: bool | None = f(desc="mag calibration valid; None = unknown")
+    calib_session: bool | None = f(desc="a calibration session is active (collecting or fitting); None = unknown")
+    ready_to_arm: bool | None = f(
+        desc="the vehicle reports that all its Arm / MissionBegin gates are satisfied; None = unknown"
+    )
 
 
 @packet(
@@ -264,7 +275,9 @@ class Actuators(Packet):
     tvc: list[float] = f(unit="rad", labels=("x", "y"), desc="thrust vector deflection")
     thrust: float = f(unit="N")
     ground_distance: float = f(unit="m", desc="NaN if unavailable")
-    roll_torque: float = f(unit="N*m", desc="TVC twist (roll) torque about body Z; only AIR_ACTUATORS carries it")
+    roll_torque: float | None = f(
+        unit="N*m", desc="TVC twist (roll) torque about body Z (AIR_ACTUATORS and USB ACTUATORS); None = unknown"
+    )
 
 
 @packet(

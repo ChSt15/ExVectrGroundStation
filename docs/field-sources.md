@@ -13,13 +13,13 @@ The vehicle's USB telemetry (`usb`, full set, 50 to 100 Hz) and the Router's rad
 | Position | `pos`, `vel` | U | L | |
 | Actuators | `flaps`, `tvc`, `thrust` | U | L | |
 | Actuators | `ground_distance` | U | - | |
-| Actuators | `roll_torque` | - | L | **gap on USB only**: schema item, append to the USB `ACTUATORS` |
+| Actuators | `roll_torque` | U | L | gap filled by schema 0x414DE27A (USB `ACTUATORS` carries it; older sender: `None`) |
 | FlapState | `angle` | U | L | |
 | MissionState | `sp_vel`, `sp_pos`, `sp_q`, `mission_phase`, `t_mission`, `mission_index` | U | L | |
-| MissionState | `mission_mode` | - | L | not in the USB `MISSION`; schema item |
-| MissionState | `waypoint` | - | L | radio only, and only while a waypoint is active |
+| MissionState | `mission_mode` | U | L | gap filled by schema 0x414DE27A (USB `MISSION` carries it) |
+| MissionState | `waypoint` | U | L | USB `MISSION` carries it since 0x414DE27A; only while a waypoint mission is active (255 = none, `None`) |
 | VehicleStatus, VehicleState | all | U | L | same wire packet on both |
-| Gps | all | U | - | not sent over the radio |
+| Gps | all | U | L | USB `GNSS`; radio `AIR_GNSS` plus `AIR_GNSS_INFO` merged by the profile |
 | Estimator, ImuRaw, Calibration | all | U | - | |
 | RadioLinkStats | all | - | L | radio only by nature |
 

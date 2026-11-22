@@ -13,6 +13,15 @@ from typing import Any
 from ..packets.defs.vehicle import ControlSource, MissionMode, MissionPhase, SensorState, VehicleMode
 
 T_READY = 2.0
+# VehicleStatus.calib_state of the fake vehicle once ready: gyro, accel and mag valid, ready to arm (bits 0, 1, 2, 4)
+CALIB_READY = 0b10111
+CALIB_FIELDS_READY = {
+    "calib_gyro_ok": True,
+    "calib_accel_ok": True,
+    "calib_mag_ok": True,
+    "calib_session": False,
+    "ready_to_arm": True,
+}
 T_START = 4.0  # mission begins (Hover)
 T_ASCENT = 6.0
 T_DESCENT = 16.0
@@ -199,6 +208,7 @@ class Scenario:
             "mission_phase": phase,
             "t_mission": int((t - T_START) * 1e9),
             "mission_index": 0,
+            "waypoint": None,  # not the waypoint mission
         }
 
     def _f_FlapState(self, t: float) -> dict[str, Any]:
@@ -245,6 +255,8 @@ class Scenario:
             "last_req_status": 0,
             "rc_age": None,
             "home_epoch": 1 if ready else 0,
+            "calib_state": CALIB_READY if ready else 0,
+            **(CALIB_FIELDS_READY if ready else {}),
         }
 
     def _f_Actuators(self, t: float) -> dict[str, Any]:

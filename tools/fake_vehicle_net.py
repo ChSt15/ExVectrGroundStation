@@ -136,8 +136,12 @@ def pack_air_pose(t_us: int, a: dict, p: dict) -> bytes:
     return struct.pack("<I4h3i3h", t_us, *q, *pos, *vel)
 
 
-def pack_actuators(t_us: int, flaps: list[float], tvc: list[float], thrust: float, ground: float) -> bytes:
-    return struct.pack("<I4f2fff", t_us, *flaps, *tvc, thrust, ground)
+def pack_actuators(
+    t_us: int, flaps: list[float], tvc: list[float], thrust: float, ground: float, roll_torque: float | None = None
+) -> bytes:
+    """ACTUATORS (40 B). `roll_torque` None = older 36 B sender (field absent)."""
+    pl = struct.pack("<I4f2fff", t_us, *flaps, *tvc, thrust, ground)
+    return pl if roll_torque is None else pl + struct.pack("<f", roll_torque)
 
 
 def u16(v: float, scale: float) -> int:
@@ -185,11 +189,15 @@ def pack_air_mission(t_us: int, m: dict, waypoint: int = 255) -> bytes:
     )
 
 
-def pack_mission(t_us: int, m: dict) -> bytes:
+def pack_mission(t_us: int, m: dict, with_mode: bool = True) -> bytes:
+    """MISSION (52 B): mission_mode and waypoint (255 = not the waypoint mission) are appended; `with_mode` False =
+    older 50 B sender."""
     ms = _fx(m["t_mission"] / 1e9, 0.001, -(2**31) + 1, 2**31 - 1, -(2**31))
-    return struct.pack(
+    pl = struct.pack(
         "<I3f3fiBB4f", t_us, *m["sp_pos"], *m["sp_vel"], ms, m["mission_index"], int(m["mission_phase"]), *_sp_q(m)
     )
+    wp = m.get("waypoint")
+    return pl + (bytes([int(m["mission_mode"]), 255 if wp is None else wp]) if with_mode else b"")
 
 
 def pack_gnss(t_us: int, g: dict, fix_type: int = 3) -> bytes:
@@ -240,7 +248,13 @@ def pack_home_position(h: dict) -> bytes:
 
 
 def pack_vehicle_status(
-    t_ns: int, vs: dict, mission_mode: int, mission_phase: int, flags_extra: int = 0, home_epoch: int | None = None
+    t_ns: int,
+    vs: dict,
+    mission_mode: int,
+    mission_phase: int,
+    flags_extra: int = 0,
+    home_epoch: int | None = None,
+    calib_state: int | None = None,
 ) -> bytes:
     flags = (
         (1 if vs["armed"] else 0)
@@ -254,7 +268,10 @@ def pack_vehicle_status(
     pl = struct.pack(
         "<IqBBBBBIHHBH", t_us, t_ns, int(vs["mode"]), int(mission_mode), int(mission_phase), 2, flags, 0, 0x3F, 7, 0, 40
     )
-    return pl if home_epoch is None else pl + bytes([home_epoch])  # home_epoch appended (u8), absent = older sender
+    # home_epoch then calib_state are appended (u8 each); absent = older sender (calib_state needs home_epoch)
+    if home_epoch is None:
+        return pl
+    return pl + bytes([home_epoch]) + (b"" if calib_state is None else bytes([calib_state]))
 
 
 def pack_handset(vs: dict, g: dict, a: dict, mode_text: str) -> bytes:

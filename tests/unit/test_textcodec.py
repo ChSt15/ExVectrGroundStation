@@ -132,6 +132,10 @@ def test_golden_file_decodes_to_known_values_and_reencodes_identically():
     assert vs.mode is VehicleMode.Running and vs.armed is True and vs.tvc_thrust == [0.12, -0.05, 11.8]
     ms = by_type["MissionState"]
     assert ms.mission_phase is MissionPhase.Ascent and ms.t_mission == 4250000000
+    assert ms.waypoint == 3
+    vst = by_type["VehicleStatus"]
+    assert vst.calib_state == 23 and vst.calib_gyro_ok is True and vst.calib_session is False
+    assert vst.ready_to_arm is True and by_type["Actuators"].roll_torque == 0.012
     assert by_type["GsEvent"].kind is GsEventKind.rec_start
     assert by_type["RcState"].ch_us[2] == 1000 and by_type["RcState"].seq == 8812
     assert by_type["Note"].text == "gusts from the west, ~3 m/s"

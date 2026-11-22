@@ -62,8 +62,8 @@ RADIO_UNSUPPLIED: dict[str, set[str]] = {
     "Gps": {"vel_acc", "info_t"},
     "FlapState": {"cmd", "enabled"},
 }
-# Fields only the radio set carries (AIR_ACTUATORS roll torque): None on the usb profile.
-USB_UNSUPPLIED: dict[str, set[str]] = {"Actuators": {"roll_torque"}}
+# Both sets carry every field of the fake (USB ACTUATORS has the roll torque since schema 0x414DE27A).
+USB_UNSUPPLIED: dict[str, set[str]] = {}
 
 FAULT_KINDS = ("dropout", "rate", "disconnect", "nan", "unknown_enum", "failure_flag")
 

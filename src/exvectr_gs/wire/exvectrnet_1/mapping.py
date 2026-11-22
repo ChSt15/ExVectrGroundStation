@@ -60,6 +60,20 @@ def _vec_or_none(xs: Any) -> list[float] | None:
     return v if all(math.isfinite(x) for x in v) else None
 
 
+def _calib(bits: int) -> dict:
+    """Decode VEHICLE_STATUS.calib_state. 0 (older sender, or really nothing valid and no session) is unknown: the
+    GUI then falls back to the vehicle's log text."""
+    if not bits:
+        return {}
+    return {
+        "calib_gyro_ok": bool(bits & 1),
+        "calib_accel_ok": bool(bits & 2),
+        "calib_mag_ok": bool(bits & 4),
+        "calib_session": bool(bits & 8),
+        "ready_to_arm": bool(bits & 16),
+    }
+
+
 def _vehicle_status(p: xp.VehicleStatus, t: int, src: str, meta: dict) -> list[Packet]:
     armed = _flag(p.flags, xp.VehicleStatus, "FLAGS_ARMED")
     sim = _flag(p.flags, xp.VehicleStatus, "FLAGS_SIMULATION")
@@ -86,6 +100,8 @@ def _vehicle_status(p: xp.VehicleStatus, t: int, src: str, meta: dict) -> list[P
         last_req_status=p.last_req_status,
         rc_age=p.rc_age,
         home_epoch=p.home_epoch,
+        calib_state=p.calib_state,
+        **_calib(p.calib_state),
     )
     # The existing mode panels read VehicleState: fill what the wire states directly.
     state = V.VehicleState(t=t, src=src, mode=mode, sim=sim, armed=armed)
@@ -106,7 +122,13 @@ def _air_pose(p: xp.AirPose, t: int, src: str, meta: dict) -> list[Packet]:
 def _actuators(p: xp.Actuators, t: int, src: str, meta: dict) -> list[Packet]:
     return [
         V.Actuators(
-            t=t, src=src, flaps=_fl(p.flaps), tvc=_fl(p.tvc), thrust=p.thrust, ground_distance=p.ground_distance
+            t=t,
+            src=src,
+            flaps=_fl(p.flaps),
+            tvc=_fl(p.tvc),
+            thrust=p.thrust,
+            ground_distance=p.ground_distance,
+            roll_torque=_nn(p.roll_torque),
         ),
         V.FlapState(t=t, src=src, angle=_fl(p.flaps)),
     ]
@@ -128,7 +150,7 @@ def _air_actuators(p: xp.AirActuators, t: int, src: str, meta: dict) -> list[Pac
                 flaps=flaps,
                 tvc=_fl(p.tvc[2 * k : 2 * k + 2]),
                 thrust=float(p.thrust[k]),
-                roll_torque=float(p.roll_torque[k]),
+                roll_torque=_nn(float(p.roll_torque[k])),
             )
         )
         out.append(V.FlapState(t=ts, src=src, angle=flaps))
@@ -162,9 +184,11 @@ def _mission(p: xp.Mission, t: int, src: str, meta: dict) -> list[Packet]:
             sp_vel=_fl(p.setpoint_vel),
             sp_pos=_fl(p.setpoint_pos),
             sp_q=_setpoint_q(p.setpoint_q),
+            mission_mode=_enum(V.MissionMode, p.mission_mode),
             mission_phase=_enum(V.MissionPhase, p.phase),
             t_mission=t_mission,
             mission_index=p.index,
+            waypoint=None if p.waypoint == 255 else p.waypoint,
         )
     ]
 

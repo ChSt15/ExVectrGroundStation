@@ -245,11 +245,11 @@ def test_actuators_mission_gnss():
     vals, pl = case_payload("mission")
     m = by_type(PROFILE.decode_many(frame(0x82, pl), "usb"))["MissionState"]
     assert m.t_mission == round(vals["mission_time"] * 1e9) and m.mission_index == vals["index"]
-    assert m.sp_pos == pytest.approx(vals["setpoint_pos"]) and m.mission_mode is None
+    assert m.sp_pos == pytest.approx(vals["setpoint_pos"]) and int(m.mission_mode) == vals["mission_mode"]
     assert m.sp_q == pytest.approx(vals["setpoint_q"])
     # all four zero = no attitude setpoint; NaN (older sender) = none as well
     for q in ([0.0] * 4, [math.nan] * 4):
-        pl2 = pl[:-16] + struct.pack("<4f", *q)
+        pl2 = pl[:-18] + struct.pack("<4f", *q) + pl[-2:]
         assert by_type(PROFILE.decode_many(frame(0x82, pl2), "usb"))["MissionState"].sp_q is None
     vals, pl = case_payload("gnss")
     g = by_type(PROFILE.decode_many(frame(0x83, pl), "usb"))["Gps"]
@@ -652,3 +652,95 @@ def test_independent_fake_encoder_matches_the_gnss_and_home_vectors():
          "lon": v["longitude"], "alt": v["altitude"], "h_acc": v["h_acc"], "epoch": v["epoch"],
          "set_time": v["set_time"]}  # fmt: skip
     assert net.pack_home_position(h).hex() == c["hex"]
+
+
+# ---- schema 0x414DE27A: calib_state, roll_torque, mission_mode / waypoint, with the shared vectors
+
+
+def decode_vector(name, port, via="usb"):
+    cases = packet_vectors()
+    c = next(c for c in cases["cases"] + cases["decode_only"] if c["name"] == name)
+    return by_type(PROFILE.decode_many(frame(port, bytes.fromhex(c["hex"])), via))
+
+
+def test_schema_hash_is_the_pinned_one():
+    assert xp.SCHEMA_HASH == 0x414DE27A
+
+
+def test_calib_state_decodes_into_booleans():
+    vals, _ = case_payload("vehicle_status")
+    assert vals["calib_state"] == 23  # gyro, accel, mag valid, ready to arm
+    vs = decode_vector("vehicle_status", 0x20)["VehicleStatus"]
+    assert vs.calib_state == 23 and vs.home_epoch == 2
+    assert (vs.calib_gyro_ok, vs.calib_accel_ok, vs.calib_mag_ok) == (True, True, True)
+    assert vs.calib_session is False and vs.ready_to_arm is True
+
+
+@pytest.mark.parametrize(
+    "bits, expect",
+    [
+        (0b00001, (True, False, False, False, False)),
+        (0b00110, (False, True, True, False, False)),
+        (0b01001, (True, False, False, True, False)),
+        (0b10000, (False, False, False, False, True)),
+        (0b11111, (True, True, True, True, True)),
+    ],
+)
+def test_calib_state_bits(bits, expect):
+    pl = xp.VehicleStatus(calib_state=bits).encode()
+    vs = by_type(PROFILE.decode_many(frame(0x20, pl), "usb"))["VehicleStatus"]
+    assert (vs.calib_gyro_ok, vs.calib_accel_ok, vs.calib_mag_ok, vs.calib_session, vs.ready_to_arm) == expect
+    assert decode_line(encode_line(vs)) == vs
+
+
+def test_calib_state_zero_or_absent_is_unknown():
+    for name in ("vehicle_status_older_sender_no_calib_state", "vehicle_status_older_sender_no_home_epoch"):
+        vs = decode_vector(name, 0x20)["VehicleStatus"]
+        assert vs.calib_state in (0, None)
+        assert all(
+            getattr(vs, k) is None
+            for k in ("calib_gyro_ok", "calib_accel_ok", "calib_mag_ok", "calib_session", "ready_to_arm")
+        )
+
+
+def test_usb_actuators_carries_roll_torque_and_older_sender_is_unknown():
+    a = decode_vector("actuators_no_ground", 0x81)["Actuators"]
+    assert a.roll_torque == pytest.approx(-0.0625) and math.isnan(a.ground_distance)
+    old = decode_vector("actuators_older_sender_no_roll_torque", 0x81)["Actuators"]
+    assert old.roll_torque is None
+
+
+def test_usb_mission_carries_mode_and_waypoint():
+    m = decode_vector("mission", 0x82)["MissionState"]
+    assert (int(m.mission_mode), m.waypoint) == (3, 2)
+    n = decode_vector("mission_not_waypoint", 0x82)["MissionState"]
+    assert int(n.mission_mode) == 4 and n.waypoint is None  # 255 = not the waypoint mission
+    assert decode_line(encode_line(m)) == m
+
+
+def test_older_mission_sender_decodes_without_failing():
+    m = decode_vector("mission_older_sender_no_mode_waypoint", 0x82)["MissionState"]
+    assert m.sp_q is not None and m.mission_index == 4  # the older fields still decode
+
+
+def test_air_pose_nominal_rate_is_25_hz_from_the_schema():
+    assert xp.PACKETS_BY_NAME["AIR_POSE"].AIR_RATE_HZ == 25
+
+
+def test_fake_packers_match_the_new_fields():
+    from exvectr_gs.sources.scenario import Scenario
+
+    sc = Scenario(1)
+    t = 30.0
+    vs, ms, ac = sc.fields("VehicleState", t), sc.fields("MissionState", t), sc.fields("Actuators", t)
+    st = sc.fields("VehicleStatus", t)
+    s = xp.VehicleStatus.decode(
+        net.pack_vehicle_status(
+            1, vs, ms["mission_mode"], ms["mission_phase"], home_epoch=1, calib_state=st["calib_state"]
+        )
+    )
+    assert s.calib_state == st["calib_state"] == 0b10111
+    k = xp.Actuators.decode(net.pack_actuators(5, [0.1] * 4, [0.2, 0.3], 4.0, 1.0, ac["roll_torque"]))
+    assert k.roll_torque == pytest.approx(ac["roll_torque"], abs=1e-6)
+    m = xp.Mission.decode(net.pack_mission(5, ms))
+    assert m.mission_mode == int(ms["mission_mode"]) and m.waypoint == 255

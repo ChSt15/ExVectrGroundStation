@@ -134,7 +134,7 @@ NET_VEHICLE_RATES = {
     "IMU_RAW": 20.0, "ESTIMATOR": 10.0, "TASK_TIMING": 5.0, "CALIBRATION": 0.5,
 }  # fmt: skip
 NET_TX_RATES = {
-    "VEHICLE_STATUS": 5.0, "AIR_POSE": 10.0, "AIR_ACTUATORS": 25.0, "AIR_MISSION": 5.0,
+    "VEHICLE_STATUS": 5.0, "AIR_POSE": 25.0, "AIR_ACTUATORS": 25.0, "AIR_MISSION": 5.0,
     "AIR_GNSS": 10.0, "AIR_GNSS_INFO": 1.0, "HANDSET_TELEM": 2.0, "LINK_STATS_TX": 2.0, "LINK_STATS_RX": 2.0,
     "POCKET_RC": 25.0,
 }  # fmt: skip
@@ -345,6 +345,7 @@ class FakeVehiclePty:
                 ms["mission_phase"],
                 flags_extra=128 if zeroing else 0,
                 home_epoch=sc.fields("VehicleStatus", t)["home_epoch"],
+                calib_state=sc.fields("VehicleStatus", t)["calib_state"],
             )
             return self._data(src, 0, net.PORT_VEHICLE_STATUS, pl)
         if name == "POSE":
@@ -364,7 +365,14 @@ class FakeVehiclePty:
         if name == "ACTUATORS":
             flaps = sc.fields("FlapState", t)["angle"]
             vane = sc.fields("TvcState", t)["vane"]
-            pl = net.pack_actuators(t_us, flaps, [vane[0], vane[2]], vs["tvc_thrust"][2], vs["ground_dist"])
+            pl = net.pack_actuators(
+                t_us,
+                flaps,
+                [vane[0], vane[2]],
+                vs["tvc_thrust"][2],
+                vs["ground_dist"],
+                sc.fields("Actuators", t)["roll_torque"],
+            )
             return self._data(src, 0, net.PORT_ACTUATORS, pl)
         if name == "MISSION":
             return self._data(src, 0, net.PORT_MISSION, net.pack_mission(t_us, ms))
