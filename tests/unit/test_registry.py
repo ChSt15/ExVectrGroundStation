@@ -14,7 +14,8 @@ def test_all_section_3_2_types_registered():
         "Attitude", "Position", "Gps", "VehicleState", "MissionState", "FlapState", "TvcState", "RcState",
         "RadioLinkStats", "LinkStats", "ConsoleText", "RawFrame", "GsEvent", "Note",
             "VehicleStatus", "Actuators", "HandsetTelem", "ImuRaw", "Estimator", "TaskTiming", "TxModuleStats",
-            "RxModuleStats", "RequestAck", "NetworkStatus", "Request", "LinkConfig", "Telecommand", "Calibration",
+            "RxModuleStats", "RcApplied", "RequestAck", "NetworkStatus", "Request", "LinkConfig", "Telecommand",
+            "Calibration",
             "LegacyRow", "HomePosition",
     }  # fmt: skip
 
