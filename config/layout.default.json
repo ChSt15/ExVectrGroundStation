@@ -75,10 +75,10 @@
               "panel": "position"
             },
             {
-              "panel": "gnss"
+              "panel": "actuators"
             },
             {
-              "panel": "actuators"
+              "panel": "gnss"
             },
             {
               "panel": "sensors"
