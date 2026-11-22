@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { gnssNoFix, systemsStatus, systemsSummary } from "../app/status/systems_logic.js";
+import { gnssNoFix, healthSections, systemsStatus, systemsSummary } from "../app/status/systems_logic.js";
 
 const bySys = (items) => Object.fromEntries(items.map((x) => [x.key, x]));
 // sensor_state: 2 bits per sensor in the order GNSS, IMU, baro, mag, att KF, pos KF (0 Init, 1 Calib, 2 Ready, 3 Failure)
@@ -84,4 +84,32 @@ test("estimator tooltips carry the sigma values and the ground distance", () => 
   const r = bySys(systemsStatus({ ...fresh({}), estimator: { att_std: [0.01, 0.02, 0.03], vel_std: [0.1, 0.1, 0.2], pos_std: [1, 1, 2] }, attitude: { tilt_acc: 0.01, north_acc: 0.02 }, groundDistance: 1.5 }));
   assert.match(r.attkf.reason, /att σ N\/W\/U .* °; tilt acc/);
   assert.match(r.poskf.reason, /vel σ 0.10 \/ 0.10 \/ 0.20 m\/s; pos σ .* m; ground distance 1.50 m/);
+});
+
+test("health sections: issue texts, most severe first, good and no data split", () => {
+  const items = systemsStatus({
+    ...fresh({ sensor_state: ss(2, 3, 2, 0, 2, 2), failure_bits: 1 << 5, failsafe: true, calib_gyro_ok: false, calib_accel_ok: true, calib_mag_ok: true, ready_to_arm: false }),
+    gps: { fix_type: 0, num_sats: 0 },
+    calib: { state: "bad", detail: { gyro: "bias too large" } },
+  });
+  const sec = healthSections(items);
+  const texts = sec.issues.map((x) => `${x.tone}:${x.issue}`);
+  assert.deepEqual(texts.filter((t) => t.startsWith("bad")).length, texts.findIndex((t) => t.startsWith("warn")) === -1 ? texts.length : texts.findIndex((t) => t.startsWith("warn")));
+  assert.ok(texts.includes("bad:IMU: Failure"));
+  assert.ok(texts.includes("warn:mag: Init"));
+  assert.ok(texts.includes("warn:GNSS: no fix"));
+  assert.ok(texts.includes("bad:radio connection loss"));
+  assert.ok(texts.includes("bad:failsafe active"));
+  assert.ok(texts.includes("bad:gyro cal: bias too large"));
+  assert.ok(texts.includes("bad:not ready to arm"));
+  assert.ok(sec.good.every((x) => x.tone === "ok") && sec.good.some((x) => x.key === "baro"));
+  assert.equal(sec.issues.length + sec.good.length + sec.noData.length, items.length);
+  assert.ok(sec.issues.every((x) => x.issue));
+});
+
+test("health sections: no VehicleStatus puts everything under no data, nothing under issues", () => {
+  const sec = healthSections(systemsStatus({}));
+  assert.equal(sec.issues.length, 0);
+  assert.equal(sec.good.length, 0);
+  assert.equal(sec.noData.length, 17);
 });

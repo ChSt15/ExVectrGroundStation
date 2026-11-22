@@ -151,7 +151,7 @@ header.top { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center;
 .panel[data-collapsed="true"] > header { border-bottom: 0; }
 .badge-age { font-size: var(--fs-xs); color: var(--stale); font-family: var(--mono); } .badge-age[data-state="missing"] { color: var(--faint); }
 .body { padding: 8px 10px; overflow-x: auto; }
-.panel.fill { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 300px; }
+.panel.fill { flex: 0 1 auto; display: flex; flex-direction: column; min-height: 300px; }
 .panel.fill > .body { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
 
 .sect { margin-top: 6px; } .sect:empty { display: none; }
@@ -231,7 +231,7 @@ tr.incomplete td { color: var(--dim); }
 .v3d { position: relative; height: clamp(260px, 40vh, 520px); border: 1px solid var(--line); border-radius: 5px; overflow: hidden;
   background: radial-gradient(ellipse at 50% 30%, color-mix(in srgb, var(--surface) 80%, var(--info) 20%), var(--surface)); }
 .v3d.v3d-large { height: clamp(320px, 50vh, 760px); }
-.v3d.v3d-fill { flex: 1 1 auto; height: auto; min-height: 260px; }
+.v3d.v3d-fill { flex: 0 1 auto; width: 100%; height: auto; aspect-ratio: 5 / 6; max-height: 100%; min-height: 260px; } /* capped: not taller than 6:5 */
 .v3d-canvas { position: absolute; inset: 0; }
 .v3d-canvas canvas { width: 100%; height: 100%; display: block; }
 .v3d-overlay { position: absolute; left: 8px; top: 6px; font-size: var(--fs-xs); pointer-events: none; font-family: var(--mono); text-shadow: 0 0 3px var(--surface); }
@@ -527,13 +527,19 @@ body[data-layout="tuning"] .group-title { display: none; }
 .sf-radio { display: inline-flex; gap: 4px; align-items: center; }
 
 
-/* Systems panel: compact chips, green good / yellow warning / red failure / grey no data; reason in the title */
-.sys-grid { display: flex; flex-wrap: wrap; gap: 3px 4px; align-items: center; }
-.sys-sep { flex-basis: 100%; height: 0; }
+/* Health panel: Issues list (yellow warning / red failure rows), Good chips (green), No data chips (grey); reason in the title */
+.hl-h { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); margin: 2px 0 3px; }
+.hl-h:not(:first-child) { margin-top: 6px; }
+.hl-issues { display: flex; flex-direction: column; gap: 2px; }
+.hl-none { font-size: var(--fs-s); color: var(--dim); }
+.hl-row { font-size: var(--fs-m, 14px); line-height: 1.25; padding: 0 8px; border-left: 4px solid var(--line); background: var(--surface-2); color: var(--fg); cursor: default; border-radius: 3px; }
+.hl-row[data-tone="warn"] { border-left-color: var(--warn); background: var(--warn-bg); font-weight: 650; }
+.hl-row[data-tone="bad"] { border-left-color: var(--bad); background: var(--bad-bg); font-weight: 700; }
+.hl-chips { display: flex; flex-wrap: wrap; gap: 3px 4px; align-items: center; }
+.hl-nodata { margin-top: 4px; }
+.hl-nd-l { font-size: var(--fs-xs); color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; }
 .sys-chip { display: inline-flex; align-items: center; gap: 4px; padding: 0 7px; border-radius: 9px; font-size: var(--fs-xs); line-height: 1.6; border: 1px solid var(--line); background: var(--surface-2); color: var(--dim); white-space: nowrap; cursor: default; }
 .sys-chip[data-tone="ok"] { color: var(--fg); border-color: color-mix(in srgb, var(--ok) 60%, transparent); background: var(--ok-bg); }
-.sys-chip[data-tone="warn"] { color: var(--fg); border-color: var(--warn); background: var(--warn-bg); font-weight: 650; }
-.sys-chip[data-tone="bad"] { color: var(--fg); border-color: var(--bad); background: var(--bad-bg); font-weight: 700; }
-.tiles.gnss-tiles { gap: 4px; margin-bottom: 4px; } .tiles.gnss-tiles .tile { padding: 1px 6px 2px; } .tiles.gnss-tiles .val.big .v { font-size: var(--fs-m); }
+.tiles.gnss-tiles { gap: 4px; margin-bottom: 4px; grid-template-columns: minmax(0, .7fr) minmax(0, .8fr) minmax(0, 2.2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.3fr); } .tiles.gnss-tiles .tile { min-width: 0; } .tiles.gnss-tiles .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .tiles.gnss-tiles .tile { padding: 1px 6px 2px; } .tiles.gnss-tiles .val.big .v { font-size: var(--fs-m); }
 .tiles.act-tiles { gap: 4px; } .tiles.act-tiles .tile { padding: 1px 6px 2px; } .tiles.act-tiles .val.big .v { font-size: var(--fs-l, 16px); }
 .gnss-ll { gap: 14px; }

@@ -48,7 +48,7 @@ function sensorTone(state) {
  *  gps: Gps fields or null (fresh only; pass null when stale); estimator / attitude / groundDistance: optional extra
  *  detail for the estimator tooltips; calib: LogWatcher.calibState() or null; lastSet: {bitIndex|"failsafe": viewTime}
  *  of the last time a failure was seen set; now: view time.
- * Returns [{ key, label, group: "sensor" | "estimator" | "failure" | "calib", tone, reason }].
+ * Returns [{ key, label, issue (short issue text for warn / bad, else ""), group: "sensor" | "estimator" | "failure" | "calib", tone, reason }].
  */
 export function systemsStatus({ status = null, statusState = "missing", gps = null, estimator = null, attitude = null, groundDistance = null, calib = null, lastSet = {}, now = null } = {}) {
   const fresh = statusState === "fresh" && status ? status : null;
@@ -95,7 +95,13 @@ export function systemsStatus({ status = null, statusState = "missing", gps = nu
       if (finite(groundDistance)) bits.push(`ground distance ${fmtNum(groundDistance, 2)} m`);
       if (bits.length) reason += `; ${bits.join("; ")}`;
     }
-    out.push({ key: s.key, label: s.label, group, tone, reason: `${s.label}: ${reason}` });
+    let issue = "";
+    if (tone === "warn" || tone === "bad") {
+      if (s.key === "gnss" && st && st.state === "Failure") issue = "GNSS: Failure";
+      else if (s.key === "gnss" && gnssNoFix(gps) === true) issue = "GNSS: no fix";
+      else issue = `${s.label}: ${st ? st.state : reason}`;
+    }
+    out.push({ key: s.key, label: s.label, group, tone, issue, reason: `${s.label}: ${reason}` });
   }
 
   const failure = (key, label, set, lsKey) => {
@@ -112,7 +118,7 @@ export function systemsStatus({ status = null, statusState = "missing", gps = nu
     }
     const t = lastSet[lsKey];
     if (t !== undefined && t !== null && now !== null && fresh) reason += `, last set ${fmtAge(now - t)} ago`;
-    out.push({ key, label, group: "failure", tone, reason: `${label}: ${reason}` });
+    out.push({ key, label, group: "failure", tone, issue: tone === "bad" ? (key === "failsafe" ? "failsafe active" : label) : "", reason: `${label}: ${reason}` });
   };
   const fb = fresh && typeof fresh.failure_bits === "number" ? fresh.failure_bits : undefined;
   FAILURE_BITS.forEach((n, i) => failure(`b${i}`, FAULT_LABEL(n, i), fb === undefined ? undefined : (fb & (1 << i)) !== 0, i));
@@ -122,11 +128,22 @@ export function systemsStatus({ status = null, statusState = "missing", gps = nu
   const short = { gyro: "gyro cal", accel: "accel cal", mag: "mag cal" };
   for (const r of cr) {
     const reason = r.tone === "ok" ? "calibration valid" : r.tone === "bad" ? `calibration INVALID${r.note ? `: ${r.note}` : ""}` : "no calibration information";
-    out.push({ key: `calib.${r.key}`, label: short[r.key], group: "calib", tone: r.tone, reason: `${short[r.key]}: ${reason}` });
+    const issue = r.tone === "bad" ? `${short[r.key]}: ${r.note || "INVALID"}` : "";
+    out.push({ key: `calib.${r.key}`, label: short[r.key], group: "calib", tone: r.tone, issue, reason: `${short[r.key]}: ${reason}` });
   }
   const rr = readyRow(fresh);
-  out.push({ key: "calib.ready", label: "ready to arm", group: "calib", tone: rr.tone, reason: `ready to arm: ${rr.tone === "ok" ? "ready" : rr.tone === "bad" ? "NOT ready (refuses Arm and MissionBegin)" : "no information"}` });
+  out.push({ key: "calib.ready", label: "ready to arm", group: "calib", tone: rr.tone, issue: rr.tone === "bad" ? "not ready to arm" : "", reason: `ready to arm: ${rr.tone === "ok" ? "ready" : rr.tone === "bad" ? "NOT ready (refuses Arm and MissionBegin)" : "no information"}` });
   return out;
+}
+
+/**
+ * Split items for the Health panel: issues (warn and bad, most severe first, order kept within a tone), good (ok) and
+ * noData (grey).
+ */
+export function healthSections(items) {
+  const issues = items.filter((x) => x.tone === "warn" || x.tone === "bad");
+  issues.sort((a, b) => (a.tone === b.tone ? 0 : a.tone === "bad" ? -1 : 1));
+  return { issues, good: items.filter((x) => x.tone === "ok"), noData: items.filter((x) => !x.tone) };
 }
 
 /** Counts of the tones, for the panel title: { ok, warn, bad, none }. */

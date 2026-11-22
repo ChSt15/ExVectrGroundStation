@@ -17,7 +17,7 @@ const STATE_TEXT = {
   mismatch: "MISMATCH",
   nodata: "no GNSS or position data",
   stale: "stale data, not judged",
-  nofix: "no GNSS fix, not judged",
+  nofix: "no fix, not judged",
   noref: "no reference yet",
 };
 const STATE_TONE = { ok: "ok", over: "warn", mismatch: "bad", nodata: "", stale: "", nofix: "", noref: "" };
@@ -40,14 +40,14 @@ registerPanel({
 
     b.vecTable(el, ["N", "E", "D"], [{ label: "Velocity NED", type: G, key: "gnss-vel-ned", unit: "m/s", vec: (e) => (e && e.f && e.f.vel !== undefined ? nwuToNed(e.f.vel) : undefined) }]);
 
-    const t = tiles(el, "t3 gnss-tiles");
-    b.tile(t, "Satellites", { type: G, kind: "num", digits: 0, derive: num("num_sats") }, { key: "gnss-sats" });
+    const t = tiles(el, "gnss-tiles"); // one row of six tiles (wide Bench column)
+    b.tile(t, "Sats", { type: G, kind: "num", digits: 0, derive: num("num_sats") }, { key: "gnss-sats" });
     b.tile(t, "Fix", { type: G, kind: "text", derive: (e) => (e.f.fix_type === undefined ? undefined : fixName(e.f.fix_type)) }, { key: "gnss-fix" });
     b.tile(t, "Alt check", { type: G, kind: "text", derive: () => ccText }, { key: "gnss-cc-line" });
-    const a = tiles(el, "t3 gnss-tiles");
+    const a = t;
     b.tile(a, "Acc H [m]", { type: G, kind: "num", digits: 2, derive: num("pos_acc") }, { key: "gnss-acc-h", title: "horizontal accuracy estimate (1 sigma), the receiver's own" });
     b.tile(a, "Acc V [m]", { type: G, kind: "num", digits: 2, derive: num("alt_acc") }, { key: "gnss-acc-v", title: "vertical accuracy estimate (1 sigma), the receiver's own" });
-    b.tile(a, "Acc speed [m/s]", { type: G, kind: "num", digits: 2, derive: num("vel_acc") }, { key: "gnss-acc-s", title: "speed accuracy estimate (USB GNSS only)" });
+    b.tile(a, "Acc spd [m/s]", { type: G, kind: "num", digits: 2, derive: num("vel_acc") }, { key: "gnss-acc-s", title: "speed accuracy estimate (USB GNSS only)" });
 
     const render = () => {
       const v = ctx.view();

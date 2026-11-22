@@ -1,38 +1,34 @@
-// Vehicle group: all vehicle systems in one panel. Sensors, estimators, failure bits, failsafe and the calibration
-// state as compact chips: green good, yellow warning, red failure, grey no data. The reason (state text, failure type,
-// calibration reason) is the chip's tooltip. The mapping is the pure function in status/systems_logic.js. Display
-// only. Failures keep "last set N s ago" in the tooltip so a short failure stays visible after it cleared.
+// Vehicle group: Health panel. Issues (one row per system that is not good, with the issue text, yellow warning / red
+// failure, most severe first), Good (green chips), No data (grey chips). The reason is the item tooltip. The mapping is
+// the pure function in status/systems_logic.js. Display only. Failures keep "last set N s ago" in the tooltip so a
+// short failure stays visible after it cleared.
 import { registerPanel } from "./registry.js";
 import { h } from "../ui.js";
 import { describe, isStale } from "../fmt.js";
 import { FAILURE_BITS } from "../status/status_logic.js";
 import { CALIB_REFUSAL_NOTE, calibAnyBad, calibRows } from "../status/calib_rows.js";
-import { systemsStatus, systemsSummary } from "../status/systems_logic.js";
+import { healthSections, systemsStatus, systemsSummary } from "../status/systems_logic.js";
 
 registerPanel({
-  id: "systems",
-  title: "Systems",
+  id: "health",
+  title: "Health",
   consumes: ["VehicleStatus", "Estimator", "Attitude", "Actuators", "Gps"],
   create(el, ctx) {
-    const grid = h("div", { class: "sys-grid", "data-testid": "systems" });
+    const issuesEl = h("div", { class: "hl-issues", "data-testid": "health-issues" });
+    const goodEl = h("div", { class: "hl-chips hl-good", "data-testid": "health-good" });
+    const noDataEl = h("div", { class: "hl-chips hl-nodata", "data-testid": "health-nodata" });
     const calHint = h("div", { class: "note", "data-testid": "calib-hint", hidden: true, text: CALIB_REFUSAL_NOTE });
-    el.append(grid, calHint);
+    el.append(
+      h("div", { class: "hl-h" }, "Issues"),
+      issuesEl,
+      h("div", { class: "hl-h" }, "Good"),
+      goodEl,
+      noDataEl,
+      calHint
+    );
     const lastSet = {};
-    const chips = new Map();
-    let group = null;
-    const chip = (x) => {
-      let c = chips.get(x.key);
-      if (!c) {
-        if (x.group !== group) {
-          if (group !== null) grid.append(h("span", { class: "sys-sep" }));
-          group = x.group;
-        }
-        c = h("span", { class: "sys-chip", "data-key": x.key, "data-group": x.group }, h("span", { class: "dot" }), h("span", { class: "sys-l", text: x.label }));
-        chips.set(x.key, c);
-        grid.append(c);
-      }
-      return c;
-    };
+    const row = (x) => h("div", { class: "hl-row", "data-key": x.key, "data-tone": x.tone, title: x.reason, text: x.issue || x.label });
+    const chip = (x) => h("span", { class: "sys-chip", "data-key": x.key, "data-group": x.group, "data-tone": x.tone, title: x.reason }, h("span", { class: "dot" }), h("span", { class: "sys-l", text: x.label }));
     const reset = () => {
       for (const k of Object.keys(lastSet)) delete lastSet[k];
     };
@@ -61,13 +57,13 @@ registerPanel({
         lastSet,
         now,
       });
-      for (const x of items) {
-        const c = chip(x);
-        c.dataset.tone = x.tone;
-        c.title = x.reason;
-      }
+      const sec = healthSections(items);
+      issuesEl.replaceChildren(...(sec.issues.length ? sec.issues.map(row) : [h("div", { class: "hl-none", text: "No issues" })]));
+      goodEl.replaceChildren(...sec.good.map(chip));
+      noDataEl.replaceChildren(...(sec.noData.length ? [h("span", { class: "hl-nd-l", text: "No data" }), ...sec.noData.map(chip)] : []));
+      noDataEl.hidden = !sec.noData.length;
       const s = systemsSummary(items);
-      ctx.setTitle(!e && !g ? "Systems" : s.bad ? `Systems (${s.bad} FAILURE)` : s.warn ? `Systems (${s.warn} warning)` : "Systems (all good)");
+      ctx.setTitle(!e && !g ? "Health" : s.bad ? `Health (${s.bad} failure${s.bad > 1 ? "s" : ""}${s.warn ? `, ${s.warn} warning${s.warn > 1 ? "s" : ""}` : ""})` : s.warn ? `Health (${s.warn} warning${s.warn > 1 ? "s" : ""})` : "Health (no issues)");
       const cr = calibRows(co ? co.log.calibState() : null, statusState === "fresh" && e ? e.f : null);
       calHint.hidden = !calibAnyBad(cr);
     };
