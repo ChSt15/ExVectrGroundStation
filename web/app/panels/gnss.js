@@ -71,20 +71,6 @@ registerPanel({
     const infoAge = h("div", { class: "hint", "data-testid": "gnss-info-age" });
     info.append(infoAge);
 
-    const cc = section(full, "Altitude cross-check");
-    const mk = (label, key) => {
-      const v = h("span", { class: "v", "data-testid": key, text: "—" });
-      cc.append(h("div", { class: "row" }, h("span", { class: "lbl", text: label }), v));
-      return v;
-    };
-    const vEst = mk("Estimated (Position, up)", "alt-est");
-    const vGnss = mk("GNSS, relative to start", "alt-gnss");
-    const vDiff = mk("Difference (est. - GNSS)", "alt-diff");
-    const vState = h("span", { class: "pill", "data-testid": "alt-state", text: "—" });
-    cc.append(h("div", { class: "row" }, h("span", { class: "lbl", text: "Cross-check" }), vState));
-    const ccNote = h("div", { class: "hint", "data-testid": "alt-note" });
-    cc.append(ccNote);
-
     const hs = section(full, "Home");
     const vHome = h("span", { class: "v", "data-testid": "home-pos", text: "no home position received" });
     hs.append(h("div", { class: "row" }, h("span", { class: "lbl", text: "Home position" }), vHome));
@@ -102,16 +88,6 @@ registerPanel({
       last = check.update(inp);
       if (compact) ccText = last.state === "over" && finite(last.diff) ? `${fmtNum(Math.abs(last.diff), 1)} m, warning` : STATE_TEXT[last.state];
       b.update();
-      const u = (v, d = 1) => (finite(v) ? `${fmtNum(v, d)} m` : "—");
-      vEst.textContent = u(last.est);
-      vGnss.textContent = u(last.gnssRel);
-      vDiff.textContent = finite(last.diff) ? `${last.diff > 0 ? "+" : ""}${fmtNum(last.diff, 1)} m` : "—";
-      vState.textContent = STATE_TEXT[last.state];
-      vState.dataset.tone = STATE_TONE[last.state];
-      vState.dataset.check = last.state;
-      vDiff.dataset.tone = STATE_TONE[last.state];
-      const c = cfg();
-      ccNote.textContent = `Warning above ${fmtNum(c.limit_m, 1)} m for ${fmtNum(c.hold_s, 1)} s (Callouts setting altcheck). Reference: ${last.refSource === "home" ? `home altitude ${u(last.ref)}` : last.refSource === "gnss" ? `GNSS altitude at the start ${u(last.ref)} (taken while the estimate is on the pad)` : "none yet"}.`;
       altNote.textContent = last.refSource ? `Altitude shown relative to ${last.refSource === "home" ? "the home altitude" : "the GNSS altitude at the start"} (absolute value in the row below).` : "Altitude shown absolute (no home or start reference yet).";
       const now = inp.now ?? Infinity;
       if (compact) {

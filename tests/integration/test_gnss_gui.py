@@ -49,24 +49,6 @@ async def test_gnss_panel_shows_position_fix_home_and_a_passing_altitude_cross_c
             timeout=6,
             what="home epoch",
         )
-        # cross-check: GNSS altitude of the fake follows its position exactly, so with the home altitude the
-        # difference is zero and the state is OK
-        await until(
-            lambda: b.eval(f"document.querySelector({(P + ' [data-testid=alt-state]')!r}).dataset.check === 'ok'"),
-            timeout=8,
-            what="cross-check ok",
-        )
-        diff = (await b.eval(txt("[data-testid=alt-diff]"))).replace("+", "")
-        assert abs(float(diff.split()[0])) < 0.2, diff
-        assert "home altitude" in await b.eval(txt("[data-testid=alt-note]"))
-        # the limit is the callouts setting altcheck.limit_m
-        await b.eval("window.exgs.callouts().update(s => { s.altcheck.limit_m = 7; })")
-        await until(
-            lambda: b.eval(
-                f"document.querySelector({(P + ' [data-testid=alt-note]')!r}).textContent.includes('above 7.0 m')"
-            ),
-            what="limit shown",
-        )
         assert not [m for m in b.console if "EXCEPTION" in m], b.console
 
 
