@@ -5,7 +5,7 @@ import { registerPanel } from "./registry.js";
 import { h } from "../ui.js";
 import { describe, fmtAge } from "../fmt.js";
 import { FAILURE_BITS } from "../status/status_logic.js";
-import { CALIB_REFUSAL_NOTE, CALIB_SENSORS, calibAnyBad, calibRows } from "../status/calib_rows.js";
+import { CALIB_REFUSAL_NOTE, CALIB_SENSORS, calibAnyBad, calibRows, readyRow } from "../status/calib_rows.js";
 
 registerPanel({
   id: "failures",
@@ -29,6 +29,8 @@ registerPanel({
       el.append(r);
       return { c, st, note };
     });
+    const rdSt = h("span", { class: "pill" });
+    el.append(h("div", { class: "frow", "data-key": "calib.ready" }, h("span", { class: "lbl", text: "Ready to arm" }), rdSt));
     const calHint = h("div", { class: "note", "data-testid": "calib-hint", hidden: true, text: CALIB_REFUSAL_NOTE });
     el.append(calHint);
     const reset = () => {
@@ -49,7 +51,11 @@ registerPanel({
         x.note.textContent = lastSet[x.n.key] !== undefined && now !== null ? `last set ${fmtAge(now - lastSet[x.n.key])} ago` : "";
       }
       const co = ctx.callouts && ctx.callouts();
-      const cr = calibRows(co ? co.log.calibState() : null);
+      const fresh = e && d.state === "fresh" ? e.f : null; // structured calib_state is only used while VehicleStatus is fresh
+      const cr = calibRows(co ? co.log.calibState() : null, fresh);
+      const rr = readyRow(fresh);
+      rdSt.textContent = rr.text;
+      rdSt.dataset.tone = rr.tone;
       cr.forEach((r, i) => {
         calRows[i].st.textContent = r.text;
         calRows[i].st.dataset.tone = r.tone;
