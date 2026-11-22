@@ -5,7 +5,7 @@ import "./mission.js";
 import "./failures.js";
 import "./position.js";
 import "./gnss.js";
-import "./guidance.js";
+import "./targetvs.js";
 import "./actuators.js";
 import "./sensors.js";
 import "./link.js";

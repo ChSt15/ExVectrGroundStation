@@ -7,6 +7,8 @@ registerPanel({
   title: "Data rates",
   consumes: ["RadioLinkStats"],
   create(el, ctx) {
+    const compact = !!(ctx.options && ctx.options.compact);
+    if (compact) el.classList.add("rt-c");
     const note = h("div", { class: "hint", "data-testid": "rates-note" });
     const bar = h("div", { class: "rt-bar", "data-testid": "air-bar", role: "meter", "aria-valuemin": "0", "aria-valuemax": "100" }, h("div", { class: "rt-fill" }), h("span", { class: "rt-bar-t" }));
     const mkBar = (id) => h("div", { class: "rt-bar", "data-testid": id, role: "meter", "aria-valuemin": "0", "aria-valuemax": "100" }, h("div", { class: "rt-fill" }), h("span", { class: "rt-bar-t" }));
@@ -19,7 +21,7 @@ registerPanel({
     const tbl = section(el, "Streams");
     const head = h("tr", {}, ...["Type", "Path", "Source", "Hz (2 s)", "Hz (10 s)", "Nominal Hz", "Bytes/s", "Age"].map((t) => h("th", { text: t })));
     const body = h("tbody");
-    tbl.append(h("table", { class: "rt-table", "data-testid": "rates-table" }, h("thead", {}, head), body), note);
+    tbl.append(h("table", { class: compact ? "rt-table rt-compact" : "rt-table", "data-testid": "rates-table" }, h("thead", {}, head), body), note);
     let last = null;
 
     function render() {

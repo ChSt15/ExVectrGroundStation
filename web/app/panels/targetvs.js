@@ -1,4 +1,4 @@
-// Guidance group: target (MissionState setpoints) against the current estimate (Position), and the error
+// Target vs current panel (Bench: Mission column, Flight: Guidance group, compact): target (MissionState setpoints) against the current estimate (Position), and the error
 // target minus current (display-only arithmetic on vehicle-reported values). The vehicle sends no attitude target.
 import { registerPanel } from "./registry.js";
 import { Bindings, h, tiles } from "../ui.js";
@@ -10,7 +10,7 @@ const diff = (a, b) => (v3(a) && v3(b) ? a.map((x, i) => x - b[i]) : undefined);
 const err = (tf, cf) => ([m, p]) => (m.f[tf] === undefined || p.f[cf] === undefined ? undefined : diff(m.f[tf], p.f[cf]) ?? null);
 
 registerPanel({
-  id: "guidance",
+  id: "targetvs",
   title: "Target vs current",
   consumes: [M, P],
   create(el, ctx) {

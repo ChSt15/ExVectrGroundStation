@@ -104,7 +104,7 @@ async def test_browser_panels_show_fresh_then_stale_values_and_views_switch():
             await b.sleep(1.0)
             early = await b.eval(JS_PANEL_STATES)
             # every data panel shows fresh values with source tags
-            for pid in ("attitude", "mission", "position", "guidance", "actuators", "sensors", "link"):
+            for pid in ("attitude", "mission", "position", "targetvs", "actuators", "sensors", "link"):
                 assert early[pid]["fresh"] > 0, (pid, early[pid])
             for pid in ("attitude", "position", "mission", "link"):
                 assert early[pid]["tagged"] > 0, (pid, early[pid])

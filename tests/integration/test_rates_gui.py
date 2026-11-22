@@ -24,7 +24,7 @@ ROWS = (
 @needs_browser
 async def test_rates_panel_and_status_bar_label_the_paths(tmp_path):
     async with rig_with(tmp_path) as rig, browser_check.Browser(1500, 1300, 9372) as b:
-        await open_page(b, rig, ["rates"])
+        await open_page(b, rig)
 
         async def has_rows():
             rows = await b.eval(ROWS)
@@ -81,7 +81,7 @@ async def test_rates_panel_in_replay_uses_replay_time(tmp_path):
     async with api_running(app, sources=False) as rig, browser_check.Browser(1500, 1300, 9373) as b:
         await app.replayer.open(log.name)
         app.replayer.seek(T0_NS + 8_000_000_000)
-        await open_page(b, rig, ["rates"])
+        await open_page(b, rig)
         await b.eval("document.querySelector('[data-dv=replay]').click()")
         await until(lambda: b.eval(f"({ROWS}).length > 0"), what="replay rows", timeout=10)
         rows = await b.eval(ROWS)

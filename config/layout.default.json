@@ -24,10 +24,6 @@
         "label": "Link & power"
       },
       {
-        "panel": "rates",
-        "label": "Data rates"
-      },
-      {
         "panel": "callouts",
         "label": "Callouts"
       },
@@ -60,8 +56,8 @@
   "views": {
     "bench": {
       "label": "Bench",
-      "hint": "everything: vehicle, guidance, mission and the full Operations dock",
-      "columns": "minmax(250px, 1fr) minmax(320px, 1.55fr) minmax(220px, 0.85fr)",
+      "hint": "everything: vehicle, 3D view with GNSS and sensors, mission with target and data rates, and the full Operations dock",
+      "columns": "minmax(260px, 1fr) minmax(360px, 1.6fr) minmax(330px, 1.1fr)",
       "dock": "open",
       "groups": [
         {
@@ -69,19 +65,22 @@
           "title": "Vehicle",
           "panels": [
             {
-              "panel": "attitude"
+              "panel": "attitude",
+              "options": {
+                "compact": true
+              }
             },
             {
-              "panel": "position"
+              "panel": "position",
+              "options": {
+                "compact": true
+              }
             },
             {
-              "panel": "actuators"
-            },
-            {
-              "panel": "gnss"
-            },
-            {
-              "panel": "sensors"
+              "panel": "actuators",
+              "options": {
+                "compact": true
+              }
             },
             {
               "panel": "failures"
@@ -95,11 +94,17 @@
             {
               "panel": "view3d",
               "options": {
-                "height": "large"
+                "height": "fill"
               }
             },
             {
-              "panel": "guidance"
+              "panel": "gnss",
+              "options": {
+                "compact": true
+              }
+            },
+            {
+              "panel": "sensors"
             }
           ]
         },
@@ -108,7 +113,22 @@
           "title": "Mission",
           "panels": [
             {
-              "panel": "mission"
+              "panel": "mission",
+              "options": {
+                "compact": true
+              }
+            },
+            {
+              "panel": "targetvs",
+              "options": {
+                "compact": true
+              }
+            },
+            {
+              "panel": "rates",
+              "options": {
+                "compact": true
+              }
             }
           ]
         }
@@ -155,7 +175,7 @@
               }
             },
             {
-              "panel": "guidance",
+              "panel": "targetvs",
               "options": {
                 "compact": true
               }
