@@ -13,7 +13,7 @@ From top to bottom, identical in every view and in live and replay:
    - **REAL / SIM ?** or **REAL? stale** / **SIM? stale** (amber) when no `VehicleStatus` arrived, the flag is not supplied or the packet is stale (never assumed);
    - **REPLAY** (blue), **NO CORE** (red) while the WebSocket is down.
    In the replay view a compact **replay strip** under the status bar shows the log name, the position `mm:ss / mm:ss`, playing/paused/ended, **recorded: REAL / SIMULATION / unknown** (from the replayed `VehicleStatus.simulation`), the transport (play/pause, scrubber, ±5 s, speed, keyboard space and arrows) and the small note **🔒 replay: inputs locked**. The status bar cells do not repeat the simulation flag.
-2. **Header** (`header.js`): the layout views **Bench / Flight / Tuning** (Alt+1 to Alt+3; remembered in `localStorage` `exgs.view`), the data view **LIVE / REPLAY**, the **RC chip** (the RC mode the core reports: `RC SLAVE · Pocket`, `RC MASTER · SENDING` in amber, `RC IDLE`; click opens the radio tab), the radio link quality, the **recorder block** and the core connection and theme switch (dark default, light high contrast, `exgs.theme`).
+2. **Header** (`header.js`): the layout views **Bench / Tuning** (Alt+1, Alt+2; remembered in `localStorage` `exgs.view`), the data view **LIVE / REPLAY**, the **RC chip** (the RC mode the core reports: `RC SLAVE · Pocket`, `RC MASTER · SENDING` in amber, `RC IDLE`; click opens the radio tab), the radio link quality, the **recorder block** and the core connection and theme switch (dark default, light high contrast, `exgs.theme`).
    - Recorder block (status from `status.recorder`, logic `describeRecorder`): idle shows `not recording`, the free disk space (amber below 5 GB, red below 1 GB) and **● Record** (starts a recording at once, manual only). Recording shows a pulsing red **REC mm:ss**, the log name, its size, free space and a red **■ Stop** button (no confirmation). Recorder errors and dropped packets are shown in red. Labels, notes and the log list stay in the dock tab Recordings.
 3. **Mission status bar** (`status/status_bar.js`, unchanged logic, see below). New: a red **TX POWER** line when any transmit power (LinkConfig, TxModuleStats, RxModuleStats) is above 10 dBm, so the warning is visible whichever dock tab is open (stale values stay listed and are marked).
 4. **Workspace**: the view's groups (`#panels`) and the Operations dock (`#dock`) on the right.
@@ -22,8 +22,7 @@ From top to bottom, identical in every view and in live and replay:
 
 | View | Groups (left to right) | Dock | Purpose |
 |---|---|---|---|
-| **Bench** (default) | Vehicle: attitude, position & velocity, actuators (all compact), failures · Guidance: 3D view (fills the free height), GNSS (compact), sensors & estimator · Mission: mission (compact), target vs current (compact), data rates (compact) | open | everything, for bench work and setup |
-| **Flight** | Vehicle: attitude, position, actuators (compact) · Guidance: 3D view (fills the column), errors · Mission: mission (compact), RC input (sticks) | side rail | only what matters in flight, large numbers; fits 1366x768 without scrolling (tested) |
+| **Bench** (default) | Vehicle: attitude, position & velocity, actuators (all compact), GNSS, systems · Guidance: 3D view (full height) · Mission: mission (compact), target vs current (compact), data rates (compact) | open | everything, for bench work and setup |
 | **Tuning** | Graphs: the tuning graph workspace | side rail | time-series graphs for filter and control tuning |
 
 The **Tuning** view is described in "Tuning view" below. The old `default` and `phone` presets and the device idea are gone; a narrow window (below 1100 px) stacks the groups in one column and the page scrolls (no horizontal scroll at 390 px, tested).
@@ -48,7 +47,7 @@ The **Tuning** view is described in "Tuning view" below. The old `default` and `
 ```
 
 - `columns` is a CSS `grid-template-columns` for the groups (one column per group, in order). `dock` is `open` or `rail`.
-- `options` are passed to the panel as `ctx.options`: `compact` (attitude, position, actuators, targetvs, mission, gnss, rates: fewer rows; gnss compact shows the three tiles and the altitude cross-check status as a fourth tile (one row of four value-only tiles, the labels are tooltips), latitude/longitude and satellites/accuracy in the tile tooltip), `height` for `view3d` (`large`, `fill`).
+- `options` are passed to the panel as `ctx.options`: `compact` (attitude, position, actuators, targetvs, mission, rates: fewer rows), `height` for `view3d` (`large`, `fill`).
 - A panel is either a dock tab or in the groups, never both; unknown panels, duplicates and empty groups are reported in the browser console and dropped; with no valid view the fallback is one group with every panel. A remembered view that no longer exists (for example `phone`) falls back to the default.
 - Collapsed state per view: `exgs.collapsed.<view>`. All storage access is wrapped in try/catch.
 
@@ -75,16 +74,14 @@ Tokens in `style.css` (`:root[data-theme=dark|light]`): surfaces, lines, text, t
 | Id | Group | Consumes | Notes |
 |---|---|---|---|
 | `attitude` | Vehicle | `Attitude` | Roll, pitch, yaw, tilt tiles (ZYX of q, display only), body rates (deg/s); full: quaternion, accuracies. |
-| `gnss` | Vehicle (Bench view, after `actuators`); Mission group, `compact`, in the Flight view (it does not fit the Vehicle group at 1366x768) | `Gps`, `HomePosition`, `Position`, `VehicleStatus` | GNSS panel, see "GNSS panel and altitude cross-check" below. |
+| `gnss` | Vehicle (Bench, after `actuators`) | `Gps`, `HomePosition`, `Position`, `VehicleStatus` | GNSS panel, see "GNSS panel and altitude cross-check" below. |
 | `position` | Vehicle | `Position`, `Gps` | Altitude, vertical and horizontal speed tiles; N/W/U table of position and velocity; full: accuracies, GPS. |
 | `actuators` | Vehicle | `Actuators`, `FlapState`, `TvcState`, `VehicleState` | Thrust, TVC and roll torque tiles (`Actuators`, the vehicle's commanded output; roll torque on both paths, `AIR_ACTUATORS` and, since schema 0x414DE27A, the USB `ACTUATORS`; samples are stamped with the packet time `t` / `t - prev_age`, not arrival order), flap table command / angle (/ FlapState command if supplied); TvcState section only where a link carries it. |
-| `sensors` | Vehicle | `VehicleStatus`, `Estimator`, `Attitude`, `Actuators`, `VehicleState` | Sensor states decoded from `VehicleStatus.sensor_state` (chips), estimator σ (attitude about N/W/U in deg, velocity, position), attitude accuracies, ground distance. |
-| `failures` | Vehicle | `VehicleStatus` | Each failure bit and failsafe as reported, with "last set N ago" from this view (keeps short failures visible), then the calibration rows (gyro, accel, mag from `calib_state`, log text as fallback and reason) and Ready to arm. |
+| `systems` | Vehicle (Bench, last) | `VehicleStatus`, `Estimator`, `Attitude`, `Actuators`, `Gps` | All vehicle systems as compact colour chips (green good, yellow warning, red failure, grey no data), the reason in the tooltip; see "Systems panel" below. Replaces the former `sensors` and `failures` panels. |
 | `view3d` | Guidance | `Attitude`, `Position`, `MissionState`, `FlapState`, `VehicleState` | See "3D view" (look and flap fix unchanged). |
-| `targetvs` | Mission (Bench), Guidance (Flight) | `MissionState`, `Position` | Distance, altitude error and speed error tiles; table target / current / error (target − current, display only). No attitude target exists in the telemetry. |
+| `targetvs` | Mission | `MissionState`, `Position` | Distance, altitude error and speed error tiles; table target / current / error (target − current, display only). No attitude target exists in the telemetry. |
 | `mission` | Mission | `MissionState` | Phase (hero), mission time T±, mission mode, current target point, index, phase changes seen in this view. Upcoming points are not in the telemetry. |
 | `tuning` | Tuning | the graph signals' types (mode `all`) | Graph workspace, see "Tuning view". |
-| `rcsticks` | Mission (Flight) | `RcState`, `rc` push | Compact RC: the radio banner text and the two sticks (display only), "Open radio". |
 | `radio` | dock | `RcState`, `rc` push | Virtual radio, see below; now also the two sticks. Safety-relevant. |
 | `requests` | dock | `requests` push, `status` | See "Requests panel". Safety-relevant. Disabled (not hidden) in replay. |
 | `telecommands` | dock | `telecommands` push, `status`, `VehicleStatus` | TEMPORARY, see [telecommands.md](telecommands.md). Safety-relevant. Disabled (not hidden) in replay. |
@@ -95,7 +92,7 @@ Tokens in `style.css` (`:root[data-theme=dark|light]`): surfaces, lines, text, t
 
 ## 3D view
 
-Panel `view3d` (head of the Guidance group in Bench and Flight). It consumes `Attitude`, `Position` (ship pose, trail), `MissionState` (setpoint), `FlapState` and `VehicleState` (`tvc_thrust`). Everything comes from the store, so it works the same live and in replay.
+Panel `view3d` (the Guidance group in Bench, full height). It consumes `Attitude`, `Position` (ship pose, trail), `MissionState` (setpoint), `FlapState` and `VehicleState` (`tvc_thrust`). Everything comes from the store, so it works the same live and in replay.
 
 **Frames** (`view3d/frames.js`, tested in `web/test/frames.test.js`):
 
@@ -146,9 +143,9 @@ Panel `view3d` (head of the Guidance group in Bench and Flight). It consumes `At
 
 Panel `gnss` (`panels/gnss.js`, logic in `gnss/gnss_logic.js`, unit tested in `web/test/gnss_logic.test.js`). Vehicle-reported values only; the cross-check compares two reported values and **sends nothing**: it never changes anything on the vehicle and is never the only warning. Data: the `Gps` packet, which is the USB `GNSS` (0x83, all fields) or the radio's `AIR_GNSS` (10 Hz position and velocity) merged by the wire profile with the 1 Hz `AIR_GNSS_INFO` (`docs/wire-profiles.md`).
 
-- **Tiles and rows.** Altitude (relative to the home altitude or the start altitude when one is known, else absolute; a note under the tiles says which), ground speed, fix type name; latitude / longitude in degrees (7 digits), absolute GNSS altitude (the receiver's altitude: u-blox height above the WGS-84 ellipsoid, not above sea level); velocity as NWU and as NED (N, E = -W, D = -U) and the ground speed; at 1 Hz satellites, h_acc / v_acc (1 sigma, the receiver's own estimate) with the age of the info (`info_t`); without a fix (`None` values) the panel shows "—" and "no fix", never stale numbers as current.
-- **Altitude cross-check.** The panel has no cross-check section (removed on user request). The check itself still runs: its status is the compact fourth tile in the Flight view, the relative altitude uses its reference, and the optional `Altitude mismatch` callout and graph signals use it. Details (reference, states, limits) are unchanged: the reference is the `HOME_POSITION` altitude (when `ALT_VALID` and its `epoch` equals `VehicleStatus.home_epoch`), else the mean of the first valid GNSS altitudes taken on the pad; settings `altcheck.limit_m`, `altcheck.hold_s`, `altcheck.hysteresis_m`, see `docs/callouts.md`.
-- **Home.** The `HomePosition` (lat/lon, altitude, simulation / zeroing flags; accuracy and set time in the tooltip) if one arrived, and "home epoch: status / copy". The two values differing (amber) means the received copy is stale. There is no way to request a home position yet; the status bar's detail list also shows `home_epoch`.
+- **Content (compact, no scrolling).** Latitude / longitude in degrees (7 digits) on one row, absolute GNSS altitude (the receiver's altitude: u-blox height above the WGS-84 ellipsoid, not above sea level), the velocity in NED (N, E = -W, D = -U), tiles for satellites, fix type name and the altitude cross-check status, and tiles for the receiver's own accuracy estimates (1 sigma): horizontal, vertical and speed (`vel_acc`, USB GNSS only, "—" otherwise). Without a fix (`None` values) the panel shows "—" and "no fix", never stale numbers as current. Removed from the panel on owner request (2026-11-22): the relative altitude and ground speed tiles, the NWU rows, the fix-quality section and the age of the info; the relative altitude and the other values remain available as graph signals.
+- **Altitude cross-check.** Its status is the "Alt check" tile (ok / difference X m, warning / MISMATCH / no data / no fix / no reference); the optional `Altitude mismatch` callout and graph signals use the same logic. The reference is the `HOME_POSITION` altitude (when `ALT_VALID` and its `epoch` equals `VehicleStatus.home_epoch`), else the mean of the first valid GNSS altitudes taken on the pad; settings `altcheck.limit_m`, `altcheck.hold_s`, `altcheck.hysteresis_m`, see `docs/callouts.md`.
+- **Home.** No longer shown in the panel (owner request 2026-11-22). The altitude reference still uses a received `HOME_POSITION`; `VehicleStatus.home_epoch` is in the status bar.
 - **Graphs.** Signals `gnss.alt` (absolute), `gnss.alt_rel` (relative to the home altitude or the start, as above, computed per sample from the latest `HomePosition` / `Position`) and `gnss.alt_diff` (estimated minus GNSS), preset graph "Altitude cross-check" (estimated, GNSS relative, difference). `Gps` is in the plot history now (10 Hz).
 - **Audio.** Optional callout `Altitude mismatch` (callouts category `altcheck`, off by default) once per excursion. No recorded clip exists yet (piper was not available): it uses the browser voice or beeps until `altitude-mismatch` is added to `web/audio/phrases.json` and the clips are regenerated.
 
@@ -209,7 +206,20 @@ Operations dock tab **Display** (`panels/display.js`, `display_settings.js`), st
 
 Below the cells: one **link health** chip per source (connection state from `status`, packets per second from its `LinkStats`; a connected source that has been silent shows `silent <age>` in the stale colour). A red banner appears above the bar for a fresh `NetworkStatus.incompatible` (schema hash or network version mismatch, with the detail text) and disappears by itself when it clears or when that source goes quiet. **Stale data** (the `VehicleStatus` older than its stale limit) greys the whole line out and the label reads `STALE <age>`; with no `VehicleStatus` in the view it reads `no VehicleStatus received`.
 
-**Bench balance (2026-11-22, owner feedback on a 4K screenshot).** Columns `1fr / 1.6fr / 1.1fr`. Left Vehicle: attitude, position, actuators, failures, all visible without scrolling at 2000x1125 CSS px (3840x2160 at 1.92). Middle: the 3D view uses `height: fill`, so it takes the free height; GNSS (compact, one row) and sensors sit under it (moved here from the left column). Right: mission, target vs current and the data rates table. The `guidance` panel was renamed `targetvs` (same content; the Flight view uses it compact in the Guidance group). `rates` was removed from the dock; its `compact` option (Bench) drops the Source, Hz (10 s) and Age columns, the router rows and the hints so it needs no scroll of its own. The Flight and Tuning views have no data rates panel any more (a dock tab cannot be limited to one view). At 1920x1080 and 1x scale the Mission column scrolls slightly (about 50 px).
+**Bench layout (2026-11-22, owner feedback, `feature/layout-systems`).** The Flight view was removed (it was nearly the same as Bench), together with what only served it: the `rcsticks` panel, the compact sticks option, the Flight CSS and the GNSS compact mode. Columns `1.15fr / 1.3fr / 1.05fr`. Left Vehicle: attitude, position, actuators (four tiles in one row), GNSS, systems. Middle: the 3D view alone, full height. Right: mission, target vs current, data rates (`rates` is not in the dock; its `compact` option drops the Source, Hz (10 s) and Age columns). At 2000x1125 CSS px (3840x2160 at 1.92) no column scrolls and about 50 px stay free in the left and right columns; at 1920x1080 and 1x nothing scrolls either (headless screenshots checked).
+
+## Systems panel
+
+Panel `systems` (`panels/systems.js`, mapping in `status/systems_logic.js`, unit tested in `web/test/systems_logic.test.js`) replaces the former `sensors` and `failures` panels. One chip per system, coloured by status; the tooltip (title) gives the reason. Display only. The mapping is one pure function, `systemsStatus()`:
+
+| System | Source | green | yellow | red | grey |
+|---|---|---|---|---|---|
+| IMU, baro, mag, att KF, pos KF | `VehicleStatus.sensor_state` (2 bits each) | Ready | Init, Calib | Failure | no or stale `VehicleStatus` |
+| GNSS | `sensor_state` and `Gps` | Ready with a fix | no fix (fix type below 2D, or 0 satellites), or Init / Calib | the vehicle reports Failure for GNSS | no data |
+| sensor / attitude / position failure, position out of bounds, attitude out of bounds, radio connection loss, failsafe | `failure_bits`, `failsafe` | clear | - | set | no or stale `VehicleStatus` |
+| gyro, accel, mag calibration, ready to arm | `calib_state` (log text as fallback and reason) | valid / ready | - | INVALID / NOT ready | unknown |
+
+Tooltips: `IMU: Ready (sensor_state 0xAAA)`, `GNSS: no fix (fix 0, 0 satellites)`, `position out of bounds: ACTIVE, last set 4 s ago` (the last-set time is the per-view memory of the former Failures panel), `accel cal: calibration INVALID: <reason from the vehicle's log line>`. The att KF tooltip adds the attitude σ and the tilt / north accuracy, the pos KF tooltip the velocity σ, position σ and ground distance (from the `Estimator`, `Attitude` and `Actuators` debug packets, when present). The calibration hint "Arm and MissionBegin are refused until calibrated" shows under the chips while a calibration row is red. The panel title counts failures and warnings. The callouts engine reads `VehicleStatus` itself and does not depend on this panel.
 
 ### Data rates (panel `rates`, always visible in the Bench Mission column, not a dock tab; `rates/rates_logic.js`)
 

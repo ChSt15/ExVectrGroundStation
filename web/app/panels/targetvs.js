@@ -1,4 +1,4 @@
-// Target vs current panel (Bench: Mission column, Flight: Guidance group, compact): target (MissionState setpoints) against the current estimate (Position), and the error
+// Target vs current panel (Bench, Mission column, compact): target (MissionState setpoints) against the current estimate (Position), and the error
 // target minus current (display-only arithmetic on vehicle-reported values). The vehicle sends no attitude target.
 import { registerPanel } from "./registry.js";
 import { Bindings, h, tiles } from "../ui.js";

@@ -1,17 +1,15 @@
-// Vehicle group: GNSS. Position, velocity and fix quality as the vehicle reports them (Gps, from the radio's AIR_GNSS
-// plus AIR_GNSS_INFO or from USB GNSS), the home position if one was received, and the altitude cross-check of the
-// estimated altitude against the GNSS altitude (gnss/gnss_logic.js). Display only: the cross-check compares two
-// reported values and sends nothing.
+// Vehicle group: GNSS, compact. Latitude, longitude, absolute altitude, NED velocity, satellites, fix type and the
+// receiver's accuracy estimates (Gps, from the radio's AIR_GNSS plus AIR_GNSS_INFO or from USB GNSS), and one line
+// with the altitude cross-check of the estimated altitude against the GNSS altitude (gnss/gnss_logic.js). Display
+// only: the cross-check compares two reported values and sends nothing. The home position is not shown here.
 import { registerPanel } from "./registry.js";
 import { Bindings, h, section, tiles } from "../ui.js";
-import { describe, fmtAge, fmtNum } from "../fmt.js";
-import { ALTCHECK_DEFAULTS, AltCheck, deg, fixName, groundSpeed, nwuToNed } from "../gnss/gnss_logic.js";
+import { describe, fmtNum } from "../fmt.js";
+import { ALTCHECK_DEFAULTS, AltCheck, deg, fixName, nwuToNed } from "../gnss/gnss_logic.js";
 
 const G = "Gps";
-const HOME = "HomePosition";
-const POS = "Position";
 const finite = (x) => typeof x === "number" && Number.isFinite(x);
-const comp = (field, i) => (e) => (Array.isArray(e.f[field]) ? e.f[field][i] ?? null : e.f[field] === null ? null : undefined);
+const num = (field) => (e) => (e.f[field] === undefined ? undefined : e.f[field]);
 
 const STATE_TEXT = {
   ok: "OK",
@@ -27,94 +25,38 @@ const STATE_TONE = { ok: "ok", over: "warn", mismatch: "bad", nodata: "", stale:
 registerPanel({
   id: "gnss",
   title: "GNSS",
-  consumes: [G, HOME, POS, "VehicleStatus"],
+  consumes: [G, "HomePosition", "Position", "VehicleStatus"],
   create(el, ctx) {
     const b = new Bindings(ctx);
     const cfg = () => ({ ...ALTCHECK_DEFAULTS, ...((ctx.callouts && ctx.callouts() && ctx.callouts().settings().altcheck) || {}) });
     const check = new AltCheck(cfg);
-    let last = null;
     let ccText = "—";
     const lookup = (view) => (t, src) => ctx.store.get(view, t, src);
 
-    // relative altitude: GNSS altitude minus the reference (home altitude, else the start altitude)
-    const relAlt = () => (last && last.ref !== null && last.gnssAbs !== null ? last.gnssAbs - last.ref : undefined);
+    const pos = section(el, "");
+    const ll = (field) => b.cell({ type: G, kind: "num", unit: "°", digits: 7, derive: (e) => (e.f[field] === undefined ? undefined : deg(e.f[field])) }, { showSrc: false });
+    pos.append(h("div", { class: "row gnss-ll", "data-key": "gnss-lat" }, h("span", { class: "lbl", text: "Lat / Lon" }), ll("lat"), ll("lon")));
+    b.row(pos, "Altitude (absolute)", { type: G, field: "alt", unit: "m", digits: 1 }, { key: "gnss-alt", title: "receiver altitude, u-blox: height above the WGS-84 ellipsoid, not above sea level" });
 
-    const compact = !!(ctx.options && ctx.options.compact);
-    // compact: only the tiles and one cross-check line are shown; the full sections are built detached so the
-    // update code stays the same (they are not in the DOM).
-    const full = compact ? h("div") : el;
+    b.vecTable(el, ["N", "E", "D"], [{ label: "Velocity NED", type: G, key: "gnss-vel-ned", unit: "m/s", vec: (e) => (e && e.f && e.f.vel !== undefined ? nwuToNed(e.f.vel) : undefined) }]);
 
-    const t = tiles(el, compact ? "t4 gnss-compact" : "t3");
-    const relTile = b.tile(t, "Altitude", { type: G, kind: "num", unit: "m", digits: 1, derive: (e) => (finite(e.f.alt) ? (relAlt() ?? e.f.alt) : e.f.alt === undefined ? undefined : null) }, { key: "gnss-alt" });
-    b.tile(t, "Ground speed", { type: G, kind: "num", unit: "m/s", digits: 2, derive: (e) => (e.f.vel === undefined ? undefined : groundSpeed(e.f.vel)) }, { key: "gnss-gs" });
+    const t = tiles(el, "t3 gnss-tiles");
+    b.tile(t, "Satellites", { type: G, kind: "num", digits: 0, derive: num("num_sats") }, { key: "gnss-sats" });
     b.tile(t, "Fix", { type: G, kind: "text", derive: (e) => (e.f.fix_type === undefined ? undefined : fixName(e.f.fix_type)) }, { key: "gnss-fix" });
-    if (compact) for (const tl of t.querySelectorAll(".tile")) tl.title = tl.querySelector(".tile-l").textContent;
-    const altNote = h("div", { class: "hint", "data-testid": "gnss-alt-note" });
-    // compact: the fourth tile is the one-line altitude cross-check status (ok / difference X m, warning / ...)
-    const ccLine = compact ? b.tile(t, "Alt check", { type: G, kind: "text", derive: () => ccText }, { key: "gnss-cc-line" }) : null;
-    if (!compact) el.append(altNote);
-
-    const pos = section(full, "Position");
-    b.row(pos, "Latitude", { type: G, kind: "num", unit: "°", digits: 7, derive: (e) => (e.f.lat === undefined ? undefined : deg(e.f.lat)) }, { key: "gnss-lat" });
-    b.row(pos, "Longitude", { type: G, kind: "num", unit: "°", digits: 7, derive: (e) => (e.f.lon === undefined ? undefined : deg(e.f.lon)) });
-    b.row(pos, "Altitude (GNSS, absolute)", { type: G, field: "alt", unit: "m", digits: 1 }, { title: "receiver altitude, u-blox: height above the WGS-84 ellipsoid, not above sea level" });
-
-    b.vecTable(full, ["N", "W/E", "U/D"], [
-      { label: "Vel NWU", type: G, field: "vel", unit: "m/s", key: "gnss-vel-nwu" },
-      { label: "Vel NED", type: G, key: "gnss-vel-ned", unit: "m/s", vec: (e) => (e && e.f && e.f.vel !== undefined ? nwuToNed(e.f.vel) : undefined) },
-    ]);
-    full.append(h("div", { class: "hint", text: "NWU columns N, W, U; NED columns N, E, D." }));
-
-    const info = section(full, "Fix quality (1 Hz)");
-    b.row(info, "Satellites", { type: G, kind: "num", digits: 0, derive: (e) => (e.f.num_sats === undefined ? undefined : e.f.num_sats) }, { key: "gnss-sats" });
-    b.row(info, "h_acc / v_acc", { type: G, kind: "vec", unit: "m", digits: 2, derive: (e) => (e.f.pos_acc === undefined && e.f.alt_acc === undefined ? undefined : [e.f.pos_acc ?? null, e.f.alt_acc ?? null]) }, { key: "gnss-acc", title: "horizontal / vertical accuracy estimate (1 sigma); the receiver's own estimate" });
-    const infoAge = h("div", { class: "hint", "data-testid": "gnss-info-age" });
-    info.append(infoAge);
-
-    const hs = section(full, "Home");
-    const vHome = h("span", { class: "v", "data-testid": "home-pos", text: "no home position received" });
-    hs.append(h("div", { class: "row" }, h("span", { class: "lbl", text: "Home position" }), vHome));
-    const vEpoch = h("span", { class: "v", "data-testid": "home-epoch", text: "—" });
-    hs.append(h("div", { class: "row" }, h("span", { class: "lbl", text: "Home epoch (status / copy)" }), vEpoch));
-
-    const entries = () => {
-      const v = ctx.view();
-      const lk = lookup(v);
-      return { now: ctx.store.now(v), position: lk(POS), gps: lk(G), home: lk(HOME), status: lk("VehicleStatus") };
-    };
+    b.tile(t, "Alt check", { type: G, kind: "text", derive: () => ccText }, { key: "gnss-cc-line" });
+    const a = tiles(el, "t3 gnss-tiles");
+    b.tile(a, "Acc H [m]", { type: G, kind: "num", digits: 2, derive: num("pos_acc") }, { key: "gnss-acc-h", title: "horizontal accuracy estimate (1 sigma), the receiver's own" });
+    b.tile(a, "Acc V [m]", { type: G, kind: "num", digits: 2, derive: num("alt_acc") }, { key: "gnss-acc-v", title: "vertical accuracy estimate (1 sigma), the receiver's own" });
+    b.tile(a, "Acc speed [m/s]", { type: G, kind: "num", digits: 2, derive: num("vel_acc") }, { key: "gnss-acc-s", title: "speed accuracy estimate (USB GNSS only)" });
 
     const render = () => {
-      const inp = entries();
-      last = check.update(inp);
-      if (compact) ccText = last.state === "over" && finite(last.diff) ? `${fmtNum(Math.abs(last.diff), 1)} m, warning` : STATE_TEXT[last.state];
+      const v = ctx.view();
+      const lk = lookup(v);
+      const last = check.update({ now: ctx.store.now(v), position: lk("Position"), gps: lk(G), home: lk("HomePosition"), status: lk("VehicleStatus") });
+      ccText = last.state === "over" && finite(last.diff) ? `${fmtNum(Math.abs(last.diff), 1)} m, warning` : STATE_TEXT[last.state];
       b.update();
-      altNote.textContent = last.refSource ? `Altitude shown relative to ${last.refSource === "home" ? "the home altitude" : "the GNSS altitude at the start"} (absolute value in the row below).` : "Altitude shown absolute (no home or start reference yet).";
-      const now = inp.now ?? Infinity;
-      if (compact) {
-        const gg = inp.gps && inp.gps.f;
-        const ll = gg && finite(gg.lat) && finite(gg.lon) ? `${fmtNum(deg(gg.lat), 7)}°, ${fmtNum(deg(gg.lon), 7)}°` : "no position";
-        const q = gg && gg.num_sats !== undefined ? `${gg.num_sats} satellites, h_acc ${finite(gg.pos_acc) ? fmtNum(gg.pos_acc, 2) + " m" : "?"}` : "no fix quality info";
-        t.title = `${ll}; ${q}`;
-        if (ccLine && ccLine.el) ccLine.el.dataset.tone = STATE_TONE[last.state];
-        ccLine.dataset.tone = STATE_TONE[last.state];
-      }
-      const g = inp.gps && inp.gps.f;
-      infoAge.textContent = g && finite(g.info_t) ? `info (AIR_GNSS_INFO) ${fmtAge(Math.max(0, now - g.info_t))} old` : g && g.fix_type !== undefined ? "info from USB GNSS" : "no fix quality info received";
-      const home = inp.home && inp.home.f;
-      if (home) {
-        const ll = home.latlon_valid ? `${fmtNum(deg(home.lat), 7)}°, ${fmtNum(deg(home.lon), 7)}°` : "lat/lon not valid";
-        const al = home.alt_valid && finite(home.alt) ? `${fmtNum(home.alt, 1)} m` : "alt not valid";
-        vHome.textContent = `${ll}, ${al}${home.simulation ? " (simulation)" : ""}${home.zeroing ? " (zeroing)" : ""}`;
-        vHome.title = `h_acc ${finite(home.h_acc) ? fmtNum(home.h_acc, 2) + " m" : "unknown"}, set at vehicle time ${home.set_time ? fmtNum(home.set_time / 1e9, 1) + " s" : "never"}`;
-      } else {
-        vHome.textContent = "no home position received";
-        vHome.title = "";
-      }
-      const he = inp.status && inp.status.f ? inp.status.f.home_epoch : undefined;
-      const hc = home ? home.epoch : undefined;
-      vEpoch.textContent = `${he === undefined ? "n/s" : he} / ${hc === undefined ? "none" : hc}`;
-      vEpoch.dataset.tone = he !== undefined && hc !== undefined && he !== hc ? "warn" : "";
-      vEpoch.title = "VEHICLE_STATUS.home_epoch / HOME_POSITION.epoch: differing values mean the home copy is stale (the home reference changed since)";
+      const cc = t.querySelector("[data-key=gnss-cc-line]");
+      if (cc) cc.dataset.tone = STATE_TONE[last.state];
     };
 
     const freshness = () => {

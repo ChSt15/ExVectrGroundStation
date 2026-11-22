@@ -219,9 +219,6 @@ tr.incomplete td { color: var(--dim); }
 .pill[data-tone="info"] { border-color: color-mix(in srgb, var(--info) 55%, transparent); background: var(--info-bg); }
 .pill[data-state="stale"], .pill[data-state="missing"] { color: var(--faint); }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; }
-.sensor-chips { margin-bottom: 4px; }
-.frow { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
-.frow .lbl { flex: 0 0 13em; color: var(--dim); font-size: var(--fs-s); }
 .phaselog { margin: 0; padding-left: 0; list-style: none; font-size: var(--fs-s); }
 .phaselog li { padding: 1px 0; } .phaselog .mono { color: var(--dim); }
 
@@ -331,7 +328,6 @@ tr.incomplete td { color: var(--dim); }
 .sticks-row { display: flex; align-items: center; justify-content: center; gap: 14px; }
 .gwrap { display: flex; flex-direction: column; align-items: center; gap: 1px; }
 .gimbal { position: relative; width: 120px; height: 120px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line-strong); overflow: hidden; }
-.sticks.compact .gimbal { width: 92px; height: 92px; }
 .gimbal .gx, .gimbal .gy { position: absolute; background: var(--line); }
 .gimbal .gx { left: 6%; right: 6%; top: 50%; height: 1px; } .gimbal .gy { top: 6%; bottom: 6%; left: 50%; width: 1px; }
 .gimbal .gthr { position: absolute; left: 0; bottom: 0; width: 5px; background: var(--warn); opacity: .8; }
@@ -410,16 +406,8 @@ body[data-layout="tuning"] .group-title { display: none; }
 .tn-picker fieldset { border: 0; margin: 0; padding: 0; } .tn-picker legend { font-weight: 700; color: var(--dim); padding: 0; margin-top: 4px; }
 .tn-picker label { display: block; white-space: nowrap; } .tn-picker label.dim { color: var(--faint); }
 
-/* ------------------------------------------------------------------ Flight view: large readable numbers */
-body[data-layout="flight"] { --fs-tile: 28px; }
-body[data-layout="flight"] .val.xl .v { font-size: 34px; }
-body[data-layout="flight"] table.vt { font-size: var(--fs-l); }
-body[data-layout="flight"] .panel > header { min-height: 26px; padding: 3px 10px; }
-body[data-layout="flight"] .body { padding: 6px 8px; }
-body[data-layout="flight"] .hint { display: none; }
-
 /* ------------------------------------------------------------------ responsive */
-@media (max-width: 1500px) { :root { --dock-w: 380px; --fs-tile: 19px; } body[data-layout="flight"] { --fs-tile: 24px; } }
+@media (max-width: 1500px) { :root { --dock-w: 380px; --fs-tile: 19px; } }
 @media (max-width: 1100px) {
   #app { height: auto; min-height: calc(100vh / var(--ui-zoom, 1)); }
   #workspace { grid-template-columns: minmax(0, 1fr); }
@@ -436,20 +424,15 @@ body[data-layout="flight"] .hint { display: none; }
 @media (max-width: 600px) {
   header.top, .statusbar, .replaystrip { padding-left: 8px; padding-right: 8px; }
   #panels { padding: 6px; gap: 6px; }
-  .row .lbl, .frow .lbl { flex-basis: 9em; }
+  .row .lbl { flex-basis: 9em; }
   .v3d, .v3d.v3d-large { height: clamp(200px, 45vh, 420px); }
   .tiles.t4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .rq-row, .tc-row { grid-template-columns: 1fr auto; }
 }
 
-/* compact fixes: units stay on the value line, compact sticks wrap */
+/* compact fixes: units stay on the value line */
 .tile .val { flex-wrap: nowrap; overflow: hidden; }
 .tile .val .age { display: none; }
-.sticks.compact .sticks-row { flex-wrap: wrap; gap: 4px 10px; }
-.sticks.compact .thr-big { order: 3; flex-basis: 100%; min-width: 0; }
-.sticks.compact .gimbal { width: 78px; height: 78px; }
-.sticks.compact .gval { font-size: 10px; }
-body[data-layout="flight"] .tiles.t4 .val.big .v { font-size: calc(var(--fs-tile) - 4px); }
 .val.big .v { white-space: nowrap; }
 
 /* Link panel: source switches */
@@ -543,8 +526,14 @@ body[data-layout="flight"] .tiles.t4 .val.big .v { font-size: calc(var(--fs-tile
 .sf-flap:disabled { cursor: not-allowed; }
 .sf-radio { display: inline-flex; gap: 4px; align-items: center; }
 
-/* GNSS panel, compact mode (Flight view): one row of four value-only tiles (the labels are the tooltips) */
-.tiles.gnss-compact { grid-template-columns: repeat(4, minmax(0, auto)); gap: 6px; margin-bottom: 0; }
-.tiles.gnss-compact .tile { padding: 0 6px; line-height: 1.15; }
-.tiles.gnss-compact .tile .tile-l { display: none; }
-.tiles.gnss-compact .tile .val.big .v { font-size: var(--fs-md, 13px); }
+
+/* Systems panel: compact chips, green good / yellow warning / red failure / grey no data; reason in the title */
+.sys-grid { display: flex; flex-wrap: wrap; gap: 3px 4px; align-items: center; }
+.sys-sep { flex-basis: 100%; height: 0; }
+.sys-chip { display: inline-flex; align-items: center; gap: 4px; padding: 0 7px; border-radius: 9px; font-size: var(--fs-xs); line-height: 1.6; border: 1px solid var(--line); background: var(--surface-2); color: var(--dim); white-space: nowrap; cursor: default; }
+.sys-chip[data-tone="ok"] { color: var(--fg); border-color: color-mix(in srgb, var(--ok) 60%, transparent); background: var(--ok-bg); }
+.sys-chip[data-tone="warn"] { color: var(--fg); border-color: var(--warn); background: var(--warn-bg); font-weight: 650; }
+.sys-chip[data-tone="bad"] { color: var(--fg); border-color: var(--bad); background: var(--bad-bg); font-weight: 700; }
+.tiles.gnss-tiles { gap: 4px; margin-bottom: 4px; } .tiles.gnss-tiles .tile { padding: 1px 6px 2px; } .tiles.gnss-tiles .val.big .v { font-size: var(--fs-m); }
+.tiles.act-tiles { gap: 4px; } .tiles.act-tiles .tile { padding: 1px 6px 2px; } .tiles.act-tiles .val.big .v { font-size: var(--fs-l, 16px); }
+.gnss-ll { gap: 14px; }

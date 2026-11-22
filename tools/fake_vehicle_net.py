@@ -266,7 +266,19 @@ def pack_vehicle_status(
     )
     t_us = (t_ns // 1000) & 0xFFFFFFFF
     pl = struct.pack(
-        "<IqBBBBBIHHBH", t_us, t_ns, int(vs["mode"]), int(mission_mode), int(mission_phase), 2, flags, 0, 0x3F, 7, 0, 40
+        "<IqBBBBBIHHBH",
+        t_us,
+        t_ns,
+        int(vs["mode"]),
+        int(mission_mode),
+        int(mission_phase),
+        2,
+        flags,
+        0,
+        0xAAA,
+        7,
+        0,
+        40,
     )
     # home_epoch then calib_state are appended (u8 each); absent = older sender (calib_state needs home_epoch)
     if home_epoch is None:

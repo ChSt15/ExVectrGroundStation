@@ -48,7 +48,7 @@ def test_relative_imports_resolve():
 
 def test_default_layout_is_consistent_with_the_registered_panels():
     layout = json.loads((ROOT / "config" / "layout.default.json").read_text())
-    assert set(layout["views"]) == {"bench", "flight", "tuning"} and layout["default"] == "bench"
+    assert set(layout["views"]) == {"bench", "tuning"} and layout["default"] == "bench"
     ids = panel_ids()
     dock = [t["panel"] for t in layout["dock"]["tabs"]]
     assert set(dock) <= ids and len(dock) == len(set(dock))
@@ -104,25 +104,32 @@ async def test_browser_panels_show_fresh_then_stale_values_and_views_switch():
             await b.sleep(1.0)
             early = await b.eval(JS_PANEL_STATES)
             # every data panel shows fresh values with source tags
-            for pid in ("attitude", "mission", "position", "targetvs", "actuators", "sensors", "link"):
+            for pid in ("attitude", "mission", "position", "targetvs", "actuators", "link"):
                 assert early[pid]["fresh"] > 0, (pid, early[pid])
-            for pid in ("attitude", "position", "mission", "link"):
+            for pid in ("mission", "link"):
                 assert early[pid]["tagged"] > 0, (pid, early[pid])
-            fail = await b.eval(
-                "[...document.querySelectorAll('[data-panel=failures] .frow:not([data-key^=\"calib.\"]) .pill')].map(e => e.textContent)"  # noqa: E501
+            # Systems panel: the fake vehicle is healthy, so every vehicle-reported system is green
+            tones = await b.eval(
+                "[...document.querySelectorAll('[data-panel=systems] .sys-chip:not([data-group=calib])')].map(e => e.dataset.tone)"  # noqa: E501
             )
-            assert fail and all(t == "ok" for t in fail), fail  # VehicleStatus failure bits, all clear
-            # calibration rows: the fake vehicle reports calib_state (all valid, ready to arm) once it is ready, and the
-            # structured state is primary: a log warning must not turn a row red
-            sel = "[data-panel=failures] [data-key=\"calib.gyro\"], [data-panel=failures] [data-key=\"calib.accel\"], [data-panel=failures] [data-key=\"calib.mag\"], [data-panel=failures] [data-key=\"calib.ready\"]"  # noqa: E501
-            rows_js = f"[...document.querySelectorAll('{sel}')].map(e => [e.querySelector('.pill').textContent, e.querySelector('.pill').dataset.tone, e.querySelector('.note')?.textContent || ''])"  # noqa: E501
+            assert len(tones) == 13 and all(t == "ok" for t in tones), tones
+            # calibration chips: the structured calib_state is primary, a log warning must not turn a chip red
+            keys = ("calib.gyro", "calib.accel", "calib.mag", "calib.ready")
+            rows_js = (
+                "["
+                + ",".join(
+                    f"document.querySelector('[data-panel=systems] [data-key=\"{k}\"]').dataset.tone" for k in keys
+                )
+                + "]"
+            )  # noqa: E501
             await b.eval(
                 "window.exgs.callouts().log.onLog({f: {text: '[node 1 WARNING] WARNING calibration invalid, Arm and MissionBegin are refused (repeats every 10 s): gyro: ok, accel: parameters out of range, mag: ok'}})"  # noqa: E501
             )
             await b.sleep(0.8)
-            cal = await b.eval(rows_js)
-            assert cal == [["ok", "ok", ""]] * 3 + [["ready", "ok", ""]], cal
+            assert await b.eval(rows_js) == ["ok"] * 4
             assert await b.eval("document.querySelector('[data-testid=calib-hint]').hidden") is True
+            imu = await b.eval("document.querySelector('[data-panel=systems] [data-key=imu]').title")
+            assert imu.startswith("IMU: Ready"), imu
             # Attitude stops (dropout from t=1.5 s sim time): its values go stale and show an age
             await b.sleep(5.0)
             late = await b.eval(JS_PANEL_STATES)
@@ -191,20 +198,13 @@ async def test_browser_views_and_source_banner_real_and_simulation():
                 await b.sleep(1.5)
                 assert await b.eval("document.querySelector('[data-testid=source-banner]').dataset.kind") == kind
                 assert await b.eval("window.exgs.source().inputsLocked") is False
-                for view, dock in (("flight", "rail"), ("bench", "open")):
+                for view, dock in (("tuning", "rail"), ("bench", "open")):
                     await b.eval(f"window.exgs.layout.set('{view}')")
                     await b.sleep(0.5)
                     titles = await b.eval("[...document.querySelectorAll('.group-title')].map(e => e.textContent)")
-                    assert titles == ["Vehicle", "Guidance", "Mission"], titles
+                    assert titles == (["Graphs"] if view == "tuning" else ["Vehicle", "Guidance", "Mission"]), titles
                     assert await b.eval("window.exgs.dock.mode()") == dock
-                    assert await b.eval("!!document.querySelector('#panels [data-panel=view3d]')")
-                # Flight at 1366x768: every group fits without scrolling
-                await b.eval("window.exgs.layout.set('flight')")
-                await b.sleep(1.0)
-                over = await b.eval(
-                    "[...document.querySelectorAll('.group')].map(g => g.scrollHeight - g.clientHeight)"
-                )
-                assert max(over) <= 2, over
+                    assert await b.eval("!!document.querySelector('#panels [data-panel=view3d]')") == (view == "bench")
                 # the radio stays mounted across view changes (a held lease is not dropped by a view change)
                 assert await b.eval("document.querySelectorAll('[data-panel=radio]').length") == 1
                 assert not [m for m in b.console if "EXCEPTION" in m], b.console
