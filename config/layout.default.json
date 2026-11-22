@@ -56,8 +56,8 @@
   "views": {
     "bench": {
       "label": "Bench",
-      "hint": "everything: vehicle, 3D view with GNSS and sensors, mission with target and data rates, and the full Operations dock",
-      "columns": "minmax(260px, 1fr) minmax(360px, 1.6fr) minmax(330px, 1.1fr)",
+      "hint": "everything: vehicle with GNSS and systems, the 3D view, mission with target and data rates, and the full Operations dock",
+      "columns": "minmax(300px, 1.15fr) minmax(360px, 1.3fr) minmax(330px, 1.05fr)",
       "dock": "open",
       "groups": [
         {
@@ -83,7 +83,10 @@
               }
             },
             {
-              "panel": "failures"
+              "panel": "gnss"
+            },
+            {
+              "panel": "systems"
             }
           ]
         },
@@ -96,15 +99,6 @@
               "options": {
                 "height": "fill"
               }
-            },
-            {
-              "panel": "gnss",
-              "options": {
-                "compact": true
-              }
-            },
-            {
-              "panel": "sensors"
             }
           ]
         },
@@ -129,77 +123,6 @@
               "options": {
                 "compact": true
               }
-            }
-          ]
-        }
-      ]
-    },
-    "flight": {
-      "label": "Flight",
-      "hint": "large numbers, the 3D view and the mission; operations in the side rail",
-      "columns": "minmax(250px, 0.95fr) minmax(340px, 1.9fr) minmax(230px, 0.85fr)",
-      "dock": "rail",
-      "groups": [
-        {
-          "id": "vehicle",
-          "title": "Vehicle",
-          "panels": [
-            {
-              "panel": "attitude",
-              "options": {
-                "compact": true
-              }
-            },
-            {
-              "panel": "position",
-              "options": {
-                "compact": true
-              }
-            },
-            {
-              "panel": "actuators",
-              "options": {
-                "compact": true
-              }
-            }
-          ]
-        },
-        {
-          "id": "guidance",
-          "title": "Guidance",
-          "panels": [
-            {
-              "panel": "view3d",
-              "options": {
-                "height": "fill"
-              }
-            },
-            {
-              "panel": "targetvs",
-              "options": {
-                "compact": true
-              }
-            }
-          ]
-        },
-        {
-          "id": "mission",
-          "title": "Mission",
-          "panels": [
-            {
-              "panel": "mission",
-              "options": {
-                "compact": true
-              }
-            },
-            {
-              "panel": "gnss",
-              "options": {
-                "compact": true
-              }
-            },
-            {
-              "panel": "rcsticks"
             }
           ]
         }

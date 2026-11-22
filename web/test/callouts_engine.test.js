@@ -140,13 +140,20 @@ test("failure bits: one callout per bit, unknown bits named, failsafe, cleared, 
     assert.deepEqual(texts(step2(0.1, { vs: { failure_bits: 1 << i } })).filter((t) => names.includes(t)), [names[i]]);
     step2(0.1, { vs: { failure_bits: 0 } });
   }
-  // repeats: 4 announcements in total, then silence while the failure persists
-  const q = rig();
+  // default: announced once, then silence while the failure persists
+  const once = rig();
+  once.run();
+  const saidOnce = [...texts(once.step(0.1, { vs: { failure_bits: 4 } }))];
+  for (let i = 0; i < 400; i++) saidOnce.push(...texts(once.step(0.1)));
+  assert.deepEqual(saidOnce, ["Position failure"]);
+  // with repeats configured: 4 announcements in total, then silence while the failure persists
+  const rc = { failure: { repeat_s: 5, repeats: 3 } };
+  const q = rig(rc);
   q.run();
   const said = [...texts(q.step(0.1, { vs: { failure_bits: 4 } }))];
   for (let i = 0; i < 400; i++) said.push(...texts(q.step(0.1)));
   assert.deepEqual(said, Array(4).fill("Position failure"));
-  const rep = rig();
+  const rep = rig(rc);
   rep.run();
   rep.step(0.1, { vs: { failure_bits: 4 } });
   const t1 = rep.step(4.9);

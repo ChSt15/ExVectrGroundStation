@@ -1,4 +1,4 @@
-// Pure stick display mapping (radio panel and the compact RC panel). DISPLAY ONLY: the ground station sends no stick
+// Pure stick display mapping (radio panel). DISPLAY ONLY: the ground station sends no stick
 // values; it shows the channels it receives from the Pocket (slave), sends (master: the channel defaults) or replays.
 // The channel assignment comes from the radio config's optional [sticks] table (docs/radio.md).
 

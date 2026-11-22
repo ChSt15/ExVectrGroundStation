@@ -106,7 +106,7 @@ Details in [gui.md](gui.md) ("Virtual radio"). The rules that matter here: the w
 
 ## Stick display (GUI, display only)
 
-The radio panel and the Flight view's compact RC panel show the two sticks of the Pocket: in slave what arrives from the handset, in master what the core sends (the channel defaults, sticks neutral 1500 µs and throttle low 1000 µs: **the ground station has no stick sending and this display adds none**), in replay the recorded `RcState`. Which channels are shown comes from the optional `[sticks]` table of the radio config (`config/radio.pocket.toml`):
+The radio panel shows the two sticks of the Pocket: in slave what arrives from the handset, in master what the core sends (the channel defaults, sticks neutral 1500 µs and throttle low 1000 µs: **the ground station has no stick sending and this display adds none**), in replay the recorded `RcState`. Which channels are shown comes from the optional `[sticks]` table of the radio config (`config/radio.pocket.toml`):
 
 ```toml
 [sticks]      # display only; all keys optional, these are the defaults

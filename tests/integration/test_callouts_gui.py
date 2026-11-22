@@ -109,8 +109,6 @@ async def test_mission_callouts_are_spoken_with_styles_and_shown(tmp_path):
 async def test_toasts_do_not_cover_status_bar_or_dock_at_1366x768(tmp_path):
     async with rig_with(tmp_path) as rig, browser_check.Browser(1366, 768, 9382) as b:
         await start(b, rig)
-        await b.eval("window.exgs.layout.set('flight')")
-        await b.sleep(0.5)
         for k in ("failure", "link", "state", "phase", "altitude", "countdown"):
             await b.eval(f"window.exgs.callouts().test({k!r})")
         rects = await b.eval(

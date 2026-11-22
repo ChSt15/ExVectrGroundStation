@@ -1,4 +1,4 @@
-// Header bar: brand, layout views (Bench / Flight / Tuning), LIVE / REPLAY data view, RC state (as the core reports
+// Header bar: brand, layout views (Bench / Tuning), LIVE / REPLAY data view, RC state (as the core reports
 // it), radio link quality, the recorder block (start / stop, name, duration, size, free space, errors), connection
 // and theme. Recording is manual: Start begins a recording at once, Stop needs no confirmation.
 import { h, makeCell, renderValue } from "./ui.js";

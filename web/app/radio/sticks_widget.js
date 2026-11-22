@@ -10,7 +10,7 @@ function fmtAxis(name, v, us) {
   return `${AXIS_NAME[name]} ${val}${us === undefined ? "" : ` · ${us} µs`}`;
 }
 
-export function createSticks(parent, { compact = false } = {}) {
+export function createSticks(parent) {
   const caption = h("div", { class: "sticks-cap" });
   const make = (side) => {
     const dot = h("span", { class: "gdot" });
@@ -24,7 +24,7 @@ export function createSticks(parent, { compact = false } = {}) {
   const L = make("left");
   const R = make("right");
   const thrBig = h("div", { class: "thr-big", "data-testid": "throttle" });
-  const root = h("div", { class: `sticks${compact ? " compact" : ""}`, "data-testid": "sticks" }, caption, h("div", { class: "sticks-row" }, L.wrap, thrBig, R.wrap));
+  const root = h("div", { class: "sticks", "data-testid": "sticks" }, caption, h("div", { class: "sticks-row" }, L.wrap, thrBig, R.wrap));
   parent.append(root);
 
   function setG(g, s) {

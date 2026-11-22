@@ -15,7 +15,7 @@ registerPanel({
   create(el, ctx) {
     const b = new Bindings(ctx);
     const compact = !!(ctx.options && ctx.options.compact);
-    const t = tiles(el, "t3");
+    const t = tiles(el, compact ? "t4 act-tiles" : "t3");
     b.tile(t, "Thrust", { type: "Actuators", field: "thrust", unit: "N", digits: 2 });
     b.tile(t, "TVC x", { type: "Actuators", kind: "num", unit: "°", digits: 1, derive: (e) => (Array.isArray(e.f.tvc) ? rad2deg(e.f.tvc[0] ?? null) : undefined) });
     b.tile(t, "TVC y", { type: "Actuators", kind: "num", unit: "°", digits: 1, derive: (e) => (Array.isArray(e.f.tvc) ? rad2deg(e.f.tvc[1] ?? null) : undefined) });

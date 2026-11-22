@@ -20,7 +20,7 @@ def txt(sel: str) -> str:
 
 
 @needs_browser
-async def test_gnss_panel_shows_position_fix_home_and_a_passing_altitude_cross_check(tmp_path):
+async def test_gnss_panel_shows_position_fix_accuracy_and_a_passing_altitude_cross_check(tmp_path):
     async with rig_with(tmp_path) as rig, browser_check.Browser(1500, 1500, 9391) as b:
         await open_page(b, rig)
         await until(
@@ -34,35 +34,9 @@ async def test_gnss_panel_shows_position_fix_home_and_a_passing_altitude_cross_c
         assert "51.5" in lat  # about 51.54 deg N, shown in degrees
         # NED velocity row is the NWU row with W and U negated
         assert await b.eval(f"document.querySelectorAll({(P + ' [data-row=gnss-vel-ned] td')!r}).length") == 4
-        # home position and the epoch of the status and of the copy
-        await until(
-            lambda: b.eval(
-                f"document.querySelector({(P + ' [data-testid=home-pos]')!r}).textContent.includes('simulation')"
-            ),
-            timeout=6,
-            what="home position",
-        )
-        await until(
-            lambda: b.eval(
-                f"document.querySelector({(P + ' [data-testid=home-epoch]')!r}).textContent.trim() === '1 / 1'"
-            ),
-            timeout=6,
-            what="home epoch",
-        )
-        assert not [m for m in b.console if "EXCEPTION" in m], b.console
-
-
-@needs_browser
-async def test_gnss_panel_compact_in_flight_view_shows_tiles_and_one_check_line(tmp_path):
-    async with rig_with(tmp_path) as rig, browser_check.Browser(1366, 768, 9392) as b:
-        await open_page(b, rig)
-        await b.eval("window.exgs.layout.set('flight')")
-        await until(
-            lambda: b.eval(f"document.querySelector({(P + ' [data-key=gnss-fix] .val')!r})?.dataset.state === 'fresh'"),
-            timeout=8,
-            what="fresh GNSS",
-        )
-        assert "3D" in await b.eval(txt("[data-key=gnss-fix]"))
         assert "OK" in await b.eval(txt("[data-key=gnss-cc-line]"))
-        assert await b.eval(f"document.querySelectorAll({(P + ' .section')!r}).length") == 0
-        assert await b.eval(f"document.querySelector({(P + ' [data-key=gnss-lat]')!r})") is None
+        # accuracy tiles: horizontal and vertical come with the radio's GNSS info
+        for k in ("gnss-acc-h", "gnss-acc-v"):
+            assert await b.eval(txt(f"[data-key={k}] .v")) not in ("", "—")
+        assert await b.eval(f"document.querySelector({(P + ' [data-testid=home-pos]')!r})") is None
+        assert not [m for m in b.console if "EXCEPTION" in m], b.console
