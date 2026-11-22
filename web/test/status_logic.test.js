@@ -12,10 +12,10 @@ const byKey = (d) => Object.fromEntries(d.items.map((i) => [i.key, i]));
 
 test("failure bits decode to the flight software names, unknown bits are listed, raw stays", () => {
   assert.deepEqual(decodeFailureBits(0), []);
-  assert.deepEqual(decodeFailureBits(0b100001), ["sensor", "radio connection loss"]);
-  assert.deepEqual(decodeFailureBits(1 << 7), ["bit 7"]);
+  assert.deepEqual(decodeFailureBits(0b100001), ["sensor", "control source lost"]);
+  assert.deepEqual(decodeFailureBits(1 << 20), ["bit 20"]);
   const d = byKey(describeVehicleStatus(entry({ ...FULL, failure_bits: 33 }), 100.2));
-  assert.match(d.failure_bits.text, /^33 \(0x21\): sensor, radio connection loss$/);
+  assert.match(d.failure_bits.text, /^33 \(0x21\): sensor, control source lost$/);
   assert.equal(d.failure_bits.tone, "bad");
   assert.match(byKey(describeVehicleStatus(entry(FULL), 100.2)).failure_bits.text, /^0 \(0x00\): none$/);
 });
@@ -104,4 +104,20 @@ test("ZEROING is shown only as the vehicle reports it, with the sent time as a p
   assert.equal(z({}).text, "zeroing n/s"); // flag not supplied by the wire profile: never shown as false
   assert.equal(z({ zeroing: null }).tone, "");
   assert.ok(!/remaining|left|countdown/i.test(z({ zeroing: true }, 1).text));
+});
+
+test("T9b tail fields: nothing for zero or older senders, compact cells when set", () => {
+  const none = byKey(describeVehicleStatus(entry({ ...FULL, ctrl_flags: 0, go_refusal: 0, degraded_bits: 0, mission_profile: 255, rc_rejected: 0 }), 100.2));
+  for (const k of ["ctrl_flags", "go_refusal", "degraded", "mission_profile", "rc_rejected"]) assert.equal(none[k], undefined, k);
+  const old = byKey(describeVehicleStatus(entry({ ...FULL, ctrl_flags: null, mission_profile: null }), 100.2));
+  assert.equal(old.ctrl_flags, undefined);
+  assert.equal(old.mission_profile, undefined);
+  const d = byKey(describeVehicleStatus(entry({ ...FULL, ctrl_flags: 0b110, go_refusal: 6, degraded_bits: 0b101, mission_profile: 2, rc_rejected: 3 }), 100.2));
+  assert.deepEqual([d.ctrl_flags.text, d.ctrl_flags.tone], ["ABORT latched, FAILSAFE latched", "bad"]);
+  assert.equal(d.go_refusal.text, "interlock");
+  assert.equal(d.degraded.text, "ToF lost, ship-node heartbeat lost");
+  assert.equal(d.mission_profile.text, "2");
+  assert.equal(d.rc_rejected.text, "3");
+  assert.equal(byKey(describeVehicleStatus(entry({ ...FULL, ctrl_flags: 0x180 }), 100.2)).ctrl_flags.tone, "");
+  assert.deepEqual(decodeFailureBits(1 << 13), ["motor-interlock watchdog"]);
 });

@@ -239,6 +239,48 @@ class VehicleStatus(Packet):
     ready_to_arm: bool | None = f(
         desc="the vehicle reports that all its Arm / MissionBegin gates are satisfied; None = unknown"
     )
+    ctrl_flags: int | None = f(
+        desc="T9b command-path bits (schema ctrl_flags: INTERLOCK_NEED_TOGGLE 0, ABORT_LATCHED 1, FAILSAFE_LATCHED 2, "
+        "NOPOS_RTH 3, SC_MISMATCH 4, SE_HOLD_ZEROING 5, SE_REFUSED 6, RADIO_FRESH 7, BENCH_FRESH 8, SOURCE_LATCHED 9, "
+        "REQ_QUEUE_FULL 10); None = older sender (payload too short)"
+    )
+    go_refusal: int | None = f(
+        desc="reason for the last refused go: 0 none, 1 not Ready, 2 latched abort/failsafe, 3 zeroing, 4 SC mismatch, "
+        "5 SB invalid or profile not implemented, 6 interlock, 7 request in progress; None = older sender"
+    )
+    degraded_bits: int | None = f(
+        desc="degraded warnings, no action taken: bit 0 ToF lost, 1 ship-node LINK_STATS lost, 2 ship-node UART "
+        "heartbeat lost; None = older sender"
+    )
+    mission_profile: int | None = f(
+        desc="SB position latched at the last go (0, 1, 2), 255 = none; None = older sender"
+    )
+    rc_rejected: int | None = f(desc="wrapping count of rejected RC_STATE frames on the vehicle; None = older sender")
+
+
+@packet(
+    "RcApplied",
+    version=1,
+    direction=Direction.DOWN,
+    nominal_rate_hz=10,
+    history=False,
+    desc="RC_APPLIED (USB only, T9b): the switch positions as the vehicle decodes them, the transition detectors' "
+    "safe-seen bits, the age of both control sources and the reject counters. For bench debugging; display only.",
+)
+class RcApplied(Packet):
+    sa: int = f(desc="SA decoded: 0 not go, 1 go")
+    sb: int = f(desc="SB decoded: 0, 1, 2, 255 = invalid")
+    sc: int = f(desc="SC decoded: 0 simulation, 1 real, 2 reserved, 255 = invalid")
+    sd: int = f(desc="SD decoded: 0 disabled, 1 enabled")
+    se: int = f(desc="SE decoded: 0 released, 1 pressed")
+    safe_seen: int = f(desc="bits: 0 GO, 1 SC_REAL, 2 SD_ENABLE, 3 SE_PRESS safe value seen")
+    radio_age: float | None = f(unit="s", desc="age of the last accepted RC_STATE from the radio source, None = none")
+    bench_age: float | None = f(
+        unit="s", desc="age of the last accepted RC_STATE from the USB (bench) source, None = none"
+    )
+    rejects: list[int] = f(
+        length=4, desc="wrapping reject counters: bad length, source not in table, stale or repeated, SOURCE_OK clear"
+    )
 
 
 @packet(

@@ -132,6 +132,7 @@ NET_VEHICLE_RATES = {
     "VEHICLE_STATUS": 20.0, "POSE": 50.0, "ACTUATORS": 10.0, "MISSION": 10.0, "GNSS": 10.0, "HOME_POSITION": 0.5,
     "HANDSET_TELEM": 2.0,
     "IMU_RAW": 20.0, "ESTIMATOR": 10.0, "TASK_TIMING": 5.0, "CALIBRATION": 0.5,
+    "RC_APPLIED": 10.0,
 }  # fmt: skip
 NET_TX_RATES = {
     "VEHICLE_STATUS": 5.0, "AIR_POSE": 25.0, "AIR_ACTUATORS": 25.0, "AIR_MISSION": 5.0,
@@ -346,6 +347,7 @@ class FakeVehiclePty:
                 flags_extra=128 if zeroing else 0,
                 home_epoch=sc.fields("VehicleStatus", t)["home_epoch"],
                 calib_state=sc.fields("VehicleStatus", t)["calib_state"],
+                ctrl=(0x180, 0, 0, 255, 0),  # RADIO_FRESH | BENCH_FRESH, nothing refused, no profile, no rejects
             )
             return self._data(src, 0, net.PORT_VEHICLE_STATUS, pl)
         if name == "POSE":
@@ -392,6 +394,10 @@ class FakeVehiclePty:
             return self._data(src, 0, net.PORT_CALIBRATION, net.pack_calibration(t_us))
         if name == "ESTIMATOR":
             return self._data(src, 0, net.PORT_ESTIMATOR, net.pack_estimator(t_us))
+        if name == "RC_APPLIED":  # all switches in their safe position, both sources fresh
+            return self._data(
+                src, 0, net.PORT_RC_APPLIED, net.pack_rc_applied(t_us, 0, 0, 0, 0, 0, 0b1111, 0.04, 0.04, (0, 0, 0, 0))
+            )
         if name == "TASK_TIMING":
             return self._data(src, 0, net.PORT_TIMING, net.pack_timing(t_us))
         if name in ("LINK_STATS_TX", "LINK_STATS_RX"):

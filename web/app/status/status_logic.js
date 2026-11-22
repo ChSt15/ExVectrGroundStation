@@ -6,6 +6,33 @@ import { ageOf, fmtAge, fmtNum, isStale } from "../fmt.js";
 export const FAILURE_BITS = [
   "sensor", "attitude", "position", "position out of bounds", "attitude out of bounds", "radio connection loss",
 ];
+/** Names of all defined bits for the status bar text (bit 5 renamed, bits 6-13 added by T9b). The Failures panel and the
+ * callouts keep the six-bit list above until they are extended. */
+export const FAILURE_BIT_NAMES = [
+  "sensor", "attitude", "position", "position out of bounds", "attitude out of bounds", "control source lost",
+  "GNSS lost", "magnetometer lost", "barometer", "gyro", "accelerometer", "attitude estimate", "position estimate",
+  "motor-interlock watchdog",
+];
+
+/** ctrl_flags of VEHICLE_STATUS (T9b command-path state). Bit index -> [short name, tone]. */
+export const CTRL_FLAGS = [
+  ["SD toggle needed", "warn"], ["ABORT latched", "bad"], ["FAILSAFE latched", "bad"], ["no-position RTH", "warn"],
+  ["SC mismatch", "warn"], ["SE hold zeroing", ""], ["SE refused", "warn"], ["radio fresh", ""], ["bench fresh", ""],
+  ["source latched", ""], ["request queue full", "warn"],
+];
+export const GO_REFUSALS = [
+  "none", "not Ready", "latched abort/failsafe", "zeroing", "SC mismatch", "SB invalid / profile not implemented",
+  "interlock", "request in progress",
+];
+export const DEGRADED_BITS = ["ToF lost", "ship-node LINK_STATS lost", "ship-node heartbeat lost"];
+
+/** Names of the set bits in `n` from `names`; unknown bits are "bit n". Not a number or 0: []. */
+export function bitNames(n, names) {
+  if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) return [];
+  const out = [];
+  for (let i = 0; i < 32; i++) if (n & (1 << i)) out.push(names[i] || `bit ${i}`);
+  return out;
+}
 
 /** Sensors of `sensor_state`: 2 bits each, TelemetrySensor 0 Init, 1 Calib, 2 Ready, 3 Failure. */
 export const SENSOR_FIELDS = ["GNSS", "IMU", "baro", "mag", "att KF", "pos KF"];
@@ -17,7 +44,7 @@ export function decodeFailureBits(n) {
   if (typeof n !== "number" || !Number.isFinite(n) || n <= 0) return [];
   const out = [];
   for (let i = 0; i < 32; i++) {
-    if (n & (1 << i)) out.push(FAILURE_BITS[i] || `bit ${i}`);
+    if (n & (1 << i)) out.push(FAILURE_BIT_NAMES[i] || `bit ${i}`);
   }
   return out;
 }
@@ -86,6 +113,27 @@ export function describeVehicleStatus(entry, now, schemaType, zeroSent = null) {
   items.push(item("uart_peer_seen", "Ship node UART", uartText, uartTone, { title: "VEHICLE_STATUS UART_PEER_SEEN: the vehicle received a valid frame from the ship radio node on its UART in the last 3 s (information only)" }));
 
   items.push(item("ctrl_source", "Control source", f.ctrl_source === undefined ? "n/s" : String(f.ctrl_source)));
+
+  // T9b tail fields, all vehicle-reported. Null/undefined = older sender: no cell. Zero or "none" values add nothing
+  // alarming: the cells below appear only when something is set.
+  const cf = f.ctrl_flags;
+  if (typeof cf === "number" && cf > 0) {
+    const names = CTRL_FLAGS.map((c, i) => (cf & (1 << i) ? c : null)).filter(Boolean);
+    const extra = bitNames(cf & ~((1 << CTRL_FLAGS.length) - 1), []);
+    const tone = names.some((c) => c[1] === "bad") ? "bad" : names.some((c) => c[1] === "warn") ? "warn" : "";
+    items.push(item("ctrl_flags", "Command path", [...names.map((c) => c[0]), ...extra].join(", "), tone, { title: `VEHICLE_STATUS ctrl_flags ${hex(cf, 3)}` }));
+  }
+  if (typeof f.go_refusal === "number" && f.go_refusal > 0) {
+    items.push(item("go_refusal", "Go refused", GO_REFUSALS[f.go_refusal] ?? `reason ${f.go_refusal}`, "warn", { title: "VEHICLE_STATUS go_refusal: reason of the last refused go" }));
+  }
+  const degraded = bitNames(f.degraded_bits, DEGRADED_BITS);
+  if (degraded.length) items.push(item("degraded", "Degraded", degraded.join(", "), "warn", { title: "VEHICLE_STATUS degraded_bits: warnings, no action taken" }));
+  if (typeof f.mission_profile === "number" && f.mission_profile !== 255) {
+    items.push(item("mission_profile", "Profile", String(f.mission_profile), "", { title: "VEHICLE_STATUS mission_profile: SB position latched at the last go" }));
+  }
+  if (typeof f.rc_rejected === "number" && f.rc_rejected > 0) {
+    items.push(item("rc_rejected", "RC rejected", String(f.rc_rejected), "", { title: "VEHICLE_STATUS rc_rejected: wrapping count of rejected RC_STATE frames" }));
+  }
 
   const rcAge = f.rc_age;
   const nfRc = entry.nf && entry.nf.rc_age;

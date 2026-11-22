@@ -74,6 +74,11 @@ def _calib(bits: int) -> dict:
     }
 
 
+#: VEHICLE_STATUS tail fields (T9b): end offset of each in the payload. A field beyond a short (older) payload
+#: decodes as 0 in the generated module, which is not "none": the GS packet carries None instead.
+_VS_TAIL_END = {"ctrl_flags": 32, "go_refusal": 33, "degraded_bits": 34, "mission_profile": 35, "rc_rejected": 36}
+
+
 def _vehicle_status(p: xp.VehicleStatus, t: int, src: str, meta: dict) -> list[Packet]:
     armed = _flag(p.flags, xp.VehicleStatus, "FLAGS_ARMED")
     sim = _flag(p.flags, xp.VehicleStatus, "FLAGS_SIMULATION")
@@ -102,6 +107,7 @@ def _vehicle_status(p: xp.VehicleStatus, t: int, src: str, meta: dict) -> list[P
         home_epoch=p.home_epoch,
         calib_state=p.calib_state,
         **_calib(p.calib_state),
+        **{k: (getattr(p, k) if meta.get("len", 99) >= end else None) for k, end in _VS_TAIL_END.items()},
     )
     # The existing mode panels read VehicleState: fill what the wire states directly.
     state = V.VehicleState(t=t, src=src, mode=mode, sim=sim, armed=armed)
@@ -333,6 +339,15 @@ def _rc_state(p: xp.RcState, t: int, src: str, meta: dict) -> list[Packet]:
     ]
 
 
+def _rc_applied(p: xp.RcApplied, t: int, src: str, meta: dict) -> list[Packet]:
+    return [
+        V.RcApplied(
+            t=t, src=src, sa=p.sa, sb=p.sb, sc=p.sc, sd=p.sd, se=p.se, safe_seen=p.safe_seen,
+            radio_age=_nn(p.radio_age), bench_age=_nn(p.bench_age), rejects=[int(x) for x in p.rejects],
+        )
+    ]  # fmt: skip
+
+
 def _request_ack(p: xp.RequestAck, t: int, src: str, meta: dict) -> list[Packet]:
     return [L.RequestAck(t=t, src=src, req_id=p.req_id, status=int(p.status), detail=p.detail)]
 
@@ -401,6 +416,7 @@ MAPPERS: dict[type, Callable[..., list[Packet] | str]] = {
     xp.LinkConfig: _link_config,
     xp.LogText: _log_text,
     xp.RcState: _rc_state,
+    xp.RcApplied: _rc_applied,
     xp.RequestAck: _request_ack,
     xp.Request: _request,
     xp.ImuRaw: _imu_raw,
@@ -427,6 +443,7 @@ PRODUCED_TYPES = {
     "LinkConfig",
     "ConsoleText",
     "RcState",
+    "RcApplied",
     "RequestAck",
     "ImuRaw",
     "Calibration",

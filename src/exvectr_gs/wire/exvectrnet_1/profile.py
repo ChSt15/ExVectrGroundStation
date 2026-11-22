@@ -96,7 +96,11 @@ class ExVectrNet1Profile:
             wire = cls.decode(frame.payload)
         except ValueError as e:
             return [self._raw(frame, src, str(e))]
-        out = mapping.MAPPERS[cls](wire, frame.t, src, frame.meta) if cls in mapping.MAPPERS else "no mapping"
+        out = (
+            mapping.MAPPERS[cls](wire, frame.t, src, {**frame.meta, "len": len(frame.payload)})
+            if cls in mapping.MAPPERS
+            else "no mapping"
+        )
         if isinstance(out, str):
             return [self._raw(frame, src, f"{cls.__name__}: {out}")]
         if cls in (xp.AirGnss, xp.AirGnssInfo):

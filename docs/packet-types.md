@@ -154,6 +154,29 @@ Version 1, direction `down`, nominal rate 5 Hz, history: no.
 | `calib_mag_ok` | bool | - | mag calibration valid; None = unknown |
 | `calib_session` | bool | - | a calibration session is active (collecting or fitting); None = unknown |
 | `ready_to_arm` | bool | - | the vehicle reports that all its Arm / MissionBegin gates are satisfied; None = unknown |
+| `ctrl_flags` | int | - | T9b command-path bits (schema ctrl_flags: INTERLOCK_NEED_TOGGLE 0, ABORT_LATCHED 1, FAILSAFE_LATCHED 2, NOPOS_RTH 3, SC_MISMATCH 4, SE_HOLD_ZEROING 5, SE_REFUSED 6, RADIO_FRESH 7, BENCH_FRESH 8, SOURCE_LATCHED 9, REQ_QUEUE_FULL 10); None = older sender (payload too short) |
+| `go_refusal` | int | - | reason for the last refused go: 0 none, 1 not Ready, 2 latched abort/failsafe, 3 zeroing, 4 SC mismatch, 5 SB invalid or profile not implemented, 6 interlock, 7 request in progress; None = older sender |
+| `degraded_bits` | int | - | degraded warnings, no action taken: bit 0 ToF lost, 1 ship-node LINK_STATS lost, 2 ship-node UART heartbeat lost; None = older sender |
+| `mission_profile` | int | - | SB position latched at the last go (0, 1, 2), 255 = none; None = older sender |
+| `rc_rejected` | int | - | wrapping count of rejected RC_STATE frames on the vehicle; None = older sender |
+
+## RcApplied
+
+RC_APPLIED (USB only, T9b): the switch positions as the vehicle decodes them, the transition detectors' safe-seen bits, the age of both control sources and the reject counters. For bench debugging; display only.
+
+Version 1, direction `down`, nominal rate 10 Hz, history: no.
+
+| Field | Kind | Unit | Description |
+|---|---|---|---|
+| `sa` | int | - | SA decoded: 0 not go, 1 go |
+| `sb` | int | - | SB decoded: 0, 1, 2, 255 = invalid |
+| `sc` | int | - | SC decoded: 0 simulation, 1 real, 2 reserved, 255 = invalid |
+| `sd` | int | - | SD decoded: 0 disabled, 1 enabled |
+| `se` | int | - | SE decoded: 0 released, 1 pressed |
+| `safe_seen` | int | - | bits: 0 GO, 1 SC_REAL, 2 SD_ENABLE, 3 SE_PRESS safe value seen |
+| `radio_age` | float | s | age of the last accepted RC_STATE from the radio source, None = none |
+| `bench_age` | float | s | age of the last accepted RC_STATE from the USB (bench) source, None = none |
+| `rejects` | int_array[4] | - | wrapping reject counters: bad length, source not in table, stale or repeated, SOURCE_OK clear |
 
 ## HomePosition
 
@@ -294,7 +317,7 @@ Version 1, direction `up`, nominal rate n/a, history: no.
 | Field | Kind | Unit | Description |
 |---|---|---|---|
 | `req_id` | int | - | non-zero, new per action, reused on every retry |
-| `action` | enum (RequestAction: NONE=0, CALIB_GYRO_START=1, CALIB_GYRO_STOP=2, CALIB_ACCEL_START=3, CALIB_ACCEL_STOP=4, CALIB_MAG_START=5, CALIB_MAG_STOP=6, CALIB_APPLY=7, SAVE_CONFIG=8, SYSTEM_RESET=9, LINK_UPLOAD_MODE=10, LINK_REBOOT=11) | - |  |
+| `action` | enum (RequestAction: NONE=0, CALIB_GYRO_START=1, CALIB_GYRO_STOP=2, CALIB_ACCEL_START=3, CALIB_ACCEL_STOP=4, CALIB_MAG_START=5, CALIB_MAG_STOP=6, CALIB_APPLY=7, SAVE_CONFIG=8, SYSTEM_RESET=9, LINK_UPLOAD_MODE=10, LINK_REBOOT=11, ZERO_ESTIMATORS=12) | - |  |
 | `target` | int | - | destination node id |
 | `arg_i` | int | - |  |
 | `arg_f` | float | - |  |

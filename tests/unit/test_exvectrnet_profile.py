@@ -67,6 +67,7 @@ EXPECTED = {
     "LINK_CONFIG": {"LinkConfig"},
     "LOG_TEXT": {"ConsoleText"},
     "RC_STATE": {"RcState"},
+    "RC_APPLIED": {"RcApplied"},
     "REQUEST_ACK": {"RequestAck"},
     "IMU_RAW": {"ImuRaw"},
     "CALIBRATION": {"Calibration"},
@@ -664,7 +665,7 @@ def decode_vector(name, port, via="usb"):
 
 
 def test_schema_hash_is_the_pinned_one():
-    assert xp.SCHEMA_HASH == 0x414DE27A
+    assert xp.SCHEMA_HASH == 0x65E4E6E3
 
 
 def test_calib_state_decodes_into_booleans():
@@ -744,3 +745,33 @@ def test_fake_packers_match_the_new_fields():
     assert k.roll_torque == pytest.approx(ac["roll_torque"], abs=1e-6)
     m = xp.Mission.decode(net.pack_mission(5, ms))
     assert m.mission_mode == int(ms["mission_mode"]) and m.waypoint == 255
+
+
+def test_vehicle_status_t9b_tail_and_older_payloads():
+    from exvectr_gs.sources.scenario import Scenario
+
+    sc = Scenario(1)
+    vs, ms = sc.fields("VehicleState", 30.0), sc.fields("MissionState", 30.0)
+    base = (1, vs, ms["mission_mode"], ms["mission_phase"])
+    full = net.pack_vehicle_status(*base, home_epoch=1, calib_state=0, ctrl=(0x180 | 2, 6, 0b101, 2, 9))
+    assert len(full) == 36 == xp.VehicleStatus.MAX_SIZE
+    s = by_type(PROFILE.decode_many(frame(0x20, full), "usb"))["VehicleStatus"]
+    assert (s.ctrl_flags, s.go_refusal, s.degraded_bits, s.mission_profile, s.rc_rejected) == (0x182, 6, 5, 2, 9)
+    # an older sender: the generated module decodes the tail as 0, the GS packet says None (unknown)
+    old = net.pack_vehicle_status(*base, home_epoch=1, calib_state=0)
+    s = by_type(PROFILE.decode_many(frame(0x20, old), "usb"))["VehicleStatus"]
+    assert xp.VehicleStatus.decode(old).mission_profile == 0
+    assert (s.ctrl_flags, s.go_refusal, s.degraded_bits, s.mission_profile, s.rc_rejected) == (None,) * 5
+    part = full[:34]  # ctrl_flags and go_refusal present, the rest not
+    s = by_type(PROFILE.decode_many(frame(0x20, part), "usb"))["VehicleStatus"]
+    assert (s.ctrl_flags, s.go_refusal, s.degraded_bits, s.mission_profile) == (0x182, 6, 5, None)
+    assert decode_line(encode_line(s)) == s
+
+
+def test_rc_applied_decodes_through_the_generated_module_and_the_fake_packer():
+    pl = net.pack_rc_applied(5, 1, 2, 1, 1, 0, 0b0101, 0.04, float("nan"), (1, 2, 3, 4))
+    assert xp.RcApplied.decode(pl).sb == 2
+    r = by_type(PROFILE.decode_many(frame(0x84, pl), "usb"))["RcApplied"]
+    assert (r.sa, r.sb, r.sc, r.sd, r.se, r.safe_seen) == (1, 2, 1, 1, 0, 5)
+    assert r.radio_age == pytest.approx(0.04) and r.bench_age is None and r.rejects == [1, 2, 3, 4]
+    assert decode_line(encode_line(r)) == r

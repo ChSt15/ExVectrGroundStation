@@ -48,6 +48,7 @@ class RequestAction(IntEnum):
     SYSTEM_RESET = 9
     LINK_UPLOAD_MODE = 10
     LINK_REBOOT = 11
+    ZERO_ESTIMATORS = 12  # T9b: known action, deliberately not in the GUI whitelist
 
 
 class RequestStatus(IntEnum):

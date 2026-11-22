@@ -9,6 +9,7 @@
 1763471000152000000 usb FlapState angle=[1.5707963267948966,0.2617993877991494,1.0,1.2] cmd=[1.5,0.3,1.0,1.2] enabled=true
 1763471000153000000 usb TvcState vane=[0.1,-0.1,0.0,0.05] motor=[0.4,0.4] enabled=true motors_enabled=true
 1763471000160000000 link RcState origin=handset ch_us=[1500,1500,1000,1500,2000,1000,1500,1000,1500,1500,1500,1500,1500,1500,1500,1500] seq=8812
+1763471000165000000 usb RcApplied sa=0 sb=2 sc=0 sd=1 se=0 safe_seen=15 radio_age=0.04 rejects=[0,1,2,3]
 1763471000200000000 link RadioLinkStats rssi_dbm=[-71.0,-74.0] lq_pct=98.0 snr_db=9.5 up_hz=50.0 down_hz=48.0 antenna=0
 1763471000300000000 link LinkStats connected=true rx_bytes_s=8540.0 rx_frames_s=61.0 tx_frames_s=0.0 crc_errors=0 decode_errors=0 reconnects=0
 1763471000350000000 usb ConsoleText text="[teensy] sensor init done"

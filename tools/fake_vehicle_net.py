@@ -17,6 +17,7 @@ PORT_REQUEST, PORT_REQUEST_ACK = 0x11, 0x12
 PORT_VEHICLE_STATUS, PORT_AIR_POSE, PORT_AIR_ACTUATORS, PORT_AIR_MISSION = 0x20, 0x21, 0x22, 0x23
 PORT_POSE, PORT_ACTUATORS, PORT_MISSION, PORT_GNSS = 0x80, 0x81, 0x82, 0x83
 PORT_AIR_GNSS, PORT_AIR_GNSS_INFO, PORT_HOME_POSITION = 0x24, 0x25, 0x50
+PORT_RC_APPLIED = 0x84
 PORT_IMU, PORT_ESTIMATOR, PORT_TIMING, PORT_CALIBRATION = 0x90, 0x91, 0x92, 0x93
 QOS = {PORT_RC_STATE: 0, PORT_VEHICLE_STATUS: 1, PORT_HANDSET: 1, PORT_LINK_STATS: 1, PORT_LOG_TEXT: 2}
 LATEST = {PORT_RC_STATE, PORT_VEHICLE_STATUS, PORT_HANDSET, PORT_LINK_STATS}  # everything else is telemetry state
@@ -228,6 +229,10 @@ def _u16_cm(v: float) -> int:
     return _fx(v, 0.01, 0, 65534, 65535)
 
 
+def _u16_ms(v: float) -> int:
+    return _fx(v, 0.001, 0, 65534, 65535)
+
+
 def pack_air_gnss_info(t_us: int, g: dict) -> bytes:
     """AIR_GNSS_INFO (10 B): fix type, satellites, h_acc and v_acc u16 at 1 cm (65535 = unknown)."""
     return struct.pack("<IBBHH", t_us, g["fix_type"], g["num_sats"], _u16_cm(g["pos_acc"]), _u16_cm(g["alt_acc"]))
@@ -255,6 +260,7 @@ def pack_vehicle_status(
     flags_extra: int = 0,
     home_epoch: int | None = None,
     calib_state: int | None = None,
+    ctrl: tuple[int, int, int, int, int] | None = None,
 ) -> bytes:
     flags = (
         (1 if vs["armed"] else 0)
@@ -283,7 +289,22 @@ def pack_vehicle_status(
     # home_epoch then calib_state are appended (u8 each); absent = older sender (calib_state needs home_epoch)
     if home_epoch is None:
         return pl
-    return pl + bytes([home_epoch]) + (b"" if calib_state is None else bytes([calib_state]))
+    pl += bytes([home_epoch]) + (b"" if calib_state is None else bytes([calib_state]))
+    if ctrl is None or calib_state is None:
+        return pl
+    # T9b tail: ctrl_flags u16, go_refusal u8, degraded_bits u8, mission_profile u8 (255 none), rc_rejected u8
+    return pl + struct.pack("<HBBBB", *ctrl)
+
+
+def pack_rc_applied(
+    t_us: int, sa: int, sb: int, sc: int, sd: int, se: int, safe_seen: int,
+    radio_age_s: float, bench_age_s: float, rejects: tuple[int, int, int, int],
+) -> bytes:  # fmt: skip
+    """RC_APPLIED (18 B, port 0x84, USB only), from the packet table of the ExVectrPackets reference."""
+    return struct.pack(
+        "<IBBBBBBHH4B", t_us, sa, sb, sc, sd, se, safe_seen,
+        _u16_ms(radio_age_s), _u16_ms(bench_age_s), *rejects,
+    )  # fmt: skip
 
 
 def pack_handset(vs: dict, g: dict, a: dict, mode_text: str) -> bytes:
