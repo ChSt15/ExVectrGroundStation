@@ -15,7 +15,7 @@ export const SAMPLES = {
   altitude: { id: "test.altitude", text: "Altitude 50", severity: "info", priority: 4 },
   failure: { id: "test.failure", text: "Position failure", severity: "failure", priority: 0 },
   link: { id: "test.link", text: "Telemetry lost", severity: "warning", priority: 1 },
-  state: { id: "test.state", text: "Armed", severity: "warning", priority: 2 },
+  state: { id: "test.state", text: "Interlock open", severity: "warning", priority: 2 },
   deviation: { id: "test.deviation", text: "Position deviation", severity: "warning", priority: 1 },
   altcheck: { id: "test.altcheck", text: "Altitude mismatch", severity: "warning", priority: 1 },
 };

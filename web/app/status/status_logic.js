@@ -2,28 +2,35 @@
 // what the ground station sent, and nothing is assumed. Stale data is marked, never hidden.
 import { ageOf, fmtAge, fmtNum, isStale } from "../fmt.js";
 
-/** failure_bits of VEHICLE_STATUS (flight-software docs/project/hardware-and-drivers.md, field mapping). */
-export const FAILURE_BITS = [
-  "sensor", "attitude", "position", "position out of bounds", "attitude out of bounds", "radio connection loss",
-];
-/** Names of all defined bits for the status bar text (bit 5 renamed, bits 6-13 added by T9b). The Failures panel and the
- * callouts keep the six-bit list above until they are extended. */
+/** Names of all defined failure_bits of VEHICLE_STATUS (flight-software docs/project/hardware-and-drivers.md, field
+ * mapping): bit 5 is "control source lost" (T9b-3, was "radio connection loss"), bits 6-13 were added by T9b, bit 13 is the
+ * motor-interlock watchdog. Used by the status bar, the Health panel and (by length) the callouts. */
 export const FAILURE_BIT_NAMES = [
   "sensor", "attitude", "position", "position out of bounds", "attitude out of bounds", "control source lost",
   "GNSS lost", "magnetometer lost", "barometer", "gyro", "accelerometer", "attitude estimate", "position estimate",
   "motor-interlock watchdog",
 ];
+export const FAILURE_BITS = FAILURE_BIT_NAMES;
 
 /** ctrl_flags of VEHICLE_STATUS (T9b command-path state). Bit index -> [short name, tone]. */
 export const CTRL_FLAGS = [
-  ["SD toggle needed", "warn"], ["ABORT latched", "bad"], ["FAILSAFE latched", "bad"], ["no-position RTH", "warn"],
+  ["Toggle SD off, then on", "warn"], ["ABORT latched", "bad"], ["FAILSAFE latched", "bad"], ["no-position RTH", "warn"],
   ["SC mismatch", "warn"], ["SE hold zeroing", ""], ["SE refused", "warn"], ["radio fresh", ""], ["bench fresh", ""],
   ["source latched", ""], ["request queue full", "warn"],
 ];
+/** go_refusal of VEHICLE_STATUS (vehicle docs hardware-and-drivers.md, T9b-4): the reason the last go edge (SA) was refused. */
 export const GO_REFUSALS = [
-  "none", "not Ready", "latched abort/failsafe", "zeroing", "SC mismatch", "SB invalid / profile not implemented",
-  "interlock", "request in progress",
+  "none",
+  "vehicle not Ready (or calibration invalid)",
+  "failsafe latched (clear it with the SE short press)",
+  "estimator zeroing window or no valid zero",
+  "SC invalid, reserved or different from the vehicle mode",
+  "SB invalid or profile not implemented (only SB 2 flies)",
+  "reserved (the interlock is not a go precondition)",
+  "calibration session or gyro run in progress",
 ];
+/** Text for a go_refusal code (1-7); unknown codes are shown as "reason n". */
+export const goRefusalText = (n) => GO_REFUSALS[n] ?? `reason ${n}`;
 export const DEGRADED_BITS = ["ToF lost", "ship-node LINK_STATS lost", "ship-node heartbeat lost"];
 
 /** Names of the set bits in `n` from `names`; unknown bits are "bit n". Not a number or 0: []. */
@@ -91,8 +98,9 @@ export function describeVehicleStatus(entry, now, schemaType, zeroSent = null) {
   items.push(item("mode", "Mode", f.mode === undefined ? "n/s" : String(f.mode), MODE_TONE[f.mode] || ""));
   items.push(item("mission", "Mission", f.mission_mode === undefined ? "n/s" : `${f.mission_mode} / ${f.mission_phase ?? "n/s"}`));
 
-  const [armText, armTone] = bool(f.armed, "ARMED", "disarmed", "warn");
-  items.push(item("armed", "Armed", armText, armTone));
+  // T9b-4: the vehicle's ARMED flag now means "motor interlock open" (SD toggled on); it is no longer an arm command state.
+  const [armText, armTone] = bool(f.armed, "MOTOR INTERLOCK OPEN", "interlock closed", "warn");
+  items.push(item("armed", "Motor interlock", armText, armTone, { title: "VEHICLE_STATUS ARMED flag: since T9b-4 it means the motor interlock is open (SD observed off, then on, with a fresh state). Motors run only if the control system also commands them." }));
 
   const [motText, motTone] = bool(f.motors_enabled, "MOTORS ENABLED", "motors off", "motors", "");
   items.push(item("motors_enabled", "Motors", motText, motTone, { loud: true }));
@@ -128,7 +136,7 @@ export function describeVehicleStatus(entry, now, schemaType, zeroSent = null) {
     items.push(item("ctrl_flags", "Command path", [...names.map((c) => c[0]), ...extra].join(", "), tone, { title: `VEHICLE_STATUS ctrl_flags ${hex(cf, 3)}` }));
   }
   if (typeof f.go_refusal === "number" && f.go_refusal > 0) {
-    items.push(item("go_refusal", "Go refused", GO_REFUSALS[f.go_refusal] ?? `reason ${f.go_refusal}`, "warn", { title: "VEHICLE_STATUS go_refusal: reason of the last refused go" }));
+    items.push(item("go_refusal", "Go refused", goRefusalText(f.go_refusal), "warn", { title: "VEHICLE_STATUS go_refusal: reason of the last refused go" }));
   }
   const degraded = bitNames(f.degraded_bits, DEGRADED_BITS);
   if (degraded.length) items.push(item("degraded", "Degraded", degraded.join(", "), "warn", { title: "VEHICLE_STATUS degraded_bits: warnings, no action taken" }));

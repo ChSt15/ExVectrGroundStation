@@ -50,7 +50,7 @@ test("armed, failsafe, gs_present, ctrl_source, rc_age, last request", () => {
   const d = byKey(
     describeVehicleStatus(entry({ ...FULL, armed: true, failsafe: true, gs_present: false, ctrl_source: "USB", rc_age: 0.25, last_req_id: 7, last_req_status: 2 }), 100.2),
   );
-  assert.equal(d.armed.text, "ARMED");
+  assert.equal(d.armed.text, "MOTOR INTERLOCK OPEN");
   assert.equal(d.failsafe.text, "FAILSAFE");
   assert.equal(d.gs_present.text, "GS absent");
   assert.equal(d.ctrl_source.text, "USB");
@@ -114,7 +114,7 @@ test("T9b tail fields: nothing for zero or older senders, compact cells when set
   assert.equal(old.mission_profile, undefined);
   const d = byKey(describeVehicleStatus(entry({ ...FULL, ctrl_flags: 0b110, go_refusal: 6, degraded_bits: 0b101, mission_profile: 2, rc_rejected: 3 }), 100.2));
   assert.deepEqual([d.ctrl_flags.text, d.ctrl_flags.tone], ["ABORT latched, FAILSAFE latched", "bad"]);
-  assert.equal(d.go_refusal.text, "interlock");
+  assert.equal(d.go_refusal.text, "reserved (the interlock is not a go precondition)");
   assert.equal(d.degraded.text, "ToF lost, ship-node heartbeat lost");
   assert.equal(d.mission_profile.text, "2");
   assert.equal(d.rc_rejected.text, "3");

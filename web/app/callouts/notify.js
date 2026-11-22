@@ -68,7 +68,7 @@ export class Notifier {
     const badge = h("span", { class: "toast-n", hidden: true });
     const close = h("button", { class: "toast-x", title: "dismiss", "aria-label": "dismiss notification" }, "✕");
     const el = h("div", { class: "toast", "data-tone": toneOf(ev.severity), "data-category": ev.category, "data-sticky": String(!!ev.sticky), role: ev.severity === "failure" ? "alert" : "status" },
-      h("span", { class: "toast-t", text: ev.text }), badge, close);
+      h("span", { class: "toast-t", text: ev.label || ev.text }), badge, close);
     const item = { el, key: ev.key, sticky: !!ev.sticky, count: 1, badge, ev, timer: null };
     close.addEventListener("click", () => this.remove(item));
     if (!item.sticky) item.timer = setTimeout(() => this.remove(item), ev.severity === "failure" ? FAILURE_DISMISS_MS : AUTO_DISMISS_MS);

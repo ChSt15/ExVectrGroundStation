@@ -112,7 +112,7 @@ async def test_browser_panels_show_fresh_then_stale_values_and_views_switch():
             tones = await b.eval(
                 "[...document.querySelectorAll('[data-panel=health] .sys-chip:not([data-group=calib])')].map(e => e.dataset.tone)"  # noqa: E501
             )
-            assert len(tones) == 13 and all(t == "ok" for t in tones), tones
+            assert len(tones) == 21 and all(t == "ok" for t in tones), tones
             # calibration chips: the structured calib_state is primary, a log warning must not turn a chip red
             keys = ("calib.gyro", "calib.accel", "calib.mag", "calib.ready")
             rows_js = (

@@ -106,7 +106,7 @@ async def test_status_bar_shows_only_reported_values_and_follows_a_simulation_to
         for want in (
             "Mode",
             "Mission",
-            "Armed",
+            "Motor interlock",
             "Motors",
             "Failsafe",
             "Failures",

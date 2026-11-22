@@ -4,10 +4,13 @@
 // callouts. Category enable switches are applied by the caller, not here (baselines keep following the data).
 
 import { AltCheck } from "../gnss/gnss_logic.js";
+import { goRefusalText } from "../status/status_logic.js";
 
 /** Spoken names of the failure_bits of VEHICLE_STATUS, same order as FAILURE_BITS (a test checks the length). */
 export const FAILURE_TEXT = [
-  "Sensor failure", "Attitude failure", "Position failure", "Position out of bounds", "Attitude out of bounds", "Radio connection loss",
+  "Sensor failure", "Attitude failure", "Position failure", "Position out of bounds", "Attitude out of bounds", "Control source lost",
+  "GNSS lost", "Magnetometer lost", "Barometer failure", "Gyro failure", "Accelerometer failure",
+  "Attitude estimate failure", "Position estimate failure", "Interlock watchdog failure",
 ];
 export const failureText = (i) => FAILURE_TEXT[i] || `Failure bit ${i}`;
 
@@ -176,7 +179,7 @@ export class CalloutEngine {
       const e = v ? rise : fall;
       if (e) out.push(e);
     };
-    edge("armed", f.armed, ev("state.armed", "state", "Armed", "warning", PRIORITY.state), ev("state.disarmed", "state", "Disarmed", "info", PRIORITY.state));
+    edge("armed", f.armed, ev("state.armed", "state", "Interlock open", "warning", PRIORITY.state), ev("state.disarmed", "state", "Interlock closed", "info", PRIORITY.state));
     edge("motors", f.motors_enabled, ev("state.motors", "state", "Motors enabled", "failure", PRIORITY.failure), null);
     // "Motors enabled" is said twice (once more after MOTORS_REPEAT_S) while the vehicle still reports it
     if (st.motors === true && st.motorsAt === undefined && out.some((e) => e.id === "state.motors")) st.motorsAt = now + MOTORS_REPEAT_S;
@@ -184,6 +187,17 @@ export class CalloutEngine {
     else if (typeof st.motorsAt === "number" && now >= st.motorsAt) {
       st.motorsAt = null;
       out.push(ev("state.motors", "state", "Motors enabled", "failure", PRIORITY.failure, { repeat: true }));
+    }
+    // T9b-4: SD must be toggled off, then on (ctrl_flags bit 0 INTERLOCK_NEED_TOGGLE)
+    if (finite(f.ctrl_flags)) {
+      edge("needToggle", (f.ctrl_flags & 1) !== 0, ev("state.toggle_sd", "state", "Toggle SD off, then on", "warning", PRIORITY.warning, { key: "toggle_sd" }), null);
+      // a go refused by the vehicle: the toast names the reason, the voice says only "Go refused"
+      const gr = f.go_refusal;
+      if (finite(gr)) {
+        const prev = st.goRefusal;
+        st.goRefusal = gr;
+        if (prev !== undefined && gr > 0 && gr !== prev) out.push(ev("state.go_refused", "state", "Go refused", "warning", PRIORITY.warning, { key: "go_refused", label: `Go refused: ${goRefusalText(gr)}` }));
+      }
     }
     edge("zeroing", f.zeroing, ev("state.zeroing", "state", "Zeroing", "info", PRIORITY.state), ev("state.zero_done", "state", "Zero complete", "ok", PRIORITY.state));
     if (typeof f.simulation === "boolean" && st.sim !== f.simulation) {

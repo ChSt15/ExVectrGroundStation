@@ -132,7 +132,7 @@ export function systemsStatus({ status = null, statusState = "missing", gps = nu
     out.push({ key: `calib.${r.key}`, label: short[r.key], group: "calib", tone: r.tone, issue, reason: `${short[r.key]}: ${reason}` });
   }
   const rr = readyRow(fresh);
-  out.push({ key: "calib.ready", label: "ready to arm", group: "calib", tone: rr.tone, issue: rr.tone === "bad" ? "not ready to arm" : "", reason: `ready to arm: ${rr.tone === "ok" ? "ready" : rr.tone === "bad" ? "NOT ready (refuses Arm and MissionBegin)" : "no information"}` });
+  out.push({ key: "calib.ready", label: "ready to arm", group: "calib", tone: rr.tone, issue: rr.tone === "bad" ? "not ready to arm" : "", reason: `ready to arm: ${rr.tone === "ok" ? "ready" : rr.tone === "bad" ? "NOT ready (go is refused)" : "no information"}` });
   return out;
 }
 

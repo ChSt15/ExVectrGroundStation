@@ -543,3 +543,9 @@ body[data-layout="tuning"] .group-title { display: none; }
 .tiles.gnss-tiles { gap: 4px; margin-bottom: 4px; grid-template-columns: minmax(0, .7fr) minmax(0, .8fr) minmax(0, 2.2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.3fr); } .tiles.gnss-tiles .tile { min-width: 0; } .tiles.gnss-tiles .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .tiles.gnss-tiles .tile { padding: 1px 6px 2px; } .tiles.gnss-tiles .val.big .v { font-size: var(--fs-m); }
 .tiles.act-tiles { gap: 4px; } .tiles.act-tiles .tile { padding: 1px 6px 2px; } .tiles.act-tiles .val.big .v { font-size: var(--fs-l, 16px); }
 .gnss-ll { gap: 14px; }
+.cp-box { margin: 6px 0; font-size: var(--fs-s); }
+.cp-row { display: flex; gap: 8px; padding: 1px 0; }
+.cp-l { color: var(--dim); min-width: 9em; }
+.cp-v { font-weight: 600; }
+.cp-row[data-tone="warn"] .cp-v { color: var(--warn); } .cp-row[data-tone="bad"] .cp-v { color: var(--bad); }
+.cp-row[data-tone="sim"] .cp-v { color: var(--sim); } .cp-row[data-tone="dim"] { color: var(--dim); }

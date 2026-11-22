@@ -171,35 +171,15 @@ warning = "Reboots the ship radio node: RC to the vehicle is interrupted for sec
 # TODO(T9b): delete this whole section, the `telecommand/` package, `exgs tc` and the GUI panel then.
 # The vehicle takes the old 8-byte Telecommand on ExVectrNetwork port 0x7F (src node 0, dst node 1). Each command is
 # sent EXACTLY ONCE per deliberate confirmation (GUI hold 1 s, CLI `exgs tc send NAME --confirm NAME`): no retry, no
-# ACK, and the vehicle de-duplicates nothing. SimulationMode TOGGLES on the vehicle, so the GUI never shows an assumed
-# state: only VehicleStatus.simulation as reported. Control hosts only, never in replay, never to a source that is not
+# ACK, and the vehicle de-duplicates nothing. The GUI never shows an assumed simulation state:
+# only VehicleStatus.simulation as reported. Control hosts only, never in replay, never to a source that is not
 # connected, at most one per 500 ms per client. name = whitelist key, type = flight software TelecommandType,
 # subsystem = flight software Subsystem (2 = magnetometer), param_int = int16 parameter (magic values are the
-# vehicle's: Arm 0xA5 arms and anything else disarms, SystemReset 0xC5, SimulationMode 0xA9).
+# vehicle's). T9b-4: the vehicle IGNORES the telecommands Arm, SimulationMode, MissionBegin, MissionSelect,
+# MissionAbort and SystemReset (it counts and logs them), so they are NOT in this whitelist: safety commands are
+# given with the virtual radio switches (config/radio.pocket.toml). Only the non-safety entries below remain.
 [telecommands]
 source_preference = ["usb", "link", "fake"]    # vehicle USB first, else the Router link
-
-[[telecommands.command]]
-name = "Arm"
-type = "Arm"
-label = "Arm"
-group = "Vehicle"
-param_int = 0xA5
-
-[[telecommands.command]]
-name = "Disarm"
-type = "Arm"
-label = "Disarm"
-group = "Vehicle"
-param_int = 0
-
-[[telecommands.command]]
-name = "SystemReset"
-type = "SystemReset"
-label = "Reset system state (does NOT zero estimators)"
-group = "Vehicle"
-param_int = 0xC5
-note = "resets failures, mode and mission only; the estimators keep their values (use Zero estimators)"
 
 [[telecommands.command]]
 name = "ZeroEstimators"
@@ -212,30 +192,6 @@ param_float_min = 1.0                          # the vehicle clamps to 1..60 s a
 param_float_max = 60.0
 param_float_name = "duration_s"
 note = "zeroes the estimators for the duration; the vehicle reports ZEROING in its status"
-
-[[telecommands.command]]
-name = "SimulationMode"
-type = "SimulationMode"
-label = "Simulation mode: TOGGLE"
-group = "Vehicle"
-param_int = 0xA9
-note = "toggles on the vehicle; the state is only what the status bar reports"
-
-[[telecommands.command]]
-name = "MissionBegin"
-type = "MissionBegin"
-label = "Mission begin"
-group = "Mission"
-param_int = -20                                # initial mission time in s; the vehicle refuses > -18 while calibration is required (fixed 15 s countdown comes with T9b)
-param_min = -3600
-param_max = 3600
-note = "needs mode Ready; real mode refuses a countdown shorter than -18 s (simulation accepts it); arming not required"
-
-[[telecommands.command]]
-name = "MissionAbort"
-type = "MissionAbort"
-label = "Mission abort"
-group = "Mission"
 
 [[telecommands.command]]
 name = "CalibGyroStart"

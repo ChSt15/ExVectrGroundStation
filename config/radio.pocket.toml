@@ -18,7 +18,7 @@ send_rate_hz = 25
 channel_count = 16
 channel_default_us = 1500           # sticks (channels 1, 2, 4) and any unmapped channel: neutral
 channel_defaults = { 3 = 1000 }     # 1-based channel -> us: throttle low
-mapping_note = "Must match the flight-software compiled-in RC channel table (rev: not yet versioned)"
+mapping_note = "Must match the flight-software compiled-in RC channel table, T9b-4 revision (ch5 SA, ch6 SB, ch7 SC, ch8 SD, ch9 SE, ch10 S1); the vehicle reports its own interpretation in RC_APPLIED"
 
 # Stick DISPLAY only (radio panel and the compact RC panel of the Flight view): which channels the two gimbals
 # show. The ground station sends no stick values: in master these channels carry the defaults above (sticks
@@ -34,7 +34,7 @@ yaw = 4
 [[controls]]
 id = "SA"
 label = "SA"
-meaning = "mission go"
+meaning = "up = go (needs an observed down-to-up change), down = abort / stop"
 kind = "toggle2"
 channel = 5
 values_us = [1000, 2000]
@@ -44,7 +44,7 @@ svg = { x = 28, y = 40 }
 [[controls]]
 id = "SB"
 label = "SB"
-meaning = "mission type 0/1/2"
+meaning = "mission profile 0/1/2, read at go (only 2 flies)"
 kind = "switch3"
 channel = 6
 values_us = [1000, 1500, 2000]
@@ -54,7 +54,7 @@ svg = { x = 64, y = 40 }
 [[controls]]
 id = "SC"
 label = "SC"
-meaning = "vehicle mode: 0 simulation, 1 flight, 2 reserved"
+meaning = "simulation / real: changed only by an observed 0 <-> 1 edge on the ground, boots real; 2 reserved"
 kind = "switch3"
 channel = 7
 values_us = [1000, 1500, 2000]
@@ -64,7 +64,7 @@ svg = { x = 100, y = 40 }
 [[controls]]
 id = "SD"
 label = "SD"
-meaning = "motor enable"
+meaning = "motor interlock: toggle off, then on to open (needs a fresh state)"
 kind = "toggle2"
 channel = 8
 values_us = [1000, 2000]
@@ -76,7 +76,7 @@ svg = { x = 136, y = 40 }
 [[controls]]
 id = "SE"
 label = "SE"
-meaning = "reset hold"
+meaning = "short press: reset system state / hold 1 s: zero estimators (while held)"
 kind = "momentary"
 channel = 9
 values_us = [1000, 2000]
