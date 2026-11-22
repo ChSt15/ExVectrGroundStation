@@ -10,7 +10,7 @@ export class Store {
   }
 
   _newView() {
-    return { items: new Map(), clock: null, perfAtClock: 0, rate: 1 };
+    return { items: new Map(), clock: null, perfAtClock: 0, rate: 1, priority: [] };
   }
 
   setSchema(types) {
@@ -32,6 +32,7 @@ export class Store {
     const v = this.views[view];
     if (!v) return;
     v.items = new Map();
+    if (Array.isArray(msg.priority)) v.priority = msg.priority;
     this.setClock(view, msg.clock);
     for (const it of msg.items || []) v.items.set(`${it.type}|${it.src}`, it);
     this._emit("snapshot", view);
@@ -82,14 +83,51 @@ export class Store {
     return v.clock + (this.perfNow() - v.perfAtClock) * v.rate;
   }
 
-  /** Entry for (type, src). Without src: the freshest entry of that type. */
+  /**
+   * Entry for (type, src). Without src: the type merged field by field over all sources (as the core's
+   * `StateStore.get_merged`): each field comes from the highest-priority source whose packet is fresh and carries it,
+   * else from the newest packet that carries it. The result is the preferred source's entry with `f`/`nf` filled in;
+   * `fs[field] = {src, t, stale_after}` gives each field's own source and time (ages are per field).
+   * With one source it is that source's entry, unchanged.
+   */
   get(view, type, src) {
     const v = this.views[view];
     if (!v) return undefined;
     if (src) return v.items.get(`${type}|${src}`);
-    let best;
-    for (const it of v.items.values()) if (it.type === type && (!best || it.t > best.t)) best = it;
-    return best;
+    const cands = [];
+    for (const it of v.items.values()) if (it.type === type) cands.push(it);
+    if (cands.length < 2) return cands[0];
+    const now = this.now(view);
+    const rank = (it) => {
+      const i = v.priority.indexOf(it.src);
+      return i < 0 ? v.priority.length : i;
+    };
+    cands.sort((a, b) => rank(a) - rank(b) || (a.src < b.src ? -1 : 1));
+    const isFresh = (it) => now === null || now - it.t <= (typeof it.stale_after === "number" ? it.stale_after : 0.5);
+    const fresh = cands.filter(isFresh);
+    const newest = [...cands].sort((a, b) => b.t - a.t);
+    const base = fresh[0] || newest[0];
+    const names = new Set();
+    for (const it of cands) for (const k of Object.keys(it.f || {})) names.add(k);
+    const f = {};
+    const nf = {};
+    const fs = {};
+    let merged = false;
+    for (const k of names) {
+      const has = (it) => it.f && it.f[k] !== undefined && it.f[k] !== null;
+      const pick = fresh.find(has) || newest.find(has) || cands.find((it) => it.f && k in it.f);
+      f[k] = pick.f[k];
+      if (pick.nf && pick.nf[k] !== undefined) nf[k] = pick.nf[k];
+      if (pick !== base) {
+        merged = true;
+        fs[k] = { src: pick.src, t: pick.t, stale_after: pick.stale_after };
+      }
+    }
+    if (!merged) return { ...base, srcs: cands.map((it) => it.src) };
+    const out = { ...base, f, srcs: cands.map((it) => it.src), fs };
+    if (Object.keys(nf).length) out.nf = nf;
+    else delete out.nf;
+    return out;
   }
 
   /** All entries of a type (one per source). */

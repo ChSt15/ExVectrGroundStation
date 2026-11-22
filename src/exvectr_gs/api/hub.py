@@ -194,19 +194,25 @@ class Hub:
         v = self.views[view]
         now = v.clock()
         entries = v.store.snapshot()
+        fsrc: dict[int, Any] = {}
         if preferred:
             seen: dict[str, Any] = {}
             for e in entries:
                 n = _type_of(e.packet)
                 if n not in seen:
-                    seen[n] = v.store.get(n, src, now)
+                    m = v.store.get_merged(n, now) if src is None else None
+                    if m is not None:
+                        seen[n] = m.entry
+                        fsrc[id(m.entry)] = m.fields
+                    else:
+                        seen[n] = v.store.get(n, src, now)
             entries = [e for e in seen.values() if e is not None]
         items = [
-            item_to_json(e.packet, e.interval_s, e.stale_after_s)
+            item_to_json(e.packet, e.interval_s, e.stale_after_s, fsrc.get(id(e)))
             for e in entries
             if (types is None or _type_of(e.packet) in types) and (src is None or e.packet.src == src)
         ]
-        return {"view": view, "clock": now / 1e9, "items": items}
+        return {"view": view, "clock": now / 1e9, "priority": v.store.priority, "items": items}
 
     def post_snapshot(self, client: Client, view: str) -> None:
         sub = client.subs.get(view)

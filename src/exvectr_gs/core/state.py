@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Literal
 
 from ..packets import PacketRegistry
-from ..packets.base import Packet
+from ..packets.base import Packet, UnknownPacket
 
 EWMA_ALPHA = 0.2
 
@@ -27,6 +28,29 @@ def freshness(entry: Entry | None, now: int) -> Literal["fresh", "stale", "missi
     if entry is None:
         return "missing"
     return "fresh" if (now - entry.packet.t) / 1e9 <= entry.stale_after_s else "stale"
+
+
+@dataclass(frozen=True)
+class FieldSource:
+    """Where one merged field value came from: the source, that packet's time (ns) and its stale threshold."""
+
+    src: str
+    t: int
+    stale_after_s: float
+
+
+@dataclass
+class Merged:
+    """Field-level merge of one packet type over all sources (`StateStore.get_merged`).
+
+    `entry` is the preferred source's entry with its missing fields filled from the other sources.
+    `fields` maps every field that has a value to its own source and time (ages are per field)."""
+
+    entry: Entry
+    fields: dict[str, FieldSource]
+
+
+_BASE_FIELDS = frozenset({"t", "src", "extra"})
 
 
 def field_status(entry: Entry | None, field: str, now: int) -> Freshness:
@@ -99,6 +123,50 @@ class StateStore:
         if fresh:
             return min(fresh, key=rank)
         return max(cands, key=lambda e: e.packet.t)
+
+    @property
+    def priority(self) -> list[str]:
+        return list(self._priority)
+
+    def get_merged(self, type_name: str, now: int | None = None) -> Merged | None:
+        """Per field, the value of the highest-priority source that has a FRESH non-None value for it.
+        A field no fresh source carries falls back to the newest stale value that has it; a field no
+        source carries stays None. With one source this is exactly `get(type_name)`."""
+        base = self.get(type_name, None, now)
+        if base is None:
+            return None
+        pkt = base.packet
+        cands = [e for (t, _), e in self._entries.items() if t == type_name]
+        if isinstance(pkt, UnknownPacket) or len(cands) < 2:
+            names = [] if isinstance(pkt, UnknownPacket) else [f.name for f in dataclasses.fields(pkt)]
+            fs = {
+                n: FieldSource(pkt.src, pkt.t, base.stale_after_s)
+                for n in names
+                if n not in _BASE_FIELDS and getattr(pkt, n) is not None
+            }
+            return Merged(base, fs)
+        now = self._now(now)
+        rank = {s: i for i, s in enumerate(self._priority)}
+        cands.sort(key=lambda e: (rank.get(e.packet.src, len(rank)), e.packet.src))
+        fresh = [e for e in cands if freshness(e, now) == "fresh"]
+        newest = sorted(cands, key=lambda e: -e.packet.t)
+        fs: dict[str, FieldSource] = {}
+        repl: dict[str, object] = {}
+        for f in dataclasses.fields(pkt):
+            if f.name in _BASE_FIELDS:
+                continue
+            pick = next((e for e in fresh if getattr(e.packet, f.name, None) is not None), None)
+            if pick is None:
+                pick = next((e for e in newest if getattr(e.packet, f.name, None) is not None), None)
+            if pick is None:
+                continue
+            fs[f.name] = FieldSource(pick.packet.src, pick.packet.t, pick.stale_after_s)
+            if pick.packet.src != pkt.src and getattr(pkt, f.name) is not getattr(pick.packet, f.name):
+                repl[f.name] = getattr(pick.packet, f.name)
+        if not repl:
+            return Merged(base, fs)
+        merged_entry = dataclasses.replace(base, packet=dataclasses.replace(pkt, **repl))
+        return Merged(merged_entry, fs)
 
     def snapshot(self) -> list[Entry]:
         """Latest entry per (type, src)."""

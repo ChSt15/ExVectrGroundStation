@@ -154,8 +154,23 @@ def packet_from_json(d: Mapping[str, Any], registry: PacketRegistry = REGISTRY) 
     return ptype.cls(t=t, src=d["src"], **values)
 
 
-def item_to_json(pkt: Packet, interval_s: float | None = None, stale_after_s: float | None = None) -> dict:
+def item_to_json(
+    pkt: Packet,
+    interval_s: float | None = None,
+    stale_after_s: float | None = None,
+    field_src: Mapping[str, Any] | None = None,
+) -> dict:
+    """`field_src` (merged items only): per field that came from another source than `src`, its own
+    `{"src","t","stale_after"}` (`fs`)."""
     d = packet_to_json(pkt)
+    if field_src:
+        fs = {
+            n: {"src": f.src, "t": f.t / 1e9, "stale_after": f.stale_after_s}
+            for n, f in field_src.items()
+            if f.src != pkt.src and n in d["f"]
+        }
+        if fs:
+            d["fs"] = fs
     if interval_s is not None:
         d["iv"] = interval_s
     if stale_after_s is not None:

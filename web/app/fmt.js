@@ -139,7 +139,14 @@ export function describe(spec, lookup, now, schemaOf = () => undefined) {
     age = Math.max(age, a);
     if (a > staleAfter(entries[i], schemaOf(types[i]))) stale = true;
   }
-  const src = [...new Set(entries.map((e) => e.src))].join("+");
+  let src = [...new Set(entries.map((e) => e.src))].join("+");
+  // a field filled in from another source (merged entry) has its own age, threshold and source
+  const own = !spec.derive && entries.length === 1 && entries[0].fs ? entries[0].fs[spec.field] : undefined;
+  if (own) {
+    age = Math.max(0, now - own.t);
+    stale = age > (typeof own.stale_after === "number" ? own.stale_after : staleAfter(entries[0], schemaOf(types[0])));
+    src = own.src;
+  }
 
   let value;
   let marker;
@@ -152,12 +159,14 @@ export function describe(spec, lookup, now, schemaOf = () => undefined) {
     if (value === undefined && marker === undefined) {
       return {
         state: "not supplied",
-        text: "n/s",
+        text: entries[0].srcs ? "not sent" : "n/s",
         unit: "",
         age,
         src,
         value: undefined,
-        title: `${spec.field} not supplied by ${src}`,
+        title: entries[0].srcs
+          ? `${spec.field} is not sent by the vehicle (checked ${entries[0].srcs.join(", ")})`
+          : `${spec.field} not supplied by ${src}`,
       };
     }
   }

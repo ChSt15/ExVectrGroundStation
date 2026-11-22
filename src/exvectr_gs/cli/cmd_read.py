@@ -134,10 +134,16 @@ async def _watch(c: CoreClient, args: argparse.Namespace) -> int:
 
 
 def _freshness(item: dict, clock: float, field: str | None) -> tuple[str, float]:
-    age = max(0.0, clock - item["t"])
-    if field is not None and field not in item["f"]:
-        return "not supplied", age
-    return ("fresh" if age <= item.get("stale_after", math.inf) else "stale"), age
+    """Freshness of the item, or of one field: a merged item (`fs`) carries per-field source and time."""
+    t, stale_after = item["t"], item.get("stale_after", math.inf)
+    if field is not None:
+        if field not in item["f"]:
+            return "not supplied", max(0.0, clock - t)
+        own = item.get("fs", {}).get(field)
+        if own:
+            t, stale_after = own["t"], own.get("stale_after", math.inf)
+    age = max(0.0, clock - t)
+    return ("fresh" if age <= stale_after else "stale"), age
 
 
 async def _get(c: CoreClient, args: argparse.Namespace) -> int:
@@ -154,11 +160,13 @@ async def _get(c: CoreClient, args: argparse.Namespace) -> int:
         raise CliError(f"missing: no {tname} received{where}", EXIT_ERROR, "missing")
     item = snap["items"][0]
     state, age = _freshness(item, snap["clock"], fname or None)
+    own = item.get("fs", {}).get(fname) if fname else None
+    fsrc, ft = (own["src"], own["t"]) if own else (item["src"], item["t"])
     res = {
         "target": args.target,
         "type": tname,
-        "src": item["src"],
-        "t": item["t"],
+        "src": fsrc,
+        "t": ft,
         "age_s": age,
         "freshness": state,
         "interval_s": item.get("iv"),
@@ -178,7 +186,7 @@ async def _get(c: CoreClient, args: argparse.Namespace) -> int:
         shown = line_of(item)
     emit(args, res, f"{args.target} = {shown}" if fname else shown)
     if not args.json:
-        print(f"# src={item['src']} age={age_text(age)} {state}", flush=True)
+        print(f"# src={fsrc} age={age_text(age)} {state}", flush=True)
     return EXIT_OK
 
 
