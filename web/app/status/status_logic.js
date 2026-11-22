@@ -112,7 +112,11 @@ export function describeVehicleStatus(entry, now, schemaType, zeroSent = null) {
   const [uartText, uartTone] = bool(f.uart_peer_seen, "seen", "lost", "ok", "warn");
   items.push(item("uart_peer_seen", "Ship node UART", uartText, uartTone, { title: "VEHICLE_STATUS UART_PEER_SEEN: the vehicle received a valid frame from the ship radio node on its UART in the last 3 s (information only)" }));
 
-  items.push(item("ctrl_source", "Control source", f.ctrl_source === undefined ? "n/s" : String(f.ctrl_source)));
+  // T9b-1: the vehicle's own ctrl_source, with the latch (SOURCE_LATCHED bit 9) and which sources are fresh (bits 7, 8).
+  const cfs = typeof f.ctrl_flags === "number" ? f.ctrl_flags : 0;
+  const latched = !!(cfs & (1 << 9));
+  const fresh = [cfs & (1 << 7) ? "radio" : null, cfs & (1 << 8) ? "bench" : null].filter(Boolean);
+  items.push(item("ctrl_source", "Control source", f.ctrl_source === undefined ? "n/s" : String(f.ctrl_source) + (latched ? " (latched)" : ""), "", { title: `VEHICLE_STATUS ctrl_source; fresh sources (accepted RC_STATE at most 2 s old): ${fresh.length ? fresh.join(", ") : "none"}${latched ? "; latched: the vehicle is committed to this source" : ""}` }));
 
   // T9b tail fields, all vehicle-reported. Null/undefined = older sender: no cell. Zero or "none" values add nothing
   // alarming: the cells below appear only when something is set.
