@@ -56,8 +56,8 @@
   "views": {
     "bench": {
       "label": "Bench",
-      "hint": "everything: vehicle with GNSS and systems, the 3D view, mission with target and data rates, and the full Operations dock",
-      "columns": "minmax(300px, 1.15fr) minmax(360px, 1.3fr) minmax(330px, 1.05fr)",
+      "hint": "everything: vehicle with GNSS and health, the 3D view, mission with target and data rates, and the full Operations dock",
+      "columns": "minmax(420px, 1.5fr) minmax(340px, 1.1fr) minmax(360px, 1.2fr)",
       "dock": "open",
       "groups": [
         {
@@ -86,7 +86,7 @@
               "panel": "gnss"
             },
             {
-              "panel": "systems"
+              "panel": "health"
             }
           ]
         },

@@ -110,7 +110,7 @@ async def test_browser_panels_show_fresh_then_stale_values_and_views_switch():
                 assert early[pid]["tagged"] > 0, (pid, early[pid])
             # Systems panel: the fake vehicle is healthy, so every vehicle-reported system is green
             tones = await b.eval(
-                "[...document.querySelectorAll('[data-panel=systems] .sys-chip:not([data-group=calib])')].map(e => e.dataset.tone)"  # noqa: E501
+                "[...document.querySelectorAll('[data-panel=health] .sys-chip:not([data-group=calib])')].map(e => e.dataset.tone)"  # noqa: E501
             )
             assert len(tones) == 13 and all(t == "ok" for t in tones), tones
             # calibration chips: the structured calib_state is primary, a log warning must not turn a chip red
@@ -118,7 +118,7 @@ async def test_browser_panels_show_fresh_then_stale_values_and_views_switch():
             rows_js = (
                 "["
                 + ",".join(
-                    f"document.querySelector('[data-panel=systems] [data-key=\"{k}\"]').dataset.tone" for k in keys
+                    f"document.querySelector('[data-panel=health] [data-key=\"{k}\"]').dataset.tone" for k in keys
                 )
                 + "]"
             )  # noqa: E501
@@ -128,7 +128,7 @@ async def test_browser_panels_show_fresh_then_stale_values_and_views_switch():
             await b.sleep(0.8)
             assert await b.eval(rows_js) == ["ok"] * 4
             assert await b.eval("document.querySelector('[data-testid=calib-hint]').hidden") is True
-            imu = await b.eval("document.querySelector('[data-panel=systems] [data-key=imu]').title")
+            imu = await b.eval("document.querySelector('[data-panel=health] [data-key=imu]').title")
             assert imu.startswith("IMU: Ready"), imu
             # Attitude stops (dropout from t=1.5 s sim time): its values go stale and show an age
             await b.sleep(5.0)
