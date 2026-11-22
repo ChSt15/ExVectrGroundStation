@@ -68,3 +68,19 @@ async def test_gnss_panel_shows_position_fix_home_and_a_passing_altitude_cross_c
             what="limit shown",
         )
         assert not [m for m in b.console if "EXCEPTION" in m], b.console
+
+
+@needs_browser
+async def test_gnss_panel_compact_in_flight_view_shows_tiles_and_one_check_line(tmp_path):
+    async with rig_with(tmp_path) as rig, browser_check.Browser(1366, 768, 9392) as b:
+        await open_page(b, rig)
+        await b.eval("window.exgs.layout.set('flight')")
+        await until(
+            lambda: b.eval(f"document.querySelector({(P + ' [data-key=gnss-fix] .val')!r})?.dataset.state === 'fresh'"),
+            timeout=8,
+            what="fresh GNSS",
+        )
+        assert "3D" in await b.eval(txt("[data-key=gnss-fix]"))
+        assert "OK" in await b.eval(txt("[data-key=gnss-cc-line]"))
+        assert await b.eval(f"document.querySelectorAll({(P + ' .section')!r}).length") == 0
+        assert await b.eval(f"document.querySelector({(P + ' [data-key=gnss-lat]')!r})") is None

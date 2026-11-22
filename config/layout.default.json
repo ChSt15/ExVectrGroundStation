@@ -137,9 +137,6 @@
               }
             },
             {
-              "panel": "gnss"
-            },
-            {
               "panel": "actuators",
               "options": {
                 "compact": true
@@ -171,6 +168,12 @@
           "panels": [
             {
               "panel": "mission",
+              "options": {
+                "compact": true
+              }
+            },
+            {
+              "panel": "gnss",
               "options": {
                 "compact": true
               }

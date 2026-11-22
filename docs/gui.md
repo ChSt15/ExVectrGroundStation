@@ -48,7 +48,7 @@ The **Tuning** view is described in "Tuning view" below. The old `default` and `
 ```
 
 - `columns` is a CSS `grid-template-columns` for the groups (one column per group, in order). `dock` is `open` or `rail`.
-- `options` are passed to the panel as `ctx.options`: `compact` (attitude, position, actuators, guidance, mission: fewer rows), `height` for `view3d` (`large`, `fill`).
+- `options` are passed to the panel as `ctx.options`: `compact` (attitude, position, actuators, guidance, mission, gnss: fewer rows; gnss compact shows the three tiles and the altitude cross-check status as a fourth tile (one row of four value-only tiles, the labels are tooltips), latitude/longitude and satellites/accuracy in the tile tooltip), `height` for `view3d` (`large`, `fill`).
 - A panel is either a dock tab or in the groups, never both; unknown panels, duplicates and empty groups are reported in the browser console and dropped; with no valid view the fallback is one group with every panel. A remembered view that no longer exists (for example `phone`) falls back to the default.
 - Collapsed state per view: `exgs.collapsed.<view>`. All storage access is wrapped in try/catch.
 
@@ -75,7 +75,7 @@ Tokens in `style.css` (`:root[data-theme=dark|light]`): surfaces, lines, text, t
 | Id | Group | Consumes | Notes |
 |---|---|---|---|
 | `attitude` | Vehicle | `Attitude` | Roll, pitch, yaw, tilt tiles (ZYX of q, display only), body rates (deg/s); full: quaternion, accuracies. |
-| `gnss` | Vehicle (Bench and Flight views, after `position`) | `Gps`, `HomePosition`, `Position`, `VehicleStatus` | GNSS panel, see "GNSS panel and altitude cross-check" below. |
+| `gnss` | Vehicle (Bench view, after `position`); Mission group, `compact`, in the Flight view (it does not fit the Vehicle group at 1366x768) | `Gps`, `HomePosition`, `Position`, `VehicleStatus` | GNSS panel, see "GNSS panel and altitude cross-check" below. |
 | `position` | Vehicle | `Position`, `Gps` | Altitude, vertical and horizontal speed tiles; N/W/U table of position and velocity; full: accuracies, GPS. |
 | `actuators` | Vehicle | `Actuators`, `FlapState`, `TvcState`, `VehicleState` | Thrust, TVC and roll torque tiles (`Actuators`, the vehicle's commanded output; roll torque on both paths, `AIR_ACTUATORS` and, since schema 0x414DE27A, the USB `ACTUATORS`; samples are stamped with the packet time `t` / `t - prev_age`, not arrival order), flap table command / angle (/ FlapState command if supplied); TvcState section only where a link carries it. |
 | `sensors` | Vehicle | `VehicleStatus`, `Estimator`, `Attitude`, `Actuators`, `VehicleState` | Sensor states decoded from `VehicleStatus.sensor_state` (chips), estimator σ (attitude about N/W/U in deg, velocity, position), attitude accuracies, ground distance. |

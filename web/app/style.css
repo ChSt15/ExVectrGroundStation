@@ -538,3 +538,9 @@ body[data-layout="flight"] .tiles.t4 .val.big .v { font-size: calc(var(--fs-tile
 .sf-flap[aria-pressed="true"] { background: var(--warn); color: #000; }
 .sf-flap:disabled { cursor: not-allowed; }
 .sf-radio { display: inline-flex; gap: 4px; align-items: center; }
+
+/* GNSS panel, compact mode (Flight view): one row of four value-only tiles (the labels are the tooltips) */
+.tiles.gnss-compact { grid-template-columns: repeat(4, minmax(0, auto)); gap: 6px; margin-bottom: 0; }
+.tiles.gnss-compact .tile { padding: 0 6px; line-height: 1.15; }
+.tiles.gnss-compact .tile .tile-l { display: none; }
+.tiles.gnss-compact .tile .val.big .v { font-size: var(--fs-md, 13px); }
