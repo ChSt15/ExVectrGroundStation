@@ -25,7 +25,11 @@ export function createCallouts({ store, getView, getCoreStatus, ls, speaker, not
   let settings = base;
   try {
     const raw = ls.get(LS_SETTINGS);
-    if (raw) settings = mergeSettings(base, JSON.parse(raw));
+    if (raw) {
+      const saved = JSON.parse(raw);
+      delete saved.failure; // not editable in the GUI; an old saved copy (repeats 3) must not override the default (announce once)
+      settings = mergeSettings(base, saved);
+    }
   } catch (e) {
     settings = base;
   }
