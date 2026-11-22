@@ -10,7 +10,8 @@
     "failure": true,
     "link": true,
     "state": true,
-    "deviation": false
+    "deviation": false,
+    "altcheck": false
   },
   "altitude": {
     "levels": [
@@ -64,5 +65,10 @@
       "pitch": 0.7,
       "volume": 1.0
     }
+  },
+  "altcheck": {
+    "limit_m": 5,
+    "hold_s": 1,
+    "hysteresis_m": 1
   }
 }

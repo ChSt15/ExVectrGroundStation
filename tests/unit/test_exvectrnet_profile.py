@@ -60,6 +60,8 @@ EXPECTED = {
     "ACTUATORS": {"Actuators", "FlapState"},
     "MISSION": {"MissionState"},
     "GNSS": {"Gps"},
+    "AIR_GNSS": {"Gps"},
+    "HOME_POSITION": {"HomePosition"},
     "HANDSET_TELEM": {"HandsetTelem"},
     "LINK_STATS": {"TxModuleStats", "RadioLinkStats"},
     "LINK_CONFIG": {"LinkConfig"},
@@ -86,7 +88,8 @@ def test_every_vector_maps_to_gs_types_and_round_trips_the_text_codec(case):
 
 
 def test_all_ports_of_the_generated_module_are_mapped():
-    mapped = {xp.PACKETS_BY_NAME[n].PORT for n in EXPECTED} | {0x11}  # REQUEST is deliberately a RawFrame
+    # REQUEST is deliberately a RawFrame; AIR_GNSS_INFO is merged into the next AIR_GNSS (see its test)
+    mapped = {xp.PACKETS_BY_NAME[n].PORT for n in EXPECTED} | {0x11, 0x25}
     assert set(xp.PACKETS_BY_PORT) == mapped
 
 
@@ -568,3 +571,84 @@ def test_heartbeat_is_not_a_packet_and_does_not_disturb_rc_encoding():
 def test_other_profiles_have_no_heartbeat():
     assert not hasattr(load_profile("provisional-1"), "encode_heartbeat")
     assert not hasattr(load_profile("fake"), "encode_heartbeat")
+
+
+# ---- GNSS (AIR_GNSS 0x24, AIR_GNSS_INFO 0x25, USB GNSS 0x83) and the home position (0x50)
+
+
+def test_air_gnss_decodes_position_and_nwu_velocity():
+    vals, pl = case_payload("air_gnss")
+    g = PROFILE.decode_many(frame(0x24, pl), "radio")[0]
+    assert g.TYPE == "Gps" and g.t == S
+    assert g.lat == pytest.approx(vals["latitude"], abs=1e-9) and g.lon == pytest.approx(vals["longitude"], abs=1e-9)
+    assert g.alt == pytest.approx(1234.567, abs=1e-9) and g.vel == pytest.approx(vals["vel"], abs=1e-9)
+    assert (g.num_sats, g.fix_type, g.pos_acc, g.alt_acc, g.info_t) == (None,) * 5  # no info received yet
+
+
+def test_air_gnss_no_fix_sentinels_are_none():
+    _, pl = case_payload("air_gnss_no_fix")
+    g = PROFILE.decode_many(frame(0x24, pl), "radio")[0]
+    assert g.lat is None and g.lon is None and g.alt is None and g.vel is None
+
+
+def test_air_gnss_info_is_merged_into_the_next_air_gnss_per_source():
+    vals, info = case_payload("air_gnss_info")
+    _, pos = case_payload("air_gnss")
+    prof = load_profile("exvectrnet-1")
+    # info alone emits nothing: re-emitting an old position under a new time stamp would make it look fresh
+    assert prof.decode_many(frame(0x25, info, t=S), "radio") == []
+    g = prof.decode_many(frame(0x24, pos, t=S + 100_000_000), "radio")[0]
+    assert (g.num_sats, g.fix_type, g.info_t) == (vals["satellites"], vals["fix_type"], S)
+    assert g.pos_acc == pytest.approx(1.23) and g.alt_acc == pytest.approx(2.5)
+    assert g.lat is not None and g.t == S + 100_000_000
+    # another source does not see it
+    assert prof.decode_many(frame(0x24, pos, t=S + 200_000_000), "other")[0].fix_type is None
+    # unknown accuracy (65535) is None; the 10 Hz packets keep carrying the last info
+    _, unk = case_payload("air_gnss_info_unknown")
+    prof.decode_many(frame(0x25, unk, t=S + 300_000_000), "radio")
+    g = prof.decode_many(frame(0x24, pos, t=S + 400_000_000), "radio")[0]
+    assert g.pos_acc is None and g.alt_acc is None and g.num_sats == 0 and g.info_t == S + 300_000_000
+
+
+def test_usb_gnss_and_air_gnss_feed_the_same_packet_type():
+    _, pl = case_payload("gnss")
+    usb = PROFILE.decode_many(frame(0x83, pl), "usb")[0]
+    _, pos = case_payload("air_gnss")
+    air = PROFILE.decode_many(frame(0x24, pos), "radio")[0]
+    assert type(usb) is type(air) and usb.TYPE == "Gps" and usb.num_sats == 14 and usb.info_t is None
+
+
+def test_home_position_decodes_flags_and_sentinels():
+    vals, pl = case_payload("home_position")
+    h = PROFILE.decode_many(frame(0x50, pl), "radio")[0]
+    assert h.TYPE == "HomePosition"
+    assert (h.latlon_valid, h.alt_valid, h.simulation, h.zeroing) == (True, True, False, False)
+    assert h.lat == pytest.approx(vals["latitude"], abs=1e-9) and h.alt == pytest.approx(421.5)
+    assert h.h_acc == pytest.approx(0.85) and h.epoch == 2 and h.set_time == 123456789012
+    _, pl = case_payload("home_position_invalid")
+    h = PROFILE.decode_many(frame(0x50, pl), "radio")[0]
+    assert (h.latlon_valid, h.alt_valid) == (False, False)
+    assert h.lat is None and h.lon is None and h.alt is None and h.h_acc is None and h.set_time == 0
+
+
+def test_vehicle_status_home_epoch_and_older_sender():
+    _, pl = case_payload("vehicle_status")
+    assert by_type(PROFILE.decode_many(frame(0x20, pl), "usb"))["VehicleStatus"].home_epoch == 2
+    # an older sender's 28 byte payload decodes as epoch 0 (no home yet)
+    assert by_type(PROFILE.decode_many(frame(0x20, pl[:28]), "usb"))["VehicleStatus"].home_epoch == 0
+
+
+def test_independent_fake_encoder_matches_the_gnss_and_home_vectors():
+    for name, fn in (("air_gnss", net.pack_air_gnss), ("air_gnss_info", net.pack_air_gnss_info)):
+        c = next(c for c in packet_vectors()["cases"] if c["name"] == name)
+        v = c["values"]
+        g = {"lat": v.get("latitude"), "lon": v.get("longitude"), "alt": v.get("altitude"), "vel": v.get("vel"),
+             "fix_type": v.get("fix_type"), "num_sats": v.get("satellites"), "pos_acc": v.get("h_acc"),
+             "alt_acc": v.get("v_acc")}  # fmt: skip
+        assert fn(v["t_us"], g).hex() == c["hex"], name
+    c = next(c for c in packet_vectors()["cases"] if c["name"] == "home_position")
+    v = c["values"]
+    h = {"latlon_valid": True, "alt_valid": True, "simulation": False, "zeroing": False, "lat": v["latitude"],
+         "lon": v["longitude"], "alt": v["altitude"], "h_acc": v["h_acc"], "epoch": v["epoch"],
+         "set_time": v["set_time"]}  # fmt: skip
+    assert net.pack_home_position(h).hex() == c["hex"]

@@ -50,6 +50,16 @@ def _setpoint_q(xs: Any) -> list[float] | None:
     return q
 
 
+def _nn(x: float) -> float | None:
+    """Wire sentinel (decoded as NaN) to None: unknown, never shown as a number."""
+    return x if math.isfinite(x) else None
+
+
+def _vec_or_none(xs: Any) -> list[float] | None:
+    v = _fl(xs)
+    return v if all(math.isfinite(x) for x in v) else None
+
+
 def _vehicle_status(p: xp.VehicleStatus, t: int, src: str, meta: dict) -> list[Packet]:
     armed = _flag(p.flags, xp.VehicleStatus, "FLAGS_ARMED")
     sim = _flag(p.flags, xp.VehicleStatus, "FLAGS_SIMULATION")
@@ -75,6 +85,7 @@ def _vehicle_status(p: xp.VehicleStatus, t: int, src: str, meta: dict) -> list[P
         last_req_id=p.last_req_id,
         last_req_status=p.last_req_status,
         rc_age=p.rc_age,
+        home_epoch=p.home_epoch,
     )
     # The existing mode panels read VehicleState: fill what the wire states directly.
     state = V.VehicleState(t=t, src=src, mode=mode, sim=sim, armed=armed)
@@ -163,15 +174,57 @@ def _gnss(p: xp.Gnss, t: int, src: str, meta: dict) -> list[Packet]:
         V.Gps(
             t=t,
             src=src,
-            lat=p.latitude,
-            lon=p.longitude,
-            alt=p.altitude,
-            vel=_fl(p.vel),
+            lat=_nn(p.latitude),
+            lon=_nn(p.longitude),
+            alt=_nn(p.altitude),
+            vel=_vec_or_none(p.vel),
             num_sats=p.satellites,
             fix_type=p.fix_type,
-            pos_acc=p.h_acc,
-            alt_acc=p.v_acc,
-            vel_acc=p.s_acc,
+            pos_acc=_nn(p.h_acc),
+            alt_acc=_nn(p.v_acc),
+            vel_acc=_nn(p.s_acc),
+        )
+    ]
+
+
+def _air_gnss(p: xp.AirGnss, t: int, src: str, meta: dict) -> list[Packet]:
+    """Position and NWU velocity only; the wire profile merges the last AIR_GNSS_INFO into it (profile.py)."""
+    return [
+        V.Gps(t=t, src=src, lat=_nn(p.latitude), lon=_nn(p.longitude), alt=_nn(p.altitude), vel=_vec_or_none(p.vel))
+    ]
+
+
+def _air_gnss_info(p: xp.AirGnssInfo, t: int, src: str, meta: dict) -> list[Packet]:
+    """Info fields only; the wire profile merges the last AIR_GNSS position into it (profile.py)."""
+    return [
+        V.Gps(
+            t=t,
+            src=src,
+            num_sats=p.satellites,
+            fix_type=p.fix_type,
+            pos_acc=_nn(p.h_acc),
+            alt_acc=_nn(p.v_acc),
+            info_t=t,
+        )
+    ]
+
+
+def _home_position(p: xp.HomePosition, t: int, src: str, meta: dict) -> list[Packet]:
+    H = xp.HomePosition
+    return [
+        V.HomePosition(
+            t=t,
+            src=src,
+            latlon_valid=_flag(p.flags, H, "FLAGS_LATLON_VALID"),
+            alt_valid=_flag(p.flags, H, "FLAGS_ALT_VALID"),
+            simulation=_flag(p.flags, H, "FLAGS_SIMULATION"),
+            zeroing=_flag(p.flags, H, "FLAGS_ZEROING"),
+            lat=_nn(p.latitude),
+            lon=_nn(p.longitude),
+            alt=_nn(p.altitude),
+            h_acc=_nn(p.h_acc),
+            epoch=p.epoch,
+            set_time=p.set_time,
         )
     ]
 
@@ -316,6 +369,9 @@ MAPPERS: dict[type, Callable[..., list[Packet] | str]] = {
     xp.AirMission: _air_mission,
     xp.Mission: _mission,
     xp.Gnss: _gnss,
+    xp.AirGnss: _air_gnss,
+    xp.AirGnssInfo: _air_gnss_info,
+    xp.HomePosition: _home_position,
     xp.HandsetTelem: _handset_telem,
     xp.LinkStats: _link_stats,
     xp.LinkConfig: _link_config,
@@ -339,6 +395,7 @@ PRODUCED_TYPES = {
     "FlapState",
     "MissionState",
     "Gps",
+    "HomePosition",
     "HandsetTelem",
     "TxModuleStats",
     "RxModuleStats",

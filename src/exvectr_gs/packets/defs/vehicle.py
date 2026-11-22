@@ -87,20 +87,27 @@ class Position(Packet):
     "Gps",
     version=1,
     direction=Direction.DOWN,
-    nominal_rate_hz=1,
-    history=False,
-    desc="GNSS fix, lat/lon in radians (provisional-1: legacy wire holds rad x 1e7, a known issue).",
+    nominal_rate_hz=10,
+    history=True,
+    desc="GNSS solution, lat/lon in radians. USB GNSS (0x83) fills every field; the radio's AIR_GNSS (10 Hz: position "
+    "and velocity) and AIR_GNSS_INFO (1 Hz: fix type, satellites, accuracy) are merged by the wire profile into one "
+    "Gps per source, the info fields carried until the next AIR_GNSS_INFO. Unknown values (wire sentinels) are None.",
 )
 class Gps(Packet):
-    lat: float = f(unit="rad")
-    lon: float = f(unit="rad")
-    alt: float = f(unit="m")
-    vel: list[float] = f(unit="m/s", labels=("x", "y", "z"))
-    num_sats: int = f()
+    lat: float | None = f(unit="rad", desc="None = no fix")
+    lon: float | None = f(unit="rad", desc="None = no fix")
+    alt: float | None = f(
+        unit="m", desc="receiver altitude (u-blox: height above the WGS-84 ellipsoid), None = unknown"
+    )
+    vel: list[float] | None = f(unit="m/s", labels=("x", "y", "z"), desc="NWU, None = unknown")
+    num_sats: int | None = f()
     fix_type: int | None = f(desc="GNSS fix type as reported (exvectrnet-1 profile only)")
-    pos_acc: float = f(unit="m")
-    alt_acc: float = f(unit="m")
-    vel_acc: float = f(unit="m/s")
+    pos_acc: float | None = f(unit="m", desc="horizontal accuracy, None = unknown")
+    alt_acc: float | None = f(unit="m", desc="vertical accuracy, None = unknown")
+    vel_acc: float | None = f(unit="m/s", desc="speed accuracy (USB GNSS only)")
+    info_t: int | None = f(
+        unit="ns", kind="time_ns", desc="host time of the AIR_GNSS_INFO the info fields come from (radio path only)"
+    )
 
 
 @packet(
@@ -218,6 +225,30 @@ class VehicleStatus(Packet):
     last_req_id: int = f(desc="last executed REQUEST id, 0 = none")
     last_req_status: int = f()
     rc_age: float | None = f(unit="s", desc="age of the last accepted RC_STATE on the vehicle, NaN = none")
+    home_epoch: int | None = f(
+        desc="increments whenever the vehicle's home reference changes, 0 = no home yet; None = older sender"
+    )
+
+
+@packet(
+    "HomePosition",
+    version=1,
+    direction=Direction.DOWN,
+    history=False,
+    desc="Home reference as the vehicle reports it (HOME_POSITION, the position estimator's origin). Display only: "
+    "the ground station decodes one if it arrives; the request path is not part of this version.",
+)
+class HomePosition(Packet):
+    latlon_valid: bool = f()
+    alt_valid: bool = f()
+    simulation: bool = f(desc="the reference comes from the simulator, not from GNSS")
+    zeroing: bool = f(desc="an estimator zeroing window was active (the reference may still be refined)")
+    lat: float | None = f(unit="rad", desc="None when not valid")
+    lon: float | None = f(unit="rad", desc="None when not valid")
+    alt: float | None = f(unit="m", desc="same datum as the GNSS altitude, None when not valid")
+    h_acc: float | None = f(unit="m", desc="None = unknown")
+    epoch: int = f(desc="the VEHICLE_STATUS.home_epoch value this copy belongs to")
+    set_time: int = f(unit="ns", kind="time_ns", desc="vehicle time when set or refined, 0 = never")
 
 
 @packet(

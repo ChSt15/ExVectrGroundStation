@@ -5,6 +5,7 @@
 // the ship's formulas from CALIBRATION) are display-only arithmetic on received packets. Angles are shown in degrees
 // and rates in deg/s (the packets are SI: rad, rad/s); the unit is always on the axis and in the legend.
 import { quatToRpy, tiltFromVertical } from "../fmt.js";
+import { plotGnssAltitude } from "../gnss/gnss_logic.js";
 import { computeCalibrated } from "../sensors/rawsensors_logic.js";
 
 const D = 180 / Math.PI;
@@ -94,6 +95,13 @@ function build() {
     s.push(sig(`std.vel.${a}`, `Velocity σ ${a}`, "Estimator σ", "m/s", "Estimator", (f) => at(f.vel_std, i)));
     s.push(sig(`std.pos.${a}`, `Position σ ${a}`, "Estimator σ", "m", "Estimator", (f) => at(f.pos_std, i)));
   });
+  // GNSS altitude vs the vehicle's estimate (display only, gnss/gnss_logic.js)
+  s.push(sig("gnss.alt", "GNSS altitude (absolute)", "GNSS altitude", "m", "Gps", (f) => (f.alt === null ? NaN : num(f.alt)), "receiver altitude, u-blox: above the WGS-84 ellipsoid"));
+  s.push(sig("gnss.alt_rel", "GNSS altitude (relative to start)", "GNSS altitude", "m", "Gps", (f, last) => plotGnssAltitude(f, last).rel, "minus the HOME_POSITION altitude, else the mean of the first GNSS altitudes on the pad"));
+  s.push(sig("gnss.alt_diff", "Altitude difference (estimated - GNSS)", "GNSS altitude", "m", "Gps", (f, last) => {
+    const r = plotGnssAltitude(f, last);
+    return r.rel === undefined || r.est === undefined ? undefined : r.est - r.rel;
+  }, "Position up minus the relative GNSS altitude"));
   // Control-loop timing (task names are not in the telemetry)
   for (let i = 0; i < 8; i++) {
     s.push(sig(`timing.avg.${i}`, `Task ${i} avg`, "Task timing", "ms", "TaskTiming", (f) => at(f.avg, i, 1e3)));
@@ -105,7 +113,7 @@ function build() {
 export const SIGNALS = build();
 export const SIGNAL_BY_ID = new Map(SIGNALS.map((x) => [x.id, x]));
 /** Packet types needed by the catalogue (subscription and history). Calibration is only an input. */
-export const SIGNAL_TYPES = [...new Set([...SIGNALS.map((x) => x.type), "Calibration"])].sort();
+export const SIGNAL_TYPES = [...new Set([...SIGNALS.map((x) => x.type), "Calibration", "HomePosition", "Position"])].sort();
 export const MAX_SERIES = 8; // per graph: the categorical palette has eight slots
 
 /**
@@ -116,6 +124,7 @@ export const GRAPH_PRESETS = [
   { id: "attitude", title: "Attitude roll / pitch / yaw", series: [["att.roll", 0], ["att.pitch", 1], ["att.yaw", 2]], note: "attitude target: not in the telemetry" },
   { id: "rates", title: "Angular rate (estimated)", series: [["rate.x", 0], ["rate.y", 1], ["rate.z", 2]], note: "rate target: not in the telemetry" },
   { id: "pos_up", title: "Altitude vs target", series: [["pos.U", 2], ["sp.pos.U", 2, true]] },
+  { id: "alt_check", title: "Altitude cross-check: estimated vs GNSS", series: [["pos.U", 2], ["gnss.alt_rel", 1], ["gnss.alt_diff", 3]], note: "GNSS relative to the home altitude or the start" },
   { id: "pos_nw", title: "Position N / W vs target", series: [["pos.N", 0], ["sp.pos.N", 0, true], ["pos.W", 1], ["sp.pos.W", 1, true]] },
   { id: "vel", title: "Velocity vs target", series: [["vel.N", 0], ["sp.vel.N", 0, true], ["vel.W", 1], ["sp.vel.W", 1, true], ["vel.U", 2], ["sp.vel.U", 2, true]] },
   { id: "pos_err", title: "Position error (target − current)", series: [["err.pos.N", 0], ["err.pos.W", 1], ["err.pos.U", 2]] },
@@ -240,6 +249,7 @@ export function historyToPackets(series) {
 export const HISTORY_FIELDS = {
   Attitude: ["q", "omega"],
   Position: ["pos", "vel"],
+  Gps: ["alt", "fix_type"],
   MissionState: ["sp_pos", "sp_vel"],
   Actuators: ["flaps", "tvc", "thrust", "roll_torque"],
   FlapState: ["angle", "cmd"],
