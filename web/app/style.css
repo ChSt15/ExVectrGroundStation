@@ -472,6 +472,10 @@ body[data-layout="flight"] .tiles.t4 .val.big .v { font-size: calc(var(--fs-tile
 .rt-table tr[data-state="stale"] td { color: var(--faint); opacity: .7; }
 .rt-table tr[data-tone="warn"] td { color: var(--warn); font-weight: 650; }
 .rt-table tr.total td { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); font-weight: 700; background: var(--surface-2); }
+/* compact (Bench, Mission column): drop Source, Hz (10 s) and Age so the table fits without scrolling */
+.rt-compact th:nth-child(3), .rt-compact td:nth-child(3), .rt-compact th:nth-child(5), .rt-compact td:nth-child(5), .rt-compact th:nth-child(8), .rt-compact td:nth-child(8) { display: none; }
+.rt-c .row, .rt-c .sect-title, .rt-c .hint { display: none; } .rt-c .rt-bar { margin-bottom: 3px; height: 18px; }
+.rt-compact th { position: static; } .rt-compact { font-size: var(--fs-xs); } .rt-compact td, .rt-compact th { padding: 0 4px; line-height: 1.25; }
 .rt-bar { position: relative; height: 20px; border-radius: 4px; background: var(--surface-3); overflow: hidden; margin-bottom: 6px; }
 .rt-fill { position: absolute; inset: 0 auto 0 0; background: var(--ok); opacity: .55; }
 .rt-bar[data-tone="warn"] .rt-fill { background: var(--warn); } .rt-bar[data-tone="bad"] .rt-fill { background: var(--bad); }
