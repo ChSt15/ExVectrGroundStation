@@ -99,9 +99,6 @@ registerPanel({
     const devLimit = num("co-dev-limit", "0.5", "0.1", "10000", (v) => set((s) => (s.deviation.limit_m = v)));
     const altLimit = num("co-alt-limit", "0.5", "0.1", "10000", (v) => set((s) => (s.altcheck.limit_m = v)));
     const altHold = num("co-alt-hold", "0.5", "0", "60", (v) => set((s) => (s.altcheck.hold_s = v)));
-    const gdOn = h("input", { type: "checkbox", "data-testid": "co-gd-enabled" });
-    gdOn.addEventListener("change", () => set((s) => (s.ground_distance.enabled = gdOn.checked)));
-    const gdRep = num("co-gd-repeat", "0.1", "0.3", "5", (v) => set((s) => (s.ground_distance.repeat_s = v)));
     const replay = h("input", { type: "checkbox", "data-testid": "co-replay" });
     replay.addEventListener("change", () => set((s) => (s.speakInReplay = replay.checked)));
     const t = section(el, "Thresholds");
@@ -111,7 +108,6 @@ registerPanel({
       h("div", { class: "co-row" }, h("span", { text: "Hysteresis (m)" }), hyst, h("span", { class: "dim", text: "no repeat near a threshold" })),
       h("div", { class: "co-row" }, h("span", { text: "Deviation limit (m)" }), devLimit),
       h("div", { class: "co-row" }, h("span", { text: "GNSS altitude check limit (m)" }), altLimit, h("span", { text: "for (s)" }), altHold, h("span", { class: "dim", text: "also the GNSS panel's warning" })),
-      h("div", { class: "co-row" }, h("label", {}, gdOn, " Ground distance callout (m, below 1 m, while Running) every"), gdRep, h("span", { text: "s" })),
       h("label", { class: "co-row" }, replay, " Speak and notify in replay (callouts follow the recorded timeline, never a seek)"),
     );
 
@@ -193,8 +189,6 @@ registerPanel({
       put(devLimit, s.deviation.limit_m);
       put(altLimit, s.altcheck.limit_m);
       put(altHold, s.altcheck.hold_s);
-      gdOn.checked = s.ground_distance.enabled;
-      put(gdRep, s.ground_distance.repeat_s);
       replay.checked = s.speakInReplay;
       for (const n of STYLE_NAMES) for (const f of Object.keys(styleInputs[n])) put(styleInputs[n][f], s.styles[n][f]);
       voice.value = [...voice.options].some((o) => o.value === s.voice) ? s.voice : "";
