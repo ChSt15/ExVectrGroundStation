@@ -1,17 +1,20 @@
-// 'Servo faults' section of the Simulation testing page (docs/telecommands.md). TEMPORARY, SAFETY-RELEVANT UI: one
-// telecommand frame per button, after a 1 s hold, once, no retry, no ACK. Rules in simtests_logic.js.
+// 'Servo faults' section of the Simulation testing page (docs/requests.md). SAFETY-RELEVANT UI: one request per button,
+// after a 1 s hold; the result is the vehicle's ACK. Rules in simtests_logic.js.
 import { h } from "../ui.js";
 import { holdButton } from "./hold_button.js";
 import { registerSimSection } from "./simtests_registry.js";
+import { runRequestSequence } from "../requests/requests_logic.js";
 import {
-  DEFAULT_SLOW_FACTOR, DEFAULT_STUCK_DEG, FAULT_TYPES, FLAPS, FLAP_NAMES, clearCommand,
+  DEFAULT_SLOW_FACTOR, DEFAULT_STUCK_DEG, FAULT_ACTIONS, FLAPS, FLAP_NAMES, clearCommand,
   describeFaultSent, forcedFlaps, simTestState, slowCommand, stuckCommand,
 } from "./simtests_logic.js";
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 export function createSimFaultsSection(el, ctx) {
-  let cmds = [];
+  let cmds = {}; // action -> whitelist row
   let listError = "whitelist not loaded";
-  let push = null;
+  let reqs = null; // last `requests` push
   let busy = false;
   let flap = "TL";
   const msg = h("div", { class: "rq-msg", role: "status" });
@@ -30,12 +33,12 @@ export function createSimFaultsSection(el, ctx) {
   const forcedEl = h("div", { class: "sf-forced", "data-testid": "sf-forced" });
   const form = () => ({ flap, atCurrent: atCur.checked, deg: angle.value });
 
-  const applyStuck = holdButton("Force flap (hold 1 s)", "hold 1 s to send one frame", () => send(stuckCommand(cmds, form()), "Force flap"));
-  const applySlow = holdButton("Apply slow servo (hold 1 s)", "hold 1 s to send one frame", () => send(slowCommand(cmds, { flap, factor: factor.value }), "Slow servo"));
-  const clear = holdButton("Release all faults (hold 1 s)", "hold 1 s to send one frame", () => send(clearCommand(cmds), "Release"));
+  const applyStuck = holdButton("Force flap (hold 1 s)", "hold 1 s to send one request", () => send(stuckCommand(form()), "Force flap"));
+  const applySlow = holdButton("Apply slow servo (hold 1 s)", "hold 1 s to send one request", () => send(slowCommand(cmds, { flap, factor: factor.value }), "Slow servo"));
+  const clear = holdButton("Release all faults (hold 1 s)", "hold 1 s to send one request", () => send(clearCommand(), "Release"));
   const body = h("div", { class: "rq-body" });
   el.append(
-    h("div", { class: "tc-warn", text: "SIMULATION ONLY. One frame per button after a 1 s hold; no ACK, no retry. The vehicle refuses faults outside simulation mode and writes a log line (see the Console) when a fault is set or released. Force flap sets the chosen flap's setting to the angle at once." }),
+    h("div", { class: "tc-warn", text: "SIMULATION ONLY. One request per button after a 1 s hold; the result is the vehicle's acknowledgement. The vehicle refuses faults outside simulation mode and writes a log line (see the Console) when a fault is set or released. Force flap sets the chosen flap's setting to the angle at once." }),
     body, msg, sentEl,
   );
 
@@ -44,22 +47,24 @@ export function createSimFaultsSection(el, ctx) {
     busy = true;
     msg.textContent = "";
     render();
-    try {
-      await ctx.api.request("telecommand.send", { name: c.name, confirm: c.name, param_float: c.value }, 5000);
-    } catch (e) {
-      msg.textContent = `${what} refused: ${e.message}`;
-    }
+    const res = await runRequestSequence([{ ...c, label: cmds[c.action]?.label || what }], {
+      send: (x) => ctx.api.request("request.send", { action: x.action, target: 1, confirm: x.action, arg_i: x.arg_i ?? 0, ...(x.arg_f === undefined ? {} : { arg_f: x.arg_f }) }, 5000),
+      status: () => ctx.api.request("request.status", {}, 5000),
+      sleep,
+    });
+    if (res.error) msg.textContent = res.error.text;
     busy = false;
     render();
   }
 
   async function load() {
     try {
-      const all = (await ctx.api.request("telecommand.list", {}, 5000)).commands;
-      cmds = all.filter((c) => FAULT_TYPES.includes(c.type));
-      listError = cmds.length ? "" : "the telecommand whitelist has no simulation fault entries (config [telecommands], group 'Simulation tests')";
+      const all = (await ctx.api.request("request.list", {}, 5000)).actions;
+      cmds = Object.fromEntries(all.filter((c) => FAULT_ACTIONS.includes(c.action)).map((c) => [c.action, c]));
+      listError = FAULT_ACTIONS.every((n) => cmds[n]) ? "" : "the request whitelist has no simulation fault entries (config [requests], group 'Simulation')";
+      reqs = await ctx.api.request("request.status", {}, 5000);
     } catch (e) {
-      listError = `telecommand.list: ${e.message}`;
+      listError = `request.list: ${e.message}`;
     }
     build();
     render();
@@ -82,10 +87,10 @@ export function createSimFaultsSection(el, ctx) {
   function render() {
     const canControl = !!(ctx.api.welcome && ctx.api.welcome.can_control);
     const st = ctx.status();
-    const route = st ? st.telecommand_route || null : null;
+    const route = st?.request_routes?.["1"] || null;
     const entry = ctx.store.get(ctx.view(), "VehicleStatus");
     const base = { apiState: ctx.api.state, view: ctx.view(), canControl, route, simulation: entry && entry.f ? entry.f.simulation : null, busy };
-    const stk = stuckCommand(cmds, form());
+    const stk = stuckCommand(form());
     const slw = slowCommand(cmds, { flap, factor: factor.value });
     const on = simTestState({ ...base, inputsOk: true }).enabled;
     for (const f of flapBtns) f.setAttribute("aria-pressed", String(f.dataset.flap === flap));
@@ -97,23 +102,23 @@ export function createSimFaultsSection(el, ctx) {
       b.btn.disabled = !s.enabled; b.btn.dataset.why = s.reason;
       if (!s.enabled) b.stop();
     };
-    set(applyStuck, stk); set(applySlow, slw); set(clear, clearCommand(cmds));
-    rad.textContent = atCur.checked ? "-1.0 (hold current angle)" : stk ? `${stk.value.toFixed(4)} rad` : "-";
+    set(applyStuck, stk); set(applySlow, slw); set(clear, clearCommand());
+    rad.textContent = atCur.checked ? "-1.0 (hold current angle)" : stk ? `${stk.arg_f.toFixed(4)} rad` : "-";
     const fe = ctx.store.get(ctx.view(), "FlapState");
     const fh = forcedFlaps(track, fe && fe.f ? fe.f : null, ctx.store.now(ctx.view()));
     forcedEl.replaceChildren(h("div", { class: "rq-state", "data-tone": fh.forced.some(Boolean) ? "warn" : "dim", text: "Flaps reported by the vehicle: " + FLAPS.map((n, i) => `${n} ${fh.angle[i] === null ? "-" : fh.angle[i].toFixed(1) + " deg"}${fh.forced[i] ? " (forced?)" : ""}`).join(", ") }));
-    const d = describeFaultSent(push, ctx.store.now("live"));
+    const d = describeFaultSent(reqs);
     sentEl.replaceChildren(h("div", { class: "rq-state", "data-tone": d.tone, text: d.text }));
   }
 
   return {
     onReady: load,
-    onTelecommands(m) { push = m; render(); },
+    onRequests(m) { reqs = m; render(); },
     onStatus: render,
     onTick: render,
     onViewChange: render,
     destroy() { for (const b of [applyStuck, applySlow, clear]) b.stop(); },
-    debug: () => ({ cmds: cmds.map((c) => c.name), push, listError }),
+    debug: () => ({ cmds: Object.keys(cmds), reqs, listError }),
   };
 }
 

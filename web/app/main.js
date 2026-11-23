@@ -17,7 +17,7 @@ import { Speaker } from "./callouts/speech.js";
 import { ClipPlayer } from "./callouts/clipplayer.js";
 import { VOICE_ID } from "./callouts/clips.js";
 
-// Hold-to-confirm buttons (telecommands, requests, unlock) need an uninterrupted press of 1 s. Touch screens and the
+// Hold-to-confirm buttons (requests, unlock) need an uninterrupted press of 1 s. Touch screens and the
 // Steam Frame's controller pointer turn a press held for about 500 ms into a context-menu (right click), which cancels
 // the pointer and the hold. The browser menu is never wanted in this app (text fields keep it for copy and paste).
 document.addEventListener("contextmenu", (e) => {
@@ -70,7 +70,7 @@ let callouts = null; // callout controller (docs/callouts.md), display only
 let notifier = null;
 let speaker = null;
 let updatePush = null; // last `update` push (self-update summary: behind count, restart pending; docs/updating.md)
-let tcPush = null; // last `telecommands` push (TEMPORARY, docs/telecommands.md)
+let reqPush = null; // last `requests` push (docs/requests.md)
 
 const api = new Api({
   url: wsUrl,
@@ -128,12 +128,9 @@ function onMainMessage(msg) {
       if (msg.toast && notifier) notifier.show({ id: "gs.pocket", category: "state", text: msg.text, label: msg.text.length > 90 ? msg.text.slice(0, 87) + "..." : msg.text, severity: msg.level === "warn" ? "warning" : "info", key: `gs.${msg.toast}` });
       break;
     case "requests":
+      reqPush = msg;
+      statusBar?.render(); // the status bar shows "zero estimators requested N s ago" from this record
       for (const m of mounted) m.inst.onRequests?.(msg);
-      break;
-    case "telecommands":
-      tcPush = msg;
-      statusBar?.render(); // the status bar shows "ZeroEstimators sent N s ago" from this record
-      for (const m of mounted) m.inst.onTelecommands?.(msg);
       break;
     case "update":
       updatePush = msg;
@@ -196,7 +193,7 @@ function makeCtx(entry, getM) {
     status: () => status,
     rc: () => rcState,
     rates: () => ratesData,
-    telecommands: () => tcPush,
+    requests: () => reqPush,
     update: () => updatePush,
     callouts: () => callouts,
     ls: { get: lsGet, set: lsSet },

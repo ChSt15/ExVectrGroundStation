@@ -16,7 +16,7 @@ import "./view3d.js";
 import "./radio.js";
 import "./command.js";
 import "./requests.js";
-import "./telecommands.js";
+import "./vehicle.js";
 import "./simtests.js";
 import "./update.js";
 import "./tuning.js";

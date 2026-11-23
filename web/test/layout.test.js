@@ -83,7 +83,7 @@ test("the shipped layout has the bench and tuning views and passes without probl
   assert.deepEqual(layout.views.bench.groups.map((g) => g.title), ["Vehicle", "Guidance", "Mission"]);
   assert.deepEqual(layout.views.bench.groups.map((g) => g.panels.map((p) => p.panel)), [["attitude", "position", "actuators", "gnss", "health"], ["view3d"], ["mission", "targetvs", "rates"]]);
   assert.equal(layout.views.bench.dock, "open");
-  for (const t of ["radio", "requests", "telecommands", "link", "recording", "console", "inspector", "rawsensors"]) assert.ok(layout.dock.tabs.some((x) => x.panel === t), t);
+  for (const t of ["radio", "requests", "vehicle", "link", "recording", "console", "inspector", "rawsensors"]) assert.ok(layout.dock.tabs.some((x) => x.panel === t), t);
 });
 
 test("subscription types are derived from the mounted panels per mode", () => {

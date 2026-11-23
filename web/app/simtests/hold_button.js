@@ -1,5 +1,5 @@
 import { h } from "../ui.js";
-import { HoldTimer, TELECOMMAND_HOLD_MS } from "./telecommand_logic.js";
+import { HoldTimer, REQUEST_HOLD_MS } from "../requests/requests_logic.js";
 
 /** A button that fires `onDone` only after a continuous 1 s hold (pointer or Space/Enter); progress bar inside. */
 export function holdButton(label, title, onDone) {
@@ -7,7 +7,7 @@ export function holdButton(label, title, onDone) {
   const btn = h("button", { class: "rq-btn", title }, h("span", { class: "rq-label", text: label }), bar);
   let anim = null;
   const stopAnim = () => { if (anim !== null) clearInterval(anim); anim = null; bar.style.width = "0"; };
-  const timer = new HoldTimer(() => { stopAnim(); onDone(); }, undefined, TELECOMMAND_HOLD_MS);
+  const timer = new HoldTimer(() => { stopAnim(); onDone(); }, undefined, REQUEST_HOLD_MS);
   const stop = () => { timer.cancel(); stopAnim(); };
   const start = () => {
     if (btn.disabled || timer.holding) return;
