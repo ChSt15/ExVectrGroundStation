@@ -45,7 +45,7 @@ svg = { x = 28, y = 40 }
 [[controls]]
 id = "SB"
 label = "SB"
-meaning = "mission profile 0/1/2, read at go (only 2 flies)"
+meaning = "mission profile, read at go: 0 hover test, 1 waypoint test, 2 flight"
 kind = "switch3"
 channel = 6
 values_us = [1000, 1500, 2000]

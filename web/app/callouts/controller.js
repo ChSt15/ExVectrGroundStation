@@ -5,7 +5,7 @@ import { CalloutQueue, Suppressor } from "./queue.js";
 import { LogWatcher } from "./logwatch.js";
 import { CATEGORIES, DEFAULTS, mergeSettings } from "./settings.js";
 
-export const CALLOUT_CONSUMES = ["VehicleStatus", "MissionState", "Position", "Gps", "HomePosition"];
+export const CALLOUT_CONSUMES = ["VehicleStatus", "MissionState", "Position", "Gps", "HomePosition", "Actuators"];
 export const LS_SETTINGS = "exgs.callouts";
 export const LS_AUDIO = "exgs.callouts.audio";
 
@@ -134,6 +134,7 @@ export function createCallouts({ store, getView, getCoreStatus, ls, speaker, not
       position: latest(view, "Position"),
       gps: latest(view, "Gps"),
       home: latest(view, "HomePosition"),
+      actuators: latest(view, "Actuators"),
       sources: view === "live" && cs ? cs.sources : [],
     });
     if (r.resynced) queue.cancelAll();

@@ -8,7 +8,7 @@ import { describeVehicleStatus } from "../app/status/status_logic.js";
 test("CMD_APPLIED field meanings", () => {
   assert.equal(switchText("go", 1), "GO");
   assert.equal(switchText("go", 0), "NOT_GO (abort)");
-  assert.equal(switchText("profile", 2), "profile 2");
+  assert.equal(switchText("profile", 2), "profile 2 (flight)");
   assert.equal(switchText("vehicle_mode", 0), "REAL");
   assert.equal(switchText("vehicle_mode", 1), "SIMULATION");
   assert.equal(switchText("motors", 1), "armed");
@@ -78,7 +78,7 @@ test("engine rows label what is sent and show hints and warnings", () => {
   );
   assert.equal(rows.input.text, "Pocket");
   assert.equal(rows.sending.text, "sending to usb, router (25 Hz)");
-  assert.match(rows.sent.text, /go NOT_GO, profile 2, SIMULATION, motors disarmed/);
+  assert.match(rows.sent.text, /go NOT_GO, profile 2 \(flight\), SIMULATION, motors disarmed/);
   assert.equal(rows.master.tone, "bad");
   assert.equal(rows.multi.tone, "bad");
   assert.equal(rows["hint-0"].text, "SA is up while go is off: flip it down first");

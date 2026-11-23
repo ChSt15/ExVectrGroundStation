@@ -17,6 +17,9 @@ export const failureText = (i) => FAILURE_TEXT[i] || `Failure bit ${i}`;
 /** priority: lower number is more important (failure 0 ... countdown 5). */
 export const PRIORITY = { failure: 0, warning: 1, state: 2, mission: 3, altitude: 4, countdown: 5 };
 
+/** The lidar reports below this ground distance only [m]. */
+export const GROUND_VALID_M = 1.0;
+
 const finite = (x) => typeof x === "number" && Number.isFinite(x);
 const vec3 = (v) => Array.isArray(v) && v.length >= 3 && v.slice(0, 3).every(finite);
 
@@ -121,6 +124,7 @@ export class CalloutEngine {
     this._freefall(c, airborne ? position : null, phase, mission && finite(mission.f.flip_start_altitude) ? mission.f.flip_start_altitude : null, out);
     this._deviation(c, airborne ? position : null, mission, now, out);
     this._altcheck(inp, now, out, clears);
+    this._ground(c, mode === "Running" && fresh(inp.actuators) ? inp.actuators : null, now, out);
 
     if (this.quiet && (status || mission || position)) {
       this.quiet = false;
@@ -130,6 +134,24 @@ export class CalloutEngine {
       out.length = 0;
     }
     return { events: out, clears, resynced };
+  }
+
+  /**
+   * Ground distance callout: the downward lidar reports a value only below GROUND_VALID_M (NaN otherwise). While it is
+   * valid and the mission is Running the distance is spoken in metres, one decimal, at once on becoming valid and then
+   * every ground_distance.repeat_s. Normal priority; marked `repeat` so the identical-text window never drops a call.
+   */
+  _ground(c, act, now, out) {
+    const st = this.s;
+    const d = act ? act.f.ground_distance : null;
+    const g = c.ground_distance;
+    if (!g.enabled || !finite(d) || d < 0 || d >= GROUND_VALID_M) {
+      st.gd = undefined;
+      return;
+    }
+    if (st.gd !== undefined && now < st.gd) return;
+    st.gd = now + g.repeat_s;
+    out.push(ev("ground.distance", "altitude", d.toFixed(1), "info", PRIORITY.altitude, { maxAge: 1.5, repeat: true, key: "ground_distance" }));
   }
 
   /** GNSS vs estimated altitude (gnss/gnss_logic.js): "Altitude mismatch" once per excursion, only while both are fresh. */

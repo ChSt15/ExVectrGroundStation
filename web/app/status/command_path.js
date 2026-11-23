@@ -1,5 +1,6 @@
 // Pure: the vehicle's own command-path state (VEHICLE_STATUS, T9b-4) as rows for the virtual radio panel and the
 // Simulation testing page. Vehicle-reported values only; nothing is assumed from what the ground station sent.
+import { profileText } from "../command/profile.js";
 import { CTRL_FLAGS, goRefusalText } from "./status_logic.js";
 
 /** Shown while the vehicle reports no countdown length (the go countdown is compiled into the vehicle, not sent). */
@@ -25,7 +26,7 @@ export function commandPathRows(entry) {
   }
   row("flags", "Command path", names.length ? names.join(", ") : "nothing pending", tone);
   if (typeof f.go_refusal === "number" && f.go_refusal > 0) row("go_refusal", "Go refused", goRefusalText(f.go_refusal), "warn");
-  if (typeof f.mission_profile === "number" && f.mission_profile !== 255) row("mission_profile", "Profile (SB at go)", String(f.mission_profile));
+  if (typeof f.mission_profile === "number" && f.mission_profile !== 255) row("mission_profile", "Profile (SB at go)", profileText(f.mission_profile));
   row("countdown", "Go countdown", COUNTDOWN_NOTE);
   return rows;
 }

@@ -2,12 +2,13 @@
 //  - CMD_APPLIED (USB only): the CMD_STATE fields as the VEHICLE applies them, never what the ground station sent.
 //  - The command engine's own report (`rc` push, `command`): input, Pocket, pickup hints, session, NOT MASTER.
 //  - The status bar cell "Command source": GS, session (low 16 bits), MULTI_MASTER, USB / UART fresh, GS_FAILSAFE_REQ.
+import { profileText } from "./profile.js";
 export const INVALID = 255;
 
 /** Rows of CMD_APPLIED: id, label, meaning per value. */
 export const SWITCHES = [
   { id: "go", label: "SA go", meaning: "go / abort", values: ["NOT_GO (abort)", "GO"] },
-  { id: "profile", label: "SB profile", meaning: "mission profile", values: ["profile 0", "profile 1", "profile 2"] },
+  { id: "profile", label: "SB profile", meaning: "mission profile", values: ["profile 0 (hover test)", "profile 1 (waypoint test)", "profile 2 (flight)"] },
   { id: "vehicle_mode", label: "SC vehicle mode", meaning: "real / simulation", values: ["REAL", "SIMULATION"] },
   { id: "motors", label: "SD motors", meaning: "motors armed / disarmed", values: ["disarmed", "armed"] },
   { id: "reset_button", label: "SE reset", meaning: "reset / zero", values: ["released", "pressed"] },
@@ -129,7 +130,7 @@ export function engineRows(cmd) {
   row("pocket", "Pocket stream", POCKET_TEXT[cmd.pocket] ?? String(cmd.pocket), cmd.pocket === "lost" ? "warn" : "");
   row("sending", "Command stream", cmd.sending ? `sending to ${(cmd.links || []).join(", ")} (25 Hz)` : cmd.ready === false ? "starting (waiting for the vehicle mode)" : "NO COMMAND LINK CONNECTED", cmd.sending ? "" : "warn");
   const o = cmd.out || {};
-  row("sent", "Sent state", `go ${o.go ? "GO" : "NOT_GO"}, profile ${o.profile}, ${o.vehicle_mode ? "SIMULATION" : "REAL"}, motors ${o.motors ? "armed" : "disarmed"}, SE ${o.reset_button ? "pressed" : "released"}, failsafe ${o.failsafe ? "REQUESTED" : "no"}`);
+  row("sent", "Sent state", `go ${o.go ? "GO" : "NOT_GO"}, profile ${profileText(o.profile) || o.profile}, ${o.vehicle_mode ? "SIMULATION" : "REAL"}, motors ${o.motors ? "armed" : "disarmed"}, SE ${o.reset_button ? "pressed" : "released"}, failsafe ${o.failsafe ? "REQUESTED" : "no"}`);
   if (cmd.master === "not_master") row("master", "Command source", "NOT MASTER: the vehicle latched another session", "bad");
   if (cmd.multi_master) row("multi", "Command source", "MULTI_MASTER: a foreign session was rejected", "bad");
   for (const [i, t] of pickupHints(cmd.hints).entries()) row(`hint-${i}`, "Waiting for", t, "warn");

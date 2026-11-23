@@ -397,3 +397,48 @@ test("freefall: Begin from the phase change even when the flip start is already 
   const r = texts(step(0.1, { ms: { mission_phase: "Deceleration", flip_start_altitude: NaN }, vs: { mission_phase: "Deceleration" } }));
   assert.ok(r.includes("Begin"));
 });
+
+test("ground distance: speaks at once when valid, repeats at the interval with the current value, stops on invalid", () => {
+  const c = cfg({});
+  const e = new CalloutEngine(() => c);
+  let now = 100;
+  let gd = NaN;
+  let mode = "Running";
+  const run = () => e.evaluate({
+    view: "live", now, sources: [],
+    status: entry("VehicleStatus", { mission_mode: mode, mission_phase: "Hover", simulation: true }, now),
+    actuators: entry("Actuators", { ground_distance: gd }, now),
+  });
+  const gdTexts = () => run().events.filter((x) => x.id === "ground.distance");
+  const step = (dt, v) => { now += dt; if (v !== undefined) gd = v; return gdTexts(); };
+  run();
+  assert.deepEqual(step(0.1, NaN), []);
+  const first = step(0.1, 0.84);
+  assert.deepEqual(first.map((x) => x.text), ["0.8"]);
+  assert.equal(first[0].repeat, true);
+  assert.equal(first[0].priority, 4);
+  assert.deepEqual(step(0.5, 0.7), []);
+  assert.deepEqual(step(0.5, 0.7).map((x) => x.text), ["0.7"]);
+  assert.deepEqual(step(1.0, 0.7).map((x) => x.text), ["0.7"]); // identical text still repeats
+  assert.deepEqual(step(0.5, 1.2), []); // above 1 m: stop
+  assert.deepEqual(step(1.5, NaN), []);
+  assert.deepEqual(step(0.1, 0.3).map((x) => x.text), ["0.3"]); // valid again: at once
+  mode = "Idle";
+  assert.deepEqual(step(2, 0.3), []);
+});
+
+test("ground distance: disabled toggle and repeat interval setting", () => {
+  const c = cfg({ ground_distance: { enabled: false } });
+  const e = new CalloutEngine(() => c);
+  const run = (now) => e.evaluate({ view: "live", now, sources: [], status: entry("VehicleStatus", { mission_mode: "Running" }, now), actuators: entry("Actuators", { ground_distance: 0.5 }, now) }).events.filter((x) => x.id === "ground.distance");
+  assert.deepEqual(run(10), []);
+  assert.deepEqual(run(12), []);
+  c.ground_distance.enabled = true;
+  c.ground_distance.repeat_s = 0.3;
+  assert.equal(run(13).length, 1);
+  assert.equal(run(13.2).length, 0);
+  assert.equal(run(13.35).length, 1);
+  assert.equal(mergeSettings(DEFAULTS, { ground_distance: { repeat_s: 99 } }).ground_distance.repeat_s, 5);
+  assert.equal(mergeSettings(DEFAULTS, { ground_distance: { repeat_s: 0 } }).ground_distance.repeat_s, 0.3);
+  assert.equal(DEFAULTS.ground_distance.repeat_s, 1.0);
+});
