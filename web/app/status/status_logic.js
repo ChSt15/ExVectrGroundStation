@@ -12,6 +12,8 @@ export const FAILURE_BIT_NAMES = [
   "motors-armed watchdog", "GS failsafe",
 ];
 export const FAILURE_BITS = FAILURE_BIT_NAMES;
+/** Commanded thrust (N) above which the motors count as RUNNING. */
+export const MOTORS_RUNNING_N = 0.05;
 
 /** ctrl_flags of VEHICLE_STATUS (T9b command-path state). Bit index -> [short name, tone]. */
 export const CTRL_FLAGS = [
@@ -76,7 +78,7 @@ function item(key, label, text, tone = "", extra = {}) {
  * Returns { state: "missing"|"stale"|"fresh", age, items[] }. Booleans the wire profile did not supply
  * (null/undefined) are shown as "n/s", never as false.
  */
-export function describeVehicleStatus(entry, now, schemaType, zeroSent = null, own16 = null) {
+export function describeVehicleStatus(entry, now, schemaType, zeroSent = null, own16 = null, thrust = null) {
   if (!entry) return { state: "missing", age: null, items: [], src: "" };
   const f = entry.f || {};
   const stale = isStale(entry, now, schemaType);
@@ -99,13 +101,19 @@ export function describeVehicleStatus(entry, now, schemaType, zeroSent = null, o
   items.push(item("mode", "Mode", f.mode === undefined ? "n/s" : String(f.mode), MODE_TONE[f.mode] || ""));
   items.push(item("mission", "Mission", f.mission_mode === undefined ? "n/s" : `${f.mission_mode} / ${f.mission_phase ?? "n/s"}`));
 
-  // T9b-4: the vehicle's ARMED flag means "motors armed" (the interlock input: SD up, observed after SD down, with a fresh
-  // command state); it is no longer an arm command state. Named "motors armed / disarmed" since 2026-11-23.
-  const [armText, armTone] = bool(f.armed, "MOTORS ARMED", "motors disarmed", "warn");
-  items.push(item("armed", "Motors armed", armText, armTone, { title: "VEHICLE_STATUS ARMED flag: motors armed (SD up, observed after SD down, with a fresh command state). Motors run only if the control system also commands them." }));
-
-  const [motText, motTone] = bool(f.motors_enabled, "MOTORS LIVE", "motors off", "motors", "");
-  items.push(item("motors_enabled", "Motors", motText, motTone, { loud: true, title: "VEHICLE_STATUS MOTORS_ENABLED: the hard motor gate at the output is open" }));
+  // Motors, three states (owner decision 2026-11-23): ARMED = safety gate open (ARMED flag, SD), ENABLED = control software
+  // may drive the motors (MOTORS_ENABLED), RUNNING = commanded thrust above MOTORS_RUNNING_N.
+  const running = typeof thrust === "number" && Number.isFinite(thrust) && thrust > MOTORS_RUNNING_N;
+  let motText = "n/s", motTone = "";
+  if (f.armed === true || f.armed === false) {
+    const armed = f.armed === true, en = f.motors_enabled === true;
+    if (armed && en) [motText, motTone] = ["motors ENABLED", "bad"];
+    else if (armed) [motText, motTone] = ["motors ARMED", "warn"];
+    else if (en) [motText, motTone] = ["motors enabled (gate closed)", "ok"];
+    else [motText, motTone] = ["motors off", ""];
+    if (running) motText += " RUNNING";
+  }
+  items.push(item("motors", "Motors", motText, motTone, { loud: true, title: "Motors: ARMED = safety gate open (VEHICLE_STATUS ARMED flag: SD up, observed after SD down, with a fresh command state); ENABLED = the control software may drive the motors (MOTORS_ENABLED); RUNNING = commanded thrust above " + MOTORS_RUNNING_N + " N (Actuators)." }));
 
   const [fsText, fsTone] = bool(f.failsafe, "FAILSAFE", "no failsafe", "bad");
   items.push(item("failsafe", "Failsafe", fsText, fsTone));

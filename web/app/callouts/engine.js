@@ -178,8 +178,12 @@ export class CalloutEngine {
       const e = v ? rise : fall;
       if (e) out.push(e);
     };
-    edge("armed", f.armed, ev("state.armed", "state", "Motors armed", "warning", PRIORITY.state), ev("state.disarmed", "state", "Motors disarmed", "info", PRIORITY.state));
-    edge("motors", f.motors_enabled, ev("state.motors", "state", "Motors live", "warning", PRIORITY.warning), null);
+    edge("armed", f.armed, ev("state.armed", "state", "Motors armed", "warning", PRIORITY.warning), ev("state.disarmed", "state", "Motors disarmed", "info", PRIORITY.state));
+    // Motors ENABLED (control software may drive them) while ARMED (gate open): one red announcement per transition.
+    // Enabled while disarmed, and RUNNING (thrust > 0), are never announced.
+    if (typeof f.armed === "boolean" && typeof f.motors_enabled === "boolean") {
+      edge("motorsEnabledArmed", f.armed && f.motors_enabled, ev("state.motors", "state", "Motors enabled", "failure", PRIORITY.warning), null);
+    }
     // T9b-4: SD must be toggled off, then on (ctrl_flags bit 0 INTERLOCK_NEED_TOGGLE)
     if (finite(f.ctrl_flags)) {
       edge("needToggle", (f.ctrl_flags & 1) !== 0, ev("state.toggle_sd", "state", "Toggle SD off, then on", "warning", PRIORITY.warning, { key: "toggle_sd" }), null);

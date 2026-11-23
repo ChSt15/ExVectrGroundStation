@@ -176,18 +176,25 @@ test("failsafe rising says Failsafe", () => {
   assert.deepEqual(texts(step(0.1, { vs: { failsafe: true } })), ["Failsafe"]);
 });
 
-test("state: motors armed, disarmed, motors live (said once, as a warning), zeroing and zero complete", () => {
+test("state: motors armed, disarmed, motors enabled (said once, red, only while armed; running and enabled-while-disarmed silent), zeroing and zero complete", () => {
   const { run, step } = rig();
   run();
   assert.deepEqual(texts(step(0.1, { vs: { armed: false } })), ["Motors disarmed"]);
   assert.deepEqual(texts(step(0.1, { vs: { armed: true } })), ["Motors armed"]);
+  assert.equal(step(0.1, { vs: { armed: true } }).events[0], undefined);
   const m = step(0.1, { vs: { motors_enabled: true } });
-  assert.deepEqual(texts(m), ["Motors live"]);
-  assert.equal(m.events[0].severity, "warning");
+  assert.deepEqual(texts(m), ["Motors enabled"]);
+  assert.equal(m.events[0].severity, "failure");
   assert.ok(m.events[0].priority > 0);
   const said = [];
   for (let i = 0; i < 100; i++) said.push(...texts(step(0.1)));
   assert.deepEqual(said, []); // no repeat
+  assert.deepEqual(texts(step(0.1, { vs: { armed: false } })), ["Motors disarmed"]);
+  assert.deepEqual(texts(step(0.1, { vs: { motors_enabled: false } })), []); // enabled while disarmed: silent
+  assert.deepEqual(texts(step(0.1, { vs: { motors_enabled: true } })), []);
+  assert.deepEqual(texts(step(0.1, { vs: { armed: true } })), ["Motors armed", "Motors enabled"]);
+  assert.deepEqual(texts(step(0.1, { vs: { motors_enabled: false } })), []);
+  assert.deepEqual(texts(step(0.1, { vs: { armed: true } })), []);
   assert.deepEqual(texts(step(0.1, { vs: { zeroing: true } })), ["Zeroing"]);
   assert.deepEqual(texts(step(0.1, { vs: { zeroing: false } })), ["Zero complete"]);
 });
