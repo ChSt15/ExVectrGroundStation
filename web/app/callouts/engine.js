@@ -24,6 +24,10 @@ function ev(id, category, text, severity, priority, extra = {}) {
   return { id, category, text, severity, priority, ...extra };
 }
 
+const FF_SMOOTH_S = 0.5; // moving average of the vertical speed for the freefall countdown
+const FF_MIN_SPEED = 0.5; // m/s: slower than this the countdown is not announced
+const FF_HYST_S = 0.2; // a level is only armed at the first sample when the time to go is this far above it
+
 export class CalloutEngine {
   /** @param {() => object} getSettings complete settings (settings.js), read on every evaluation */
   constructor(getSettings) {
@@ -301,12 +305,13 @@ export class CalloutEngine {
   }
 
   /**
-   * Freefall callouts: distance above the flip start = altitude minus MissionState.flip_start_altitude (the vehicle's
-   * getStopAltitude(), sent only during the bellyflop freefall, NaN otherwise). Without a flip start nothing is
-   * announced (silent, no fallback value). Active while the phase is `Descent` (bellyflop and freefall).
-   * Each level once per descent, downward only; levels already passed at the first sample are skipped silently.
-   * "Begin" once: the distance reaches 0 or the phase leaves Descent for Deceleration (the vehicle's stop trigger fired).
-   * A new descent (phase back to Descent from another phase, or data lost) re-arms everything.
+   * Freefall countdown to the start of the uprighting (flip). Time to go = (altitude - MissionState.flip_start_altitude)
+   * / descent speed, descent speed = minus the mean of Position.vel[2] over the last FF_SMOOTH_S (NWU, up positive).
+   * The vehicle recomputes the flip start with speed, so the latest telemetry is used each tick. Without a flip start
+   * (NaN outside the freefall) or below FF_MIN_SPEED the numbers are silent. Spoken: the levels `freefall.countdown_s`
+   * (default 5 4 3 2 1), each once per descent as the time to go falls to or below it; several at once: only the
+   * lowest; levels already passed at the first sample are skipped silently. "Begin" once: the distance reaches 0 or the
+   * phase goes Descent -> Deceleration. Active while the phase is `Descent`; a new descent re-arms everything.
    */
   _freefall(c, position, phase, flip, out) {
     const st = this.s;
@@ -315,28 +320,50 @@ export class CalloutEngine {
     if (phase !== "Descent") {
       if (ff && !ff.begun && ff.armed && phase === "Deceleration") {
         ff.begun = true;
-        out.push(ev("freefall.begin", "altitude", "Begin", "info", PRIORITY.altitude, { maxAge: 4 }));
+        out.push(ev("freefall.begin", "altitude", "Begin", "info", PRIORITY.altitude, { maxAge: 2 }));
       }
       if (ff && phase !== "Deceleration") st.ff = undefined; // kept (begun) through Deceleration so Begin is not repeated
       return;
     }
     if (z === null) {
-      if (ff) ff.armed = false; // stale: re-baseline silently when data returns
+      if (ff && !ff.begun) st.ff = undefined; // stale: re-baseline silently when data returns
       return;
+    }
+    const now = st.lastNow;
+    // vertical speed samples (one per distinct evaluation time), moving average over FF_SMOOTH_S
+    let f = st.ff;
+    if (!f) f = st.ff = { armed: false, begun: false, vs: [], left: new Map() };
+    if (f.begun) return; // Begin said (or already past the flip start): nothing more in this descent
+    const vz = position.f.vel && finite(position.f.vel[2]) ? position.f.vel[2] : null;
+    if (vz !== null) {
+      f.vs.push({ t: now, v: vz });
+      while (f.vs.length && now - f.vs[0].t > FF_SMOOTH_S) f.vs.shift();
     }
     if (flip === null) return; // no flip start reported: silent, state kept (Begin still follows the phase change)
     const d = z - flip;
-    const half = c.altitude.hysteresis_m / 2;
-    if (!st.ff || !st.ff.armed || st.ff.begun) {
-      // first sample of a descent: levels below the current distance are armed, the others are passed silently
-      st.ff = { armed: true, begun: d <= 0, left: new Map(c.freefall.levels.map((l) => [l, d > l])) };
+    if (d <= 0) {
+      if (f.armed) {
+        f.begun = true;
+        out.push(ev("freefall.begin", "altitude", "Begin", "info", PRIORITY.altitude, { maxAge: 2 }));
+      } else f.begun = true; // already past the flip start at the first sample: nothing to count down
+      f.armed = true;
       return;
     }
-    const f = st.ff;
+    if (!f.vs.length) return;
+    const speed = -f.vs.reduce((a, x) => a + x.v, 0) / f.vs.length;
+    if (!(speed >= FF_MIN_SPEED)) return;
+    const ttg = d / speed;
+    const levels = c.freefall.countdown_s;
+    if (!f.armed) {
+      // first sample of a descent: levels below the time to go are armed, the others are passed silently
+      f.armed = true;
+      f.left = new Map(levels.map((l) => [l, ttg > l + FF_HYST_S]));
+      return;
+    }
     const hit = [];
-    for (const l of c.freefall.levels) {
-      if (!f.left.has(l)) f.left.set(l, d > l);
-      else if (f.left.get(l) && d <= l - half) {
+    for (const l of levels) {
+      if (!f.left.has(l)) f.left.set(l, ttg > l + FF_HYST_S);
+      else if (f.left.get(l) && ttg <= l) {
         f.left.set(l, false);
         hit.push(l);
       }
@@ -344,11 +371,7 @@ export class CalloutEngine {
     // several levels in one step: say only the lowest reached
     if (hit.length) {
       const l = Math.min(...hit);
-      out.push(ev(`freefall.${l}`, "altitude", l === Math.max(...c.freefall.levels) ? `${l} meters till upright` : `${l}`, "info", PRIORITY.altitude, { maxAge: 4 }));
-    }
-    if (!f.begun && d <= 0) {
-      f.begun = true;
-      out.push(ev("freefall.begin", "altitude", "Begin", "info", PRIORITY.altitude, { maxAge: 4 }));
+      out.push(ev(`freefall.${l}`, "altitude", `${l}`, "info", PRIORITY.altitude, { maxAge: 1.5 }));
     }
   }
 
