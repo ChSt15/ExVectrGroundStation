@@ -18,29 +18,9 @@ CALLOUTS = ROOT / "web" / "app" / "callouts"
 VOICE_DIR = ROOT / "web" / "audio" / gen.VOICE_ID
 
 
-# T9b-4 phrases added to phrases.json without regenerating the clips (the callout falls back to the browser voice)
-PENDING_IDS = {
-    "begin",
-    "till-upright",
-    "control-source-lost",
-    "gnss-lost",
-    "magnetometer-lost",
-    "barometer-failure",
-    "gyro-failure",
-    "accelerometer-failure",
-    "attitude-estimate-failure",
-    "position-estimate-failure",
-    "interlock-watchdog-failure",
-    "gs-failsafe",
-    "interlock-open",
-    "interlock-closed",
-    "toggle-sd",
-    "go-refused",
-}
-# 2026-11-23: the texts were renamed to "motors armed / disarmed" (and "motors live" for the output gate); the clip ids
-# are unchanged and the clips are NOT regenerated, so the recorded audio still says the old words until they are. The
-# engine says the new text, which has no clip yet: the callout falls back to the browser voice or beeps.
-RENAMED_TEXT_IDS = {"interlock-open", "interlock-closed", "motors-enabled", "interlock-watchdog-failure"}
+# phrases in phrases.json whose clips are not generated yet (none: all rendered 2026-11-23)
+PENDING_IDS: set[str] = set()
+RENAMED_TEXT_IDS: set[str] = set()  # clip ids whose recorded text differs from the current phrase text
 STALE_IDS = {"radio-connection-loss"}  # renamed to control-source-lost; the old clip file stays until regeneration
 
 

@@ -15,7 +15,6 @@ export class Speaker {
     this.Utterance = Utterance !== undefined ? Utterance : globalThis.SpeechSynthesisUtterance;
     this.AudioCtx = AudioCtx !== undefined ? AudioCtx : globalThis.AudioContext || globalThis.webkitAudioContext;
     this.ctx = null;
-    this.timer = null;
     this.watchdog = null;
     this.voiceListeners = new Set();
     if (this.synth && "onvoiceschanged" in this.synth) this.synth.onvoiceschanged = () => this.voiceListeners.forEach((f) => f(this.voices()));
@@ -128,9 +127,10 @@ export class Speaker {
           return;
         }
         if (way === "beep") {
-          // beeps only / nothing else available: a failure already beeped, the others get one short beep
+          // beeps only / nothing else can speak: a failure already beeped, the others get one short beep. The beep
+          // runs on its own WebAudio nodes and never holds the speech queue (finish at once).
           if (ev.severity !== "failure") this.beep(c.volume);
-          setTimeout(finish, BEEP_TOTAL_S * 1000);
+          setTimeout(finish, 0);
           return;
         }
         const u = new this.Utterance(ev.text);
@@ -149,12 +149,13 @@ export class Speaker {
         finish();
       }
     };
-    if (ev.severity === "failure" && this.beep(c.volume)) this.timer = setTimeout(say, BEEP_TOTAL_S * 1000);
-    else say();
+    // the failure beep and the words start together (the beep is its own WebAudio path, not a queue item), so the beep
+    // never delays a spoken callout
+    if (ev.severity === "failure") this.beep(c.volume);
+    say();
   }
 
   cancel() {
-    clearTimeout(this.timer);
     clearTimeout(this.watchdog);
     try {
       this.clips && this.clips.stop();
