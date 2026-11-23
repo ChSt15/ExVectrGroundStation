@@ -20,7 +20,7 @@ import exvectr_packets as xp  # noqa: E402  isort: skip
 from ...core.rates import FrameInfo, UplinkItem
 from ...packets import REGISTRY, Direction, Packet
 from ...packets.defs.host import GsEvent, GsEventKind, RawFrame
-from ...packets.defs.link import NetworkStatus, RcOrigin, RcState
+from ...packets.defs.link import CmdState, NetworkStatus
 from ...packets.defs.link import Request as RequestPacket
 from ...packets.defs.link import Telecommand as TelecommandPacket
 from ..profile import Frame
@@ -36,13 +36,13 @@ AIR_NODES = (1, 3)  # frames from these nodes seen through the Router crossed th
 NODES = 4  # 0 ground station, 1 vehicle, 2 link TX, 3 link RX
 PRESENCE_S = 3.0  # network-design 3.3.4
 DUP_RESET_S = 1.0  # network-design 3.4: nothing on (src, port) for 1 s accepts the next frame
-GS_RC_PORT = xp.RcState.PORT
-GS_RC_PORT_HANDSET = GS_RC_PORT  # the same port carries the Pocket's copy (handset origin) towards the GS
+GS_RC_PORT = xp.RcState.PORT  # the Pocket's copy (handset RC_STATE, Router to GS on USB only) arrives on this port
+GS_CMD_PORT = xp.CmdState.PORT  # the GS command state (CMD_STATE, 0x13)
 # TEMPORARY legacy telecommand (flight-software docs/project/hardware-and-drivers.md section 10): port 0x7F, not in
 # the packet schema. 8 bytes little-endian: type u8, subsystem u8, paramInt i16, paramFloat f32. DATA frame,
 # QoS EVENT (2), not latest, TTL 3, DST 1, SRC 0 (CTRL byte 0x48). Remove with the flight software's T9b.
 TELECOMMAND_PORT = 0x7F
-RC_AIR_HZ = 25.0  # air profile v1: one RC_STATE in every uplink air packet
+CMD_AIR_HZ = 25.0  # one CMD_STATE per 40 ms uplink slot (latest wins in the Router)
 TELECOMMAND_QOS = 2
 
 
@@ -186,7 +186,7 @@ class ExVectrNet1Profile:
         else:
             name = re.sub(r"(?<!^)(?=[A-Z])", "_", cls.__name__).upper()
             air, usb = cls.AIR_RATE_HZ, cls.USB_RATE_HZ
-        if frame.channel == GS_RC_PORT_HANDSET or node == NODE_ROUTER:
+        if frame.channel == GS_RC_PORT or node == NODE_ROUTER:
             remote: bool | None = False
         elif node in AIR_NODES:
             remote = True
@@ -195,10 +195,10 @@ class ExVectrNet1Profile:
         return FrameInfo(name, node if node >= 0 else None, remote, float(air), float(usb))
 
     def uplink_air_items(self) -> list[UplinkItem]:
-        """What the Router sends to the ship radio node (for the ESTIMATED uplink usage): the Pocket's RC_STATE once per
-        air packet (25 Hz, air profile v1; the schema rate is 0 because the Router offers copies on its USB), the
-        Router's LINK_CONFIG and its heartbeat, at their schema air rates and sizes."""
-        items = [UplinkItem("RC_STATE", RC_AIR_HZ, xp.RcState.MAX_SIZE, needs_rc=True)]
+        """What the Router sends to the ship radio node (for the ESTIMATED uplink usage): the GS CMD_STATE once per
+        uplink slot (25 Hz; the Pocket's RC_STATE no longer goes to the air), the Router's LINK_CONFIG and its
+        heartbeat, at their schema air rates and sizes."""
+        items = [UplinkItem("CMD_STATE", CMD_AIR_HZ, xp.CmdState.MAX_SIZE, needs_rc=True)]
         for cls in (xp.LinkConfig, xp.Heartbeat):
             if cls.AIR_RATE_HZ:
                 name = re.sub(r"(?<!^)(?=[A-Z])", "_", cls.__name__).upper()
@@ -208,8 +208,9 @@ class ExVectrNet1Profile:
     # ---- send
 
     def encode(self, pkt: Packet) -> Frame | None:
-        """Only three things are encodable (design 1.4): RC_STATE with origin gs, addressed to the vehicle (node 1,
-        whether the GS sits on the vehicle's USB or behind the Router), a REQUEST (the request controller's
+        """Only three things are encodable (design 1.4): CMD_STATE (the command engine's state, addressed to the
+        vehicle, node 1, whether the GS sits on the vehicle's USB or behind the Router; the engine sets `seq` so the
+        same frame on two links carries the same sequence number), a REQUEST (the request controller's
         whitelisted one-shot actions) addressed to its `target` node, and, TEMPORARILY (user decision 2026-11-20),
         the legacy Telecommand to the vehicle. Everything else is not sent. The ground station's own heartbeat is
         not a packet: it has its own method, `encode_heartbeat`."""
@@ -222,19 +223,36 @@ class ExVectrNet1Profile:
             return self._encode_request(pkt)
         if isinstance(pkt, TelecommandPacket):
             return self._encode_telecommand(pkt)
-        if not isinstance(pkt, RcState) or pkt.origin != RcOrigin.gs or pkt.ch_us is None or len(pkt.ch_us) != 16:
-            return None
-        R = xp.RcState
-        ch = [R.CH_INVALID if us <= 0 else min(max((int(us) - 1500) * 2, R.CH_MIN), R.CH_MAX) for us in pkt.ch_us]
-        flags = R.FLAGS_SOURCE_OK if pkt.source_ok in (None, True) else 0
+        if not isinstance(pkt, CmdState):
+            return None  # the GS never sends RC_STATE any more (the handset copy goes Router -> GS only)
+        return self._encode_cmd_state(pkt)
+
+    def _encode_cmd_state(self, pkt: CmdState) -> Frame | None:
+        C = xp.CmdState
         try:
-            payload = R(flags=flags, ch=ch).encode()
+            payload = C(
+                flags=C.FLAGS_VALID
+                | (C.FLAGS_POCKET_LIVE if pkt.pocket_live else 0)
+                | (C.FLAGS_INPUT_VIRTUAL if pkt.input_virtual else 0),
+                version=1,
+                session=int(pkt.session),
+                go=int(pkt.go),
+                profile=int(pkt.profile),
+                vehicle_mode=int(pkt.vehicle_mode),
+                motors=int(pkt.motors),
+                reset_button=int(pkt.reset_button),
+                failsafe=int(pkt.failsafe or 0),
+                reserved=0,
+            ).encode()
         except (ValueError, TypeError):
-            return None
-        seq = self._tx_seq.get(GS_RC_PORT, 0)
-        self._tx_seq[GS_RC_PORT] = (seq + 1) & 0xFF
-        meta = {"dst": NODE_VEHICLE, "seq": seq, "qos": R.QOS, "latest": R.LATEST}
-        return Frame(channel=GS_RC_PORT, payload=payload, t=pkt.t, meta=meta)
+            return None  # out of range: never sent (the vehicle would reject the whole frame anyway)
+        if pkt.seq is not None:
+            seq = int(pkt.seq) & 0xFF
+        else:
+            seq = self._tx_seq.get(C.PORT, 0)
+            self._tx_seq[C.PORT] = (seq + 1) & 0xFF
+        meta = {"dst": NODE_VEHICLE, "seq": seq, "qos": C.QOS, "latest": C.LATEST}
+        return Frame(channel=C.PORT, payload=payload, t=pkt.t, meta=meta)
 
     def _encode_telecommand(self, pkt: TelecommandPacket) -> Frame | None:
         """TEMPORARY. One 8-byte legacy `Telecommand` to the vehicle (node 1)."""
@@ -264,6 +282,7 @@ class ExVectrNet1Profile:
                 target=int(pkt.target),
                 arg_i=int(pkt.arg_i or 0),
                 arg_f=float(pkt.arg_f or 0.0),
+                session=int(pkt.session or 0) if int(pkt.target) == NODE_VEHICLE else 0,
             ).encode()
         except (ValueError, TypeError):
             return None

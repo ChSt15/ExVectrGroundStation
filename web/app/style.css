@@ -96,9 +96,9 @@ header.top { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center;
 .chip-l { color: var(--dim); font-size: var(--fs-xs); font-weight: 600; }
 .chip .val .unit { color: var(--dim); }
 .rc-chip { cursor: pointer; font-weight: 600; }
-.rc-chip[data-mode="slave"] { border-color: var(--info); color: var(--info); }
-.rc-chip[data-mode="master"] { border-color: var(--warn); color: #1b1300; background: var(--warn); }
-.rc-chip[data-mode="master"][data-sending="true"] { animation: pulse 1.4s infinite; }
+.rc-chip[data-mode="pocket"] { border-color: var(--info); color: var(--info); }
+.rc-chip[data-mode="virtual"] { border-color: var(--warn); color: #1b1300; background: var(--warn); }
+.rc-chip[data-sending="false"] { border-color: var(--bad); }
 .theme { min-width: 32px; padding: 2px 6px; }
 .conn .conn-t { font-size: var(--fs-s); }
 /* recorder block */
@@ -288,6 +288,7 @@ tr.incomplete td { color: var(--dim); }
 .rc-role { display: inline-block; font-size: var(--fs-xs); font-weight: 700; letter-spacing: .08em; padding: 1px 9px; border-radius: 10px; margin-bottom: 4px; background: var(--surface-3); color: var(--fg); }
 .rc-role:empty { display: none; }
 .rc-role[data-role="master"] { background: var(--warn); color: #1b1300; } .rc-role[data-role="slave"] { background: var(--info); color: #fff; }
+.rc-hints { padding: 5px 9px; border-radius: 5px; font-size: var(--fs-s); background: var(--warn-bg); border: 1px solid var(--warn); margin-bottom: 6px; }
 .rc-warning { padding: 5px 9px; border-radius: 5px; font-weight: 700; font-size: var(--fs-s); background: var(--bad); color: #fff; margin-bottom: 6px; }
 .rc-stage { position: relative; width: 100%; max-width: 520px; margin: 4px auto 0; container-type: inline-size; user-select: none; touch-action: manipulation; }
 .rc-bg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }

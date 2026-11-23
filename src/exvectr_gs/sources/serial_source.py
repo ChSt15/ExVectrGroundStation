@@ -189,10 +189,10 @@ class SerialSource(Source):
     async def send(self, pkt: Packet) -> bool:
         """Queue one uplink packet. False if not connected, not allowed or not encodable.
 
-        Only UP packet types go out (RcState, Request and the TEMPORARY Telecommand), RcState only through the
-        source with
-        rc_role = "control" (design 6.2): a mirror or none source never carries GS RC state, whatever the
-        caller asks. A Request goes out whatever the rc_role, but only to a target this source can reach.
+        Only UP packet types go out (CmdState, Request and the TEMPORARY Telecommand), CmdState only through the
+        source with rc_role = "control" (a command link): a mirror or none source never carries the GS command
+        state, whatever the caller asks. A Request goes out whatever the rc_role, but only to a target this source
+        can reach.
         """
         conn = self._conn
         if conn is None or conn.stop.is_set() or not self.caps.can_send:
@@ -202,7 +202,7 @@ class SerialSource(Source):
                 return False
         except KeyError:
             return False
-        if pkt.TYPE == "RcState" and self.caps.rc_role != "control":
+        if pkt.TYPE == "CmdState" and (self.caps.rc_role != "control" or 1 not in self.caps.request_targets):
             return False
         if pkt.TYPE == "Telecommand" and 1 not in self.caps.request_targets:
             return False  # TEMPORARY legacy telecommand: only to the vehicle (node 1), which this source must reach

@@ -7,7 +7,6 @@ requests are aborted, and after a re-enable the RC controller sends the safe def
 
 import asyncio
 import contextlib
-import struct
 import sys
 import tempfile
 from pathlib import Path
@@ -25,8 +24,9 @@ import fake_vehicle_net as net  # noqa: E402
 REQUESTS = {"action": [{"action": "CALIB_APPLY", "label": "Apply", "group": "Calibration", "target": 1}]}
 
 
-def rc_channels(frames):
-    return [list(struct.unpack("<BB16h", f.payload)[2:]) for f in frames if f.channel == net.PORT_RC_STATE]
+def cmd_frames(frames):
+    """CMD_STATE frames among the received ones, parsed with the independent strict parser."""
+    return [net.parse_cmd_state(f.payload) for f in frames if f.channel == net.PORT_CMD_STATE]
 
 
 @contextlib.asynccontextmanager
@@ -48,7 +48,7 @@ async def rig(tmp_path, usb_enabled=True):
             }
         )
     )  # fmt: skip
-    extra = [asyncio.create_task(app.rc.run()), asyncio.create_task(app.requests.run())]
+    extra = [asyncio.create_task(app.engine.run()), asyncio.create_task(app.requests.run())]
     hb = asyncio.create_task(app._heartbeat_loop())
     try:
         async with running(app) as r:
@@ -82,7 +82,7 @@ async def test_disable_is_a_true_disconnect_and_reenable_starts_from_safe_defaul
 
         beater = asyncio.create_task(beat())
         await c.ok("rc.set", values={"SA": 1})
-        await wait_for(lambda: any(ch[4] == 1000 for ch in rc_channels(v.received)), what="SA=1 on the wire")
+        await wait_for(lambda: any(f and f["go"] == 1 for f in cmd_frames(v.received)), what="go on the wire")
         await wait_for(lambda: len(v.received_heartbeats) > 0, what="GS heartbeat")
         st = r.api._status_msg()
         assert st["request_routes"]["1"] == "usb"
@@ -108,13 +108,14 @@ async def test_disable_is_a_true_disconnect_and_reenable_starts_from_safe_defaul
         assert lst["usb"]["state"] == "disabled" and lst["usb"]["disabled_by"] == "user"
         assert lst["fake"]["state"] == "connected"
 
-        # re-enable: a fresh connection; the first RC state is the safe default (SA back to 0), no stale request
+        # re-enable: a fresh connection; the engine goes on with its own state and session (nothing is replayed from
+        # the link), and no stale request is sent
         n_rx = len(v.received)
         await c.ok("sources.enable", source="usb", enabled=True)
         await wait_for(lambda: usb(app).status().state == "connected", what="reconnected")
-        await wait_for(lambda: rc_channels(v.received[n_rx:]), what="RC after re-enable")
-        after = rc_channels(v.received[n_rx:])
-        assert after[0][4] == -1000 and all(ch[4] == -1000 for ch in after), "stale RC state after re-enable"
+        await wait_for(lambda: cmd_frames(v.received[n_rx:]), what="CMD_STATE after re-enable")
+        after = cmd_frames(v.received[n_rx:])
+        assert all(f and f["session"] == app.engine.session for f in after)
         assert not [f for f in v.received[n_rx:] if f.channel == net.PORT_REQUEST], "a stale request was sent"
         assert usb(app).status().disabled_by is None
         beater.cancel()

@@ -1,7 +1,6 @@
 """RC controller rules (design 1.4, 8.2) with a fake clock and a scripted source. No I/O, no hardware."""
 
 import asyncio
-import time
 from pathlib import Path
 
 import pytest
@@ -12,54 +11,31 @@ from exvectr_gs.packets.defs.host import GsEventKind
 from exvectr_gs.packets.defs.link import RcOrigin, RcState
 from exvectr_gs.rc import ControlDenied, ControlLocked, RadioConfig, RadioConfigError, RcController, load_radio_config
 from exvectr_gs.rc.radio_config import radio_config_from_dict
-from exvectr_gs.sources.base import SourceCaps, SourceKind, SourceStatus
 
 POCKET = Path(__file__).parents[2] / "config" / "radio.pocket.toml"
 S = 1_000_000_000
 
 
-class StubSource:
-    """A control (or mirror) link that records what it is asked to send."""
-
-    kind = SourceKind.VEHICLE_USB
-
-    def __init__(self, sid="usb", rc_role="control", state="connected"):
-        self.id = sid
-        self.caps = SourceCaps(rc_role=rc_role, can_send=True)
-        self.state = state
-        self.accept = True
-        self.sent: list[RcState] = []
-
-    async def send(self, pkt):
-        if not self.accept:
-            return False
-        self.sent.append(pkt)
-        return True
-
-    def status(self):
-        return SourceStatus(self.id, self.kind, True, self.state, None, 0, 0, None)  # type: ignore[arg-type]
-
-    async def run(self, sink):  # pragma: no cover
-        pass
-
-
 class Rig:
-    def __init__(self, sources=None, hosts=("127.0.0.1",)):
+    def __init__(self, hosts=("127.0.0.1",)):
         self.clock = FakeClock(1000 * S)
         self.bus = Bus()
-        self.src = StubSource()
-        self.sources = [self.src] if sources is None else sources
         self.cfg = load_radio_config(POCKET)
-        self.rc = RcController(self.cfg, self.sources, self.bus, clock=self.clock, control_hosts=hosts)
+        self.rc = RcController(self.cfg, self.bus, clock=self.clock, control_hosts=hosts)
         self.published = []
         self.bus.subscribe(self.published.append)
 
     def acquire(self, kind="connection", dur=None, holder="gui"):
         return self.rc.acquire(holder, kind, dur, "127.0.0.1")
 
-    async def tick(self, advance=0.04):
+    def poll(self, advance=0.04):
+        """What the engine does every 5 ms: advance, expire, read the virtual switches."""
         self.clock.advance(advance)
-        return await self.rc.tick()
+        return self.rc.poll()
+
+    def ch(self):
+        """The panel's channel vector (the state the engine would read)."""
+        return self.cfg.channels_us(self.rc.status().controls)
 
     def events(self):
         return [p.kind for p in self.published if p.TYPE == "GsEvent"]
@@ -90,7 +66,7 @@ def test_pocket_config_loads_with_safe_defaults():
     ch = cfg.channels_us(cfg.default_state())
     assert ch[:4] == [1500, 1500, 1000, 1500]  # sticks neutral, throttle low
     assert ch[4:10] == [1000] * 6 and ch[10:] == [1500] * 6
-    assert {c.id: c.meaning for c in cfg.controls}["SD"].startswith("motor interlock")  # informational label only
+    assert {c.id: c.meaning for c in cfg.controls}["SD"].startswith("motors armed")  # informational label only
 
 
 def test_stick_display_mapping_defaults():
@@ -154,56 +130,7 @@ def test_control_value_validation():
         cfg.control("nope")
 
 
-# ---------------------------------------------------------------- leases, sending, silence
-
-
-def test_nothing_is_sent_without_a_lease():
-    r = Rig()
-    for _ in range(10):
-        assert run(r.tick()) is False
-    assert r.src.sent == [] and r.rc.status().mode == "idle" and not r.rc.status().sending
-    assert not [p for p in r.published if p.TYPE == "RcState"]
-
-
-def test_core_start_has_defaults_and_sends_nothing():
-    r = Rig()
-    st = r.rc.status()
-    assert (
-        st.controls == r.cfg.default_state() and st.lease is None and st.channels_us == r.cfg.channels_us(st.controls)
-    )
-    # a second controller (a "restart") shares nothing with the first
-    lease = r.acquire()
-    r.rc.set(lease.id, {"SA": 1})
-    run(r.tick())
-    r2 = RcController(r.cfg, r.sources, Bus(), clock=r.clock)
-    assert r2.status().controls == r.cfg.default_state() and r2.status().lease is None
-    sent = len(r.src.sent)
-    run(r2.tick())
-    assert len(r.src.sent) == sent
-
-
-def test_acquire_sends_complete_state_to_control_source_only():
-    mirror = StubSource("link", rc_role="mirror")
-    r = Rig([mirror, StubSource("usb")])
-    lease = r.acquire()
-    assert run(r.tick()) is True
-    assert mirror.sent == [] and len(r.sources[1].sent) == 1
-    pkt = r.sources[1].sent[0]
-    assert pkt.origin == RcOrigin.gs and pkt.src == "gs" and len(pkt.ch_us) == 16
-    assert pkt.ch_us == r.cfg.channels_us(r.cfg.default_state())
-    r.rc.set(lease.id, {"SA": 1, "S1": 0.5})
-    run(r.tick())
-    assert r.sources[1].sent[-1].ch_us[4] == 2000 and r.sources[1].sent[-1].ch_us[9] == 1500
-    assert [p.seq for p in r.sources[1].sent] == [1, 2]
-
-
-def test_acquire_denied_without_control_source_or_connection():
-    with pytest.raises(ControlDenied):
-        Rig([]).acquire()
-    with pytest.raises(ControlDenied):  # only a mirror source (TX module): the GS sends nothing at all
-        Rig([StubSource("link", rc_role="mirror")]).acquire()
-    with pytest.raises(ControlDenied):
-        Rig([StubSource(state="searching")]).acquire()
+# ---------------------------------------------------------------- leases (they guard the virtual panel only)
 
 
 def test_one_holder_only():
@@ -230,22 +157,21 @@ def test_acquire_argument_validation():
     assert r.rc.status().lease is None
 
 
-def test_release_stops_sending_at_once_and_resets_to_defaults():
+def test_release_ends_the_virtual_input_at_once_and_resets_to_defaults():
     r = Rig()
     lease = r.acquire()
     r.rc.set(lease.id, {"SA": 1, "SB": 2})
-    run(r.tick())
-    n = len(r.src.sent)
+    assert r.poll().sa == 1 and r.poll().sb == 2
     r.rc.release(lease.id)
-    assert run(r.tick()) is False and len(r.src.sent) == n
+    assert r.poll() is None  # no lease: no virtual input (the engine keeps sending its last state)
     assert r.rc.status().controls == r.cfg.default_state() and r.rc.status().mode == "idle"
     assert GsEventKind.lease_released in r.events()
     r.rc.release(lease.id)  # idempotent
     # the next holder starts from the defaults, the previous state is never resumed
     r.acquire(holder="other")
     assert r.rc.status().controls == r.cfg.default_state()
-    run(r.tick())
-    assert r.src.sent[-1].ch_us == r.cfg.channels_us(r.cfg.default_state())
+    r.poll()
+    assert r.ch() == r.cfg.channels_us(r.cfg.default_state())
 
 
 def test_connection_lease_ends_when_heartbeat_is_lost():
@@ -253,14 +179,13 @@ def test_connection_lease_ends_when_heartbeat_is_lost():
     lease = r.acquire()
     r.rc.set(lease.id, {"SA": 1})
     for _ in range(20):  # 0.8 s with heartbeats: stays alive
-        run(r.tick())
+        r.poll()
         r.rc.heartbeat(lease.id)
     assert r.rc.status().lease is not None
-    n = len(r.src.sent)
     r.clock.advance(0.99)
     assert r.rc.status().lease is not None
     r.clock.advance(0.02)  # > 1 s since the last heartbeat
-    assert run(r.rc.tick()) is False and len(r.src.sent) == n
+    assert r.rc.poll() is None
     assert r.rc.status().lease is None and r.rc.status().controls == r.cfg.default_state()
     assert GsEventKind.lease_expired in r.events()
     with pytest.raises(ControlDenied):  # a late heartbeat cannot revive it
@@ -288,17 +213,15 @@ def test_keepalive_lease_defaults_to_5_s_and_is_renewed_by_every_operation():
     assert r.rc.status().lease is None and r.rc.status().controls == r.cfg.default_state()
 
 
-def test_keepalive_lease_expires_sending_stops_and_a_late_renewal_cannot_revive_it():
+def test_keepalive_lease_expires_input_ends_and_a_late_renewal_cannot_revive_it():
     r = Rig()
     lease = r.acquire("keepalive", 2.0, holder="cli")
     assert lease.expires == 1002 * S
     r.rc.set(lease.id, {"SA": 1})
     for _ in range(40):  # 1.6 s, no renewal
-        assert run(r.tick()) is True
-    run(r.tick(0.5))  # t = 2.1 s: expired, nothing sent at this tick
+        assert r.poll() is not None
+    assert r.poll(0.5) is None  # t = 2.1 s: expired
     assert r.rc.status().lease is None
-    n = len(r.src.sent)
-    assert run(r.tick()) is False and len(r.src.sent) == n
     assert GsEventKind.lease_expired in r.events()
     for op in (
         lambda: r.rc.heartbeat(lease.id),
@@ -345,8 +268,8 @@ def test_locked_control_rejects_non_default_and_applies_nothing():
     assert r.rc.status().controls == r.cfg.default_state()
     r.rc.set(lease.id, {"SD": 0, "SA": 1})  # the default is always allowed
     assert r.rc.status().controls["SA"] == 1
-    run(r.tick())
-    assert r.src.sent[-1].ch_us[7] == 1000  # SD stays off on the wire
+    r.poll()
+    assert r.ch()[7] == 1000  # SD stays off on the wire
 
 
 def test_unlock_needs_a_lease_and_a_lockable_control():
@@ -368,15 +291,15 @@ def test_unlocked_control_can_be_set_and_relocks_after_the_timeout_to_off():
     st = r.rc.unlock(lease.id, "SD")
     assert st.locks["SD"] == {"locked": False, "remaining_s": 60.0, "timeout_s": 60.0}
     r.rc.set(lease.id, {"SD": 1})
-    run(r.tick())
-    assert r.src.sent[-1].ch_us[7] == 2000
+    r.poll()
+    assert r.ch()[7] == 2000
     beat(r, lease, 59.0)
     assert r.rc.status().controls["SD"] == 1
     assert r.rc.status().locks["SD"]["remaining_s"] == pytest.approx(0.96, abs=0.01)
     beat(r, lease, 1.01)
     assert r.rc.status().controls["SD"] == 0 and r.rc.status().locks["SD"]["locked"] is True  # reset to off
-    run(r.tick())
-    assert r.src.sent[-1].ch_us[7] == 1000  # the expiry is applied on the next tick, no operation needed
+    r.poll()
+    assert r.ch()[7] == 1000  # the expiry is applied on the next tick, no operation needed
     with pytest.raises(ControlLocked):
         r.rc.set(lease.id, {"SD": 1})
 
@@ -388,8 +311,8 @@ def test_unlock_expiry_is_applied_by_the_tick_alone():
     r.rc.set(lease.id, {"SD": 1})
     beat(r, lease, 56.0)  # lease kept alive by renewals, unlock not renewed
     r.clock.advance(5.0)  # t = 61 s since the unlock, 5 s since the last renewal: lease alive, unlock lapsed
-    assert run(r.rc.tick()) is True  # the tick itself relocks, no operation in between
-    assert r.src.sent[-1].ch_us[7] == 1000 and r.rc._unlock_until == {} and r.rc.status().lease is not None
+    assert r.rc.poll() is not None  # the poll itself relocks, no operation in between
+    assert r.ch()[7] == 1000 and r.rc._unlock_until == {} and r.rc.status().lease is not None
 
 
 def test_explicit_lock_resets_to_default_and_is_idempotent():
@@ -429,19 +352,6 @@ def test_every_end_of_control_returns_defaults_and_relocks():
     _unlock_sd_on(r, lease)
     r.clock.advance(1.01)
     assert r.rc.status().lease is None and r.rc._unlock_until == {} and r.rc.status().controls["SD"] == 0
-    # control source drop (lease still valid): defaults and relock, and the state is not resumed on return
-    r = Rig()
-    lease = r.acquire()
-    _unlock_sd_on(r, lease)
-    r.src.state = "searching"
-    run(r.tick())
-    assert r.rc._unlock_until == {} and r.rc.status().controls["SD"] == 0 and r.rc.status().controls["SA"] == 0
-    r.src.state = "connected"
-    r.rc.heartbeat(lease.id)
-    run(r.tick())
-    assert r.src.sent[-1].ch_us == r.cfg.channels_us(r.cfg.default_state())
-    with pytest.raises(ControlLocked):
-        r.rc.set(lease.id, {"SD": 1})
     # acquire after an unlock that was never closed (cannot normally happen: defence in depth)
     r = Rig()
     r.rc._unlock_until["SD"] = 10**18
@@ -457,10 +367,10 @@ def test_fresh_controller_starts_locked_at_defaults():
 
 
 def test_mirror_status_reports_locks_as_locked():
-    r = Rig([StubSource("link", rc_role="mirror")])
+    r = Rig()
     handset(r)
     st = r.rc.status()
-    assert st.mode == "slave" and st.locks["SD"]["locked"] is True
+    assert st.mode == "pocket" and st.locks["SD"]["locked"] is True
 
 
 def test_radio_config_lock_validation():
@@ -477,58 +387,6 @@ def test_radio_config_lock_validation():
                 {"lock": True, "lock_timeout_s": "x"}):  # fmt: skip
         with pytest.raises(RadioConfigError):
             with_(**bad)
-
-
-def test_losing_the_lease_stops_sending_within_one_period():
-    """Real-time loop: after the lease ends, no frame follows more than one period later."""
-
-    async def go():
-        r = Rig()
-        r.rc.cfg.send_rate_hz = 50
-        r.rc._clock = type("C", (), {"now": staticmethod(lambda: time.monotonic_ns())})()
-        lease = r.rc.acquire("gui", "keepalive", 9, "127.0.0.1")
-        task = asyncio.create_task(r.rc.run())
-        await asyncio.sleep(0.2)
-        assert len(r.src.sent) >= 5
-        r.rc.release(lease.id)
-        n = len(r.src.sent)
-        await asyncio.sleep(0.2)
-        task.cancel()
-        await task
-        return n, len(r.src.sent)
-
-    n, after = run(go())
-    assert after == n  # not one more frame after release
-
-
-def test_refused_send_skips_the_tick_and_keeps_the_lease():
-    r = Rig()
-    r.acquire()
-    run(r.tick())
-    r.src.accept = False
-    for _ in range(5):
-        assert run(r.tick()) is False
-    assert r.rc.skipped_count == 5 and r.rc.status().lease is not None
-    n_pub = len([p for p in r.published if p.TYPE == "RcState"])
-    r.src.accept = True
-    assert run(r.tick()) is True  # sending resumes with the current state, nothing is queued up
-    assert len(r.src.sent) == 2
-    assert len([p for p in r.published if p.TYPE == "RcState"]) >= n_pub  # only accepted sends are recorded
-
-
-def test_control_source_drop_resets_controls_to_defaults():
-    r = Rig()
-    lease = r.acquire()
-    r.rc.set(lease.id, {"SA": 1, "SB": 2})
-    run(r.tick())
-    r.src.state = "searching"
-    for _ in range(3):
-        assert run(r.tick(0.04)) is False
-        r.rc.heartbeat(lease.id)
-    assert r.rc.status().mode == "idle" and not r.rc.status().sending
-    r.src.state = "connected"
-    run(r.tick())
-    assert r.src.sent[-1].ch_us == r.cfg.channels_us(r.cfg.default_state())  # not the old state
 
 
 # ---------------------------------------------------------------- set validation, momentary
@@ -551,9 +409,9 @@ def test_momentary_with_hold_is_released_by_the_core():
     r.rc.set(lease.id, {"SE": 1}, hold_s=0.5)
     seen = []
     for _ in range(20):  # 0.8 s, with heartbeats but no further set: the core must release it
-        run(r.tick())
+        r.poll()
         r.rc.heartbeat(lease.id)
-        seen.append(r.src.sent[-1].ch_us[8])
+        seen.append(r.ch()[8])
     assert seen[0] == 2000 and seen[10] == 2000 and seen[-1] == 1000
     held = sum(1 for v in seen if v == 2000)
     assert 11 <= held <= 14  # about 0.5 s of 25 Hz ticks
@@ -565,13 +423,13 @@ def test_momentary_without_hold_lapses_unless_refreshed():
     lease = r.acquire()
     for _ in range(10):  # refreshed every tick (GUI repeats): stays pressed for 0.4 s
         r.rc.set(lease.id, {"SE": 1})
-        run(r.tick())
+        r.poll()
         r.rc.heartbeat(lease.id)
-    assert r.src.sent[-1].ch_us[8] == 2000
+    assert r.ch()[8] == 2000
     for _ in range(10):  # the client died: auto-release after 300 ms
-        run(r.tick())
+        r.poll()
         r.rc.heartbeat(lease.id)
-    assert r.src.sent[-1].ch_us[8] == 1000
+    assert r.ch()[8] == 1000
     r.rc.set(lease.id, {"SE": 1})
     r.rc.set(lease.id, {"SE": 0})  # explicit release
     assert r.rc.status().controls["SE"] == 0
@@ -584,8 +442,8 @@ def test_momentary_released_when_lease_ends():
     r.rc.release(lease.id)
     lease = r.acquire()
     assert r.rc.status().controls["SE"] == 0
-    run(r.tick())
-    assert r.src.sent[-1].ch_us[8] == 1000
+    r.poll()
+    assert r.ch()[8] == 1000
 
 
 def test_hold_s_only_for_momentary_and_bounded():
@@ -599,30 +457,7 @@ def test_hold_s_only_for_momentary_and_bounded():
     assert r.rc.status().controls["SE"] == 0 and r.rc.status().controls["SA"] == 0
 
 
-# ---------------------------------------------------------------- recording on the bus
-
-
-def test_gs_rcstate_recorded_on_change_and_once_per_second():
-    r = Rig()
-    lease = r.acquire("keepalive", 9, holder="cli")
-
-    def recorded():
-        return [p for p in r.published if p.TYPE == "RcState"]
-
-    run(r.tick())
-    assert len(recorded()) == 1 and recorded()[0].src == "gs" and recorded()[0].origin == RcOrigin.gs
-    for _ in range(24):  # 0.96 s unchanged: nothing more
-        run(r.tick())
-    assert len(recorded()) == 1
-    run(r.tick())  # >= 1 s
-    assert len(recorded()) == 2
-    r.rc.set(lease.id, {"SA": 1})
-    run(r.tick())
-    assert len(recorded()) == 3 and recorded()[-1].ch_us[4] == 2000  # on change, at once
-    assert len(r.src.sent) == 27  # every tick was still sent
-
-
-# ---------------------------------------------------------------- master / slave (decision 10.1-8)
+# ---------------------------------------------------------------- Pocket display and the engine's view
 
 
 def handset(r, v=1500, sid="link"):
@@ -631,65 +466,19 @@ def handset(r, v=1500, sid="link"):
     r.bus.publish(RcState(t=r.clock.now(), src=sid, origin=RcOrigin.handset, ch_us=ch, seq=1))
 
 
-def test_slave_reports_handset_and_sends_nothing():
-    r = Rig([StubSource("link", rc_role="mirror"), StubSource("usb", rc_role="none")])
+def test_pocket_state_is_displayed_and_the_panel_is_still_available():
+    r = Rig()
     handset(r, 1250)
     st = r.rc.status()
-    assert st.mode == "slave" and st.origin == "handset" and not st.sending and st.target is None
+    assert st.mode == "pocket" and st.origin == "handset" and not st.sending and st.target is None
     assert st.controls["SA"] == 1 and st.controls["SB"] == 1 and st.controls["S1"] == pytest.approx(0.25)
     assert st.channels_us[4] == 2000
-    with pytest.raises(ControlDenied):
-        r.acquire()
-    for _ in range(10):
-        assert run(r.tick()) is False
-    assert all(not s.sent for s in r.sources)
-    r.clock.advance(1.01)
-    assert r.rc.status().mode == "idle"
-
-
-def test_master_while_pocket_active_sets_warning_flag_and_keeps_sending():
-    r = Rig()
-    r.acquire("keepalive", 9, holder="cli")
-    run(r.tick())
-    assert r.rc.status().mode == "master"
-    handset(r)
-    st = r.rc.status()
-    assert st.mode == "master" and st.sending and st.origin == "gs"  # the user's choice: still sending
-    assert st.pocket_active is True  # drives the GUI warning banner (display only)
-    n = len(r.src.sent)
-    run(r.tick())
-    assert len(r.src.sent) == n + 1
-    r.clock.advance(1.01)
-    st = r.rc.status()
-    assert st.mode == "master" and st.pocket_active is False
-
-
-def test_own_gs_state_is_not_mistaken_for_a_handset():
-    r = Rig()
-    r.acquire()
-    run(r.tick())  # published to the bus with origin gs, src gs
-    r.bus.publish(RcState(t=1, src="gs", origin=RcOrigin.gs, ch_us=[1500] * 16, seq=9))
-    assert r.rc.status().mode == "master"
+    assert r.poll() is None  # no lease: no virtual input, the Pocket shows only
+    r.acquire()  # the Pocket wins in the engine, but the panel can be taken (the lease only guards the panel)
+    assert r.rc.status().mode == "virtual"
     r.rc.release(r.rc.status().lease.id)
+    r.clock.advance(1.01)
     assert r.rc.status().mode == "idle"
-
-
-def test_rate_is_fixed_at_send_rate_hz():
-    # a keepalive lease needs no heartbeat
-    async def go_timed():
-        r = Rig()
-        r.rc._clock = type("C", (), {"now": staticmethod(lambda: time.monotonic_ns())})()
-        r.rc.acquire("cli", "keepalive", 5.0, "127.0.0.1")
-        task = asyncio.create_task(r.rc.run())
-        t0 = time.monotonic()
-        await asyncio.sleep(2.0)
-        n = len(r.src.sent)
-        dt = time.monotonic() - t0
-        task.cancel()
-        await task
-        return n / dt
-
-    assert run(go_timed()) == pytest.approx(25.0, rel=0.05)
 
 
 def test_default_radio_config_object_is_valid():
@@ -697,91 +486,38 @@ def test_default_radio_config_object_is_valid():
     assert cfg.controls == [] and cfg.channels_us({}) == [1500] * 16
 
 
-def test_idle_without_handset_and_slave_follows_freshness():
+def test_idle_without_handset_and_pocket_follows_freshness():
     r = Rig()
     assert r.rc.status().mode == "idle" and r.rc.status().pocket_active is False
     handset(r)
-    assert r.rc.status().mode == "slave" and r.rc.status().pocket_active is True
+    assert r.rc.status().mode == "pocket" and r.rc.status().pocket_active is True
     r.clock.advance(0.99)
-    assert r.rc.status().mode == "slave"
+    assert r.rc.status().mode == "pocket"
     r.clock.advance(0.02)
     assert r.rc.status().mode == "idle"
 
 
-def test_slave_never_becomes_master_by_itself():
+def test_poll_gives_the_engine_the_panel_positions_and_none_without_a_lease():
     r = Rig()
-    for _ in range(30):
-        handset(r)
-        assert run(r.tick()) is False
-        r.clock.advance(0.04)
-    assert r.rc.status().mode == "slave" and r.rc.status().lease is None and not r.src.sent
+    assert r.rc.poll() is None
+    lease = r.acquire()
+    sw = r.rc.poll()
+    assert (sw.sa, sw.sb, sw.sc, sw.sd, sw.se) == (0, 0, 0, 0, 0)
+    r.rc.set(lease.id, {"SA": 1, "SB": 2, "SC": 1})
+    sw = r.rc.poll()
+    assert (sw.sa, sw.sb, sw.sc) == (1, 2, 1)
 
 
-def test_master_allowed_while_pocket_active_and_starts_from_defaults():
+def test_preset_sets_the_panel_to_the_engine_output_and_opens_the_sd_guard_for_armed_motors():
+    from exvectr_gs.rc import Switches
+
     r = Rig()
-    handset(r, 1250)
-    assert r.rc.status().mode == "slave"
+    r.rc.preset(Switches(sa=1, sb=2, sc=1, sd=1, se=0))  # no lease: ignored
+    assert r.rc.status().controls == r.cfg.default_state()
     lease = r.acquire()
+    r.rc.preset(Switches(sa=0, sb=2, sc=1, sd=1, se=0))
     st = r.rc.status()
-    assert st.mode == "master" and st.sending and st.pocket_active
-    assert st.controls == r.cfg.default_state()  # not the Pocket's positions
-    run(r.tick())
-    assert r.src.sent[-1].ch_us == r.cfg.channels_us(r.cfg.default_state())
-    r.rc.set(lease.id, {"SA": 1})
-    r.rc.unlock(lease.id, "SD")
-    r.rc.set(lease.id, {"SD": 1})
-    r.rc.release(lease.id)  # master -> slave resets controls, closes locks
-    st = r.rc.status()
-    assert st.mode == "slave" and st.controls["SA"] == 1  # slave shows the Pocket (SA at 2000 us), not ours
-    assert r.rc._state == r.cfg.default_state() and r.rc.status().locks["SD"]["locked"] is True
-    n = len(r.src.sent)
-    run(r.tick())
-    assert len(r.src.sent) == n
-
-
-def test_master_sends_to_every_connected_rc_source_and_not_to_mirror_or_none():
-    a, b = StubSource("usb"), StubSource("link")
-    m, n = StubSource("rx", rc_role="mirror"), StubSource("x", rc_role="none")
-    off = StubSource("off", state="searching")
-    r = Rig([a, b, m, n, off])
-    handset(r)
-    r.acquire()
-    assert run(r.tick()) is True
-    assert len(a.sent) == len(b.sent) == 1 and a.sent[0] is b.sent[0]
-    assert not m.sent and not n.sent and not off.sent
-    st = r.rc.status()
-    assert st.targets == ["usb", "link"] and st.target == "usb, link"
-
-
-def test_one_source_refusing_does_not_stop_the_others():
-    a, b = StubSource("usb"), StubSource("link")
-    r = Rig([a, b])
-    r.acquire()
-    b.accept = False
-    assert run(r.tick()) is True
-    assert len(a.sent) == 1 and not b.sent and r.rc.skipped_count == 1
-
-
-def test_source_that_reappears_gets_the_safe_state_first():
-    a, b = StubSource("usb"), StubSource("link")
-    r = Rig([a, b])
-    lease = r.acquire()
-    run(r.tick())
-    r.rc.set(lease.id, {"SA": 1})
-    b.state = "searching"
-    run(r.tick())
-    assert a.sent[-1].ch_us[4] == 2000  # still master through the other source
-    r.rc.set(lease.id, {"SB": 2})
-    b.state = "connected"
-    run(r.tick())
-    assert a.sent[-1].ch_us == b.sent[-1].ch_us == r.cfg.channels_us(r.cfg.default_state())
-
-
-def test_lease_end_is_silence_on_all_sources():
-    a, b = StubSource("usb"), StubSource("link")
-    r = Rig([a, b])
-    r.acquire("keepalive", 5)
-    run(r.tick())
-    r.clock.advance(5.1)
-    na, nb = len(a.sent), len(b.sent)
-    assert run(r.tick()) is False and len(a.sent) == na and len(b.sent) == nb
+    assert (st.controls["SA"], st.controls["SB"], st.controls["SC"], st.controls["SD"]) == (0, 2, 1, 1)
+    assert st.locks["SD"]["locked"] is False  # shown as armed, relocks (disarms) after the usual timeout
+    beat(r, lease, 61)
+    assert r.rc.poll().sd == 0 and r.rc.status().locks["SD"]["locked"] is True

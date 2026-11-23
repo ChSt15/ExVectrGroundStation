@@ -149,26 +149,26 @@ def _uplink_tracker():
     return tr
 
 
-def test_uplink_items_come_from_the_profile_with_the_air_rate_of_rc_state():
+def test_uplink_items_come_from_the_profile_with_the_air_rate_of_cmd_state():
     items = {i.type: i for i in _uplink_tracker().uplink_items}
-    assert items["RC_STATE"].hz == 25.0 and items["RC_STATE"].payload_bytes == 34 and items["RC_STATE"].needs_rc
+    assert items["CMD_STATE"].hz == 25.0 and items["CMD_STATE"].payload_bytes == 14 and items["CMD_STATE"].needs_rc
+    assert "RC_STATE" not in items  # the Pocket's RC_STATE no longer goes to the air
     assert items["LINK_CONFIG"].hz == 2.0
 
 
-def test_uplink_estimate_counts_rc_only_while_it_flows_and_adds_gs_sends_but_not_rc_twice():
+def test_uplink_estimate_counts_cmd_state_only_while_it_is_sent_and_never_twice():
     tr = _uplink_tracker()
     est = tr.uplink_estimate(2 * S)
-    assert est["payload_s"][0] == 2.0 * tr.uplink_items[1].payload_bytes  # only LINK_CONFIG without RC
-    for i in range(50):  # the Pocket's RC_STATE copies on the Router's USB (about 200/s there, never 25 on the air)
-        tr.record("link", "RC_STATE", 2, R.PATH_LOCAL, i * S // 25, 34, 40)
+    assert est["payload_s"][0] == 2.0 * tr.uplink_items[1].payload_bytes  # only LINK_CONFIG without CMD_STATE
     for i in range(4):
         tr.record_tx("link", "Request", 2 * S - i * S // 4, 12)
-        tr.record_tx("link", "RcState", 2 * S - i * S // 4, 34)  # GS master: same slot, not additive
+    for i in range(50):  # the engine's frames: the 25 Hz item, never additive to it
+        tr.record_tx("link", "CmdState", 2 * S - i * S // 25, 14)
     est = tr.uplink_estimate(2 * S)
-    rc = 25 * 34
+    cmd = 25 * 14
     cfg = 2 * tr.uplink_items[1].payload_bytes
-    assert est["payload_s"][0] == pytest.approx(rc + cfg + 4 * 12 / 2.0)
-    assert [i["type"] for i in est["items"]] == ["RC_STATE", "LINK_CONFIG", "Request"]
+    assert est["payload_s"][0] == pytest.approx(cmd + cfg + 4 * 12 / 2.0)
+    assert [i["type"] for i in est["items"]] == ["CMD_STATE", "LINK_CONFIG", "Request"]
     assert est["items"][2]["source"] == "sent by the ground station"
 
 

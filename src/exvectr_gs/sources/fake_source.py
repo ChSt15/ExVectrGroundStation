@@ -16,7 +16,8 @@ from ..core.clock import Clock, MonotonicClock
 from ..core.config import ConfigError, SourceConfig
 from ..packets import REGISTRY, Packet
 from ..packets.defs.host import ConsoleText, GsEvent, GsEventKind, LinkStats
-from ..packets.defs.link import RcOrigin, RcState, RequestAck
+from ..packets.defs.link import CmdState, RcOrigin, RcState, RequestAck
+from ..packets.defs.vehicle import CmdApplied, ControlSource
 from .base import PacketSink, Source, SourceCaps, SourceKind, SourceStatus
 from .scenario import Scenario
 
@@ -37,6 +38,7 @@ USB_RATES: dict[str, float] = {
     "Estimator": 20,
     "TaskTiming": 5,
     "Calibration": 0.5,
+    "CmdApplied": 10,  # USB only: the CMD_STATE fields as the fake vehicle received them (no vehicle logic)
 }
 RADIO_RATES: dict[str, float] = {
     "Attitude": 10,
@@ -145,15 +147,17 @@ class FakeSource(Source):
             can_send=cfg.rc_role == "control" or self.answer_requests or self.answer_telecommands,
             request_targets=targets if (self.answer_requests or self.answer_telecommands) else (),
         )
-        # Test-only RC round trip (design 6.5). With `echo_rc = true`, the last received GS RcState value of
-        # channel `echo_channel` (1-based, default 5) is echoed as `MissionState.mission_index`
-        # (round((us - 1000) / 500): 0, 1, 2). It implements no vehicle logic.
+        # Test-only command round trip (design 6.5). With `echo_rc = true`, the `echo_field` (default `profile`:
+        # 0, 1, 2) of the last received GS CmdState is echoed as `MissionState.mission_index`. It implements no
+        # vehicle logic. The last received CmdState also drives `CmdApplied`, `VehicleStatus.cmd_session` and
+        # `ctrl_source` (GS), as a test double of the vehicle's reports.
         self.echo_rc = bool(opts.get("echo_rc", False))
-        self.echo_channel = int(opts.get("echo_channel", 5))
-        if not 1 <= self.echo_channel <= 16:
-            raise ConfigError(f"fake source {cfg.id}: echo_channel must be within 1..16")
-        self.received_rc: deque[RcState] = deque(maxlen=1000)  # test observation of what reached this source
+        self.echo_field = str(opts.get("echo_field", "profile"))
+        if self.echo_field not in ("go", "profile", "vehicle_mode", "motors", "reset_button", "failsafe"):
+            raise ConfigError(f"fake source {cfg.id}: echo_field must be a CmdState field")
+        self.received_cmd: deque[CmdState] = deque(maxlen=1000)  # test observation of what reached this source
         self._echo_idx: int | None = None
+        self.last_cmd: CmdState | None = None
         self.enabled = cfg.enabled
         self.disabled_by: str | None = None if cfg.enabled else "config"
         self._clock = clock or MonotonicClock()
@@ -200,6 +204,8 @@ class FakeSource(Source):
                 ch_us=self.scenario.handset_channels(td),
                 seq=self._seq,
             )
+        if type_name == "CmdApplied":
+            return self._cmd_applied(t)
         fields = self.scenario.fields(type_name, td)
         if self.profile_name == "radio":
             for name in RADIO_UNSUPPLIED.get(type_name, ()):
@@ -216,6 +222,9 @@ class FakeSource(Source):
             fields["mission_index"] = self._echo_idx
         if type_name == "VehicleStatus":
             fields["simulation"] = self.simulation
+            if self.last_cmd is not None:
+                fields["ctrl_source"] = ControlSource.GS
+                fields["cmd_session"] = int(self.last_cmd.session) & 0xFFFF
         if type_name == "VehicleState":
             fields["sim"] = self.simulation
             if self._fault("unknown_enum", td):
@@ -223,6 +232,17 @@ class FakeSource(Source):
             if any(f.kind == "failure_flag" and td >= f.at for f in self.faults):
                 fields["fail_sensor"] = True
         return REGISTRY.get(type_name).cls(t=t, src=self.id, **fields)
+
+    def _cmd_applied(self, t: int) -> Packet:
+        c = self.last_cmd
+        return CmdApplied(
+            t=t, src=self.id, go=int(c.go) if c else 0, profile=int(c.profile) if c else 0,
+            vehicle_mode=int(c.vehicle_mode) if c else 0, motors=int(c.motors) if c else 0,
+            reset_button=int(c.reset_button) if c else 0, failsafe=int(c.failsafe or 0) if c else 0,
+            flags=(int(c.pocket_live) | (int(c.input_virtual) << 1)) if c else 0, safe_seen=0,
+            session=int(c.session) if c else 0, age=0.0 if c else None, usb_age=0.0 if c else None, uart_age=None,
+            rejects=[0, 0, 0, 0],
+        )  # fmt: skip
 
     def _event(self, kind: GsEventKind, td: float, detail: str) -> GsEvent:
         return GsEvent(t=self._host_t(td), src="gs", kind=kind, detail=f"{self.id}: {detail}")
@@ -295,7 +315,7 @@ class FakeSource(Source):
             self._state = "disabled"
 
     async def send(self, pkt: Packet) -> bool:
-        """Accepts GS RcState while connected and rc_role is control (like a real control link), and (with
+        """Accepts GS CmdState while connected and rc_role is control (like a real command link), and (with
         `answer_requests`) Request packets for a reachable target; everything else is refused. Used by the RC
         loop and request tests."""
         if getattr(pkt, "TYPE", None) == "Request":
@@ -305,13 +325,11 @@ class FakeSource(Source):
                 return False
             self.received_telecommands.append(pkt)
             return True
-        if getattr(pkt, "TYPE", None) != "RcState" or self.caps.rc_role != "control" or self._state != "connected":
+        if getattr(pkt, "TYPE", None) != "CmdState" or self.caps.rc_role != "control" or self._state != "connected":
             return False
-        ch = getattr(pkt, "ch_us", None)
-        if ch is None or len(ch) < self.echo_channel:
-            return False
-        self.received_rc.append(pkt)  # type: ignore[arg-type]
-        self._echo_idx = round((ch[self.echo_channel - 1] - 1000) / 500)
+        self.received_cmd.append(pkt)  # type: ignore[arg-type]
+        self.last_cmd = pkt  # type: ignore[assignment]
+        self._echo_idx = int(getattr(pkt, self.echo_field) or 0)
         return True
 
     def _on_request(self, pkt: Packet) -> bool:

@@ -1,24 +1,25 @@
-# Virtual radio configuration (design 5.6): control ids, channel mapping, safe defaults.
-# Used by the core (RcController) and the GUI (radio widget). This file is a CONFIG, never code:
-# the vehicle firmware owns the real channel -> function mapping (system-architecture.md "Switch
-# mapping") and it may change. The `meaning` texts are informational labels only; the ground
-# station has no logic attached to them and knows nothing about the Starship's commands.
+# Virtual radio configuration (design 5.6): control ids, channel mapping, safe defaults of the VIRTUAL Pocket panel.
+# Used by the virtual panel (RcController) and the GUI (radio widget). The command engine reads the real Pocket's
+# switches on channels 5 to 9 (SA..SE) itself and turns the Pocket or this panel into the command state (CMD_STATE)
+# it sends at 25 Hz: this file sends nothing. `send_rate_hz` is kept for compatibility and no longer used: the
+# engine's rate is fixed at 25 Hz. The `meaning` texts are labels only.
 #
 # Safe defaults: every switch at its lowest/off position (index 0), the slider at 0.0, sticks neutral
 # (1500 us), throttle channel low (1000 us). They are applied on every core start and whenever a
-# control lease ends. Nothing is persisted.
+# panel lease ends (the engine then holds its last command state). Nothing is persisted.
 #
 # `lock = true` on a control makes it a guarded control: it is held at its default and can only be set
 # to another value after an explicit unlock (rc.unlock), for at most `lock_timeout_s` (default 60 s).
-# Relocking, a lease end, a control-source drop and every acquire return it to its default. This is a
-# generic guard against accidents; the ground station does not know what the control means.
+# Relocking, a lease end and every acquire return it to its default (SD: motors disarmed). A panel that becomes the
+# engine's input starts at the engine's output (SD at armed opens its guard). The ground station does not know what
+# the control means.
 
 name = "Radiomaster Pocket"
 send_rate_hz = 25
 channel_count = 16
 channel_default_us = 1500           # sticks (channels 1, 2, 4) and any unmapped channel: neutral
 channel_defaults = { 3 = 1000 }     # 1-based channel -> us: throttle low
-mapping_note = "Must match the flight-software compiled-in RC channel table, T9b-4 revision (ch5 SA, ch6 SB, ch7 SC, ch8 SD, ch9 SE, ch10 S1); the vehicle reports its own interpretation in RC_APPLIED"
+mapping_note = "Pocket channels as the ground station's command engine reads them (ch5 SA, ch6 SB, ch7 SC, ch8 SD, ch9 SE; ch10 S1 unused): the engine turns them into CMD_STATE, the vehicle never sees the Pocket RC. The vehicle reports what it applied in CMD_APPLIED"
 
 # Stick DISPLAY only (radio panel and the compact RC panel of the Flight view): which channels the two gimbals
 # show. The ground station sends no stick values: in master these channels carry the defaults above (sticks
@@ -34,7 +35,7 @@ yaw = 4
 [[controls]]
 id = "SA"
 label = "SA"
-meaning = "up = go (needs an observed down-to-up change), down = abort / stop"
+meaning = "up = go (the vehicle needs an observed down-to-up change), down = abort / stop"
 kind = "toggle2"
 channel = 5
 values_us = [1000, 2000]
@@ -54,7 +55,7 @@ svg = { x = 64, y = 40 }
 [[controls]]
 id = "SC"
 label = "SC"
-meaning = "simulation / real: changed only by an observed 0 <-> 1 edge on the ground, boots real; 2 reserved"
+meaning = "vehicle mode: position 0 = real, 1 and 2 = simulation; the vehicle boots real and changes mode only on the ground, not committed"
 kind = "switch3"
 channel = 7
 values_us = [1000, 1500, 2000]
@@ -64,7 +65,7 @@ svg = { x = 100, y = 40 }
 [[controls]]
 id = "SD"
 label = "SD"
-meaning = "motor interlock: toggle off, then on to open (needs a fresh state)"
+meaning = "motors armed / disarmed: up = armed (needs an observed disarmed -> armed change, fresh command state)"
 kind = "toggle2"
 channel = 8
 values_us = [1000, 2000]

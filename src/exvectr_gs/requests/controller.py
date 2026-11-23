@@ -110,6 +110,9 @@ class RequestController:
         self._last_by_client: dict[str, int]  # peer address -> ns of its last accepted request
         self._last_by_client = {}
         self.on_change: Callable[[], None] | None = None
+        # The command engine's session id (workspace gs-control-design Q5): a REQUEST to the vehicle (target 1)
+        # carries it, the vehicle accepts the request only from its latched session. None = no engine.
+        self.session_fn: Callable[[], int] | None = None
         self.sent_count = 0  # attempts handed to a source
         bus.subscribe(self._on_packet, {"RequestAck"})
 
@@ -184,6 +187,7 @@ class RequestController:
             target=st.target,
             arg_i=0,
             arg_f=0.0,
+            session=(self.session_fn() if self.session_fn is not None else 0) if st.target == 1 else 0,
         )
 
     async def _transmit(self, st: RequestState) -> str | None:

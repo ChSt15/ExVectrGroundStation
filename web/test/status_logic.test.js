@@ -38,9 +38,9 @@ test("simulation versus real sensors comes from VehicleStatus.simulation only, l
   assert.equal(d.simulation.tone, "");
 });
 
-test("motors enabled is loud, an unsupplied flag is n/s and never false", () => {
+test("motors live is loud, an unsupplied flag is n/s and never false", () => {
   let d = byKey(describeVehicleStatus(entry({ ...FULL, motors_enabled: true }), 100.2));
-  assert.deepEqual([d.motors_enabled.text, d.motors_enabled.tone, d.motors_enabled.loud], ["MOTORS ENABLED", "motors", true]);
+  assert.deepEqual([d.motors_enabled.text, d.motors_enabled.tone, d.motors_enabled.loud], ["MOTORS LIVE", "motors", true]);
   d = byKey(describeVehicleStatus(entry({ ...FULL, motors_enabled: null, armed: undefined }), 100.2));
   assert.equal(d.motors_enabled.text, "n/s");
   assert.equal(d.armed.text, "n/s");
@@ -48,13 +48,15 @@ test("motors enabled is loud, an unsupplied flag is n/s and never false", () => 
 
 test("armed, failsafe, gs_present, ctrl_source, rc_age, last request", () => {
   const d = byKey(
-    describeVehicleStatus(entry({ ...FULL, armed: true, failsafe: true, gs_present: false, ctrl_source: "USB", rc_age: 0.25, last_req_id: 7, last_req_status: 2 }), 100.2),
+    describeVehicleStatus(entry({ ...FULL, armed: true, failsafe: true, gs_present: false, ctrl_source: "GS", ctrl_flags: 1 << 7, rc_age: 0.25, last_req_id: 7, last_req_status: 2 }), 100.2),
   );
-  assert.equal(d.armed.text, "MOTOR INTERLOCK OPEN");
+  assert.equal(d.armed.text, "MOTORS ARMED");
+  assert.equal(d.armed.label, "Motors armed");
   assert.equal(d.failsafe.text, "FAILSAFE");
   assert.equal(d.gs_present.text, "GS absent");
-  assert.equal(d.ctrl_source.text, "USB");
+  assert.equal(d.ctrl_source.text, "GS · USB fresh");
   assert.equal(d.rc_age.text, "0.25 s");
+  assert.equal(d.rc_age.label, "Command age");
   assert.deepEqual([d.last_req.text, d.last_req.tone], ["id 7: REJECTED_STATE", "bad"]);
   assert.equal(byKey(describeVehicleStatus(entry({ ...FULL, rc_age: null }, 100, { nf: { rc_age: "nan" } }), 100.2)).rc_age.text, "none (NaN)");
   assert.equal(byKey(describeVehicleStatus(entry(FULL), 100.2)).last_req.text, "none (id 0)");
@@ -114,10 +116,11 @@ test("T9b tail fields: nothing for zero or older senders, compact cells when set
   assert.equal(old.mission_profile, undefined);
   const d = byKey(describeVehicleStatus(entry({ ...FULL, ctrl_flags: 0b110, go_refusal: 6, degraded_bits: 0b101, mission_profile: 2, rc_rejected: 3 }), 100.2));
   assert.deepEqual([d.ctrl_flags.text, d.ctrl_flags.tone], ["ABORT latched, FAILSAFE latched", "bad"]);
-  assert.equal(d.go_refusal.text, "reserved (the interlock is not a go precondition)");
+  assert.equal(d.go_refusal.text, "reserved (motors armed is not a go precondition)");
   assert.equal(d.degraded.text, "ToF lost, ship-node heartbeat lost");
   assert.equal(d.mission_profile.text, "2");
   assert.equal(d.rc_rejected.text, "3");
   assert.equal(byKey(describeVehicleStatus(entry({ ...FULL, ctrl_flags: 0x180 }), 100.2)).ctrl_flags.tone, "");
-  assert.deepEqual(decodeFailureBits(1 << 13), ["motor-interlock watchdog"]);
+  assert.deepEqual(decodeFailureBits(1 << 13), ["motors-armed watchdog"]);
+  assert.deepEqual(decodeFailureBits(1 << 14), ["GS failsafe"]);
 });

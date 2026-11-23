@@ -130,13 +130,17 @@ def test_sources_enable_and_disable(core):
     assert d["enabled"] is True
 
 
-def test_rc_without_control_source_is_denied(core):
-    """The shared core's only source has rc_role = none: no control source, so no lease (exit 3)."""
+def test_virtual_panel_needs_no_command_link_and_the_engine_status_is_shown(core):
+    """The panel only feeds the engine, so a lease works without a command link (the engine then reports
+    'NO COMMAND LINK'); `rc show` prints the engine's report."""
     r = exgs(core, "rc", "acquire", "--idle", "5", "--json")
-    assert r.returncode == 3
-    assert jl(r)[0]["error"]["code"] == "control_denied"
-    assert exgs(core, "rc", "set", "SA=1").returncode == 3  # no lease
-    assert exgs(core, "rc", "show").returncode == 0
+    assert r.returncode == 0, r.stderr
+    try:
+        assert exgs(core, "rc", "set", "SA=1").returncode == 0
+        shown = exgs(core, "rc", "show")
+        assert shown.returncode == 0 and "command: session=" in shown.stdout and "sending=False" in shown.stdout
+    finally:
+        exgs(core, "rc", "release")
 
 
 @pytest.mark.parametrize(

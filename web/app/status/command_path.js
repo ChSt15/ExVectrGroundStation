@@ -5,7 +5,7 @@ import { CTRL_FLAGS, goRefusalText } from "./status_logic.js";
 /** Shown while the vehicle reports no countdown length (the go countdown is compiled into the vehicle, not sent). */
 export const COUNTDOWN_NOTE = "about 15 s";
 /** ctrl_flags bits shown on the radio panel: bit -> label. Bit numbers are the schema's. */
-const SHOWN = [[0, "bad"], [1, "bad"], [2, "bad"], [4, "warn"], [5, ""], [6, "warn"]];
+const SHOWN = [[0, "bad"], [1, "bad"], [2, "bad"], [4, "warn"], [5, ""], [6, "warn"], [11, "bad"], [12, "bad"]];
 
 /** @returns {{key: string, label: string, text: string, tone: string}[]} rows; [] when no VehicleStatus is known. */
 export function commandPathRows(entry) {
@@ -14,7 +14,7 @@ export function commandPathRows(entry) {
   const rows = [];
   const row = (key, label, text, tone = "") => rows.push({ key, label, text, tone });
   row("mode", "Vehicle mode", f.simulation === true ? "SIMULATION" : f.simulation === false ? "REAL SENSORS" : "n/s", f.simulation === true ? "sim" : "");
-  row("interlock", "Motor interlock", f.armed === true ? "MOTOR INTERLOCK OPEN" : f.armed === false ? "closed" : "n/s", f.armed === true ? "warn" : "");
+  row("interlock", "Motors", f.armed === true ? "MOTORS ARMED" : f.armed === false ? "disarmed" : "n/s", f.armed === true ? "warn" : "");
   const cf = typeof f.ctrl_flags === "number" ? f.ctrl_flags : 0;
   const names = [];
   let tone = "";

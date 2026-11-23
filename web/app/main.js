@@ -124,6 +124,8 @@ function onMainMessage(msg) {
       break;
     case "event":
       for (const m of mounted) m.inst.onEvent?.(msg);
+      // the command engine's Pocket-stream-loss WARNING (and its return): a toast, display only
+      if (msg.toast && notifier) notifier.show({ id: "gs.pocket", category: "state", text: msg.text, label: msg.text.length > 90 ? msg.text.slice(0, 87) + "..." : msg.text, severity: msg.level === "warn" ? "warning" : "info", key: `gs.${msg.toast}` });
       break;
     case "requests":
       for (const m of mounted) m.inst.onRequests?.(msg);

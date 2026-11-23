@@ -375,3 +375,16 @@ def test_enums_mirror_the_generated_schema():
     xp = sys.modules["exvectr_packets"]
     assert {m.name: m.value for m in RequestAction} == {m.name: m.value for m in xp.RequestAction}
     assert {m.name: m.value for m in RequestStatus} == {m.name: m.value for m in xp.RequestStatus}
+
+
+async def test_requests_to_the_vehicle_carry_the_command_session_and_the_radio_nodes_do_not():
+    r = Rig()
+    r.rc.session_fn = lambda: 0xCAFE0001
+    await r.send("CALIB_APPLY")  # target 1: the vehicle
+    assert r.usb.sent[0].session == 0xCAFE0001
+    r.clock.advance(2.0)
+    await r.send("LINK_UPLOAD_MODE", 2, understand_link_stops=True)  # target 2: the Router
+    assert r.link.sent[-1].target == 2 and r.link.sent[-1].session == 0
+    r2 = Rig()  # no engine: session 0 = none
+    await r2.send("CALIB_APPLY")
+    assert r2.usb.sent[0].session == 0

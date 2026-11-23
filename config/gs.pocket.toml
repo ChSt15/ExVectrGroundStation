@@ -22,15 +22,14 @@ raw_frames = "unknown"                         # only undecodable frames are kep
 flush_interval_ms = 100
 fsync_interval_ms = 1000
 
-# RC sending (docs/radio.md): the ground station is a SLAVE while the Pocket's RC_STATE arrives (it only shows
-# the Pocket's positions) and sends nothing until the user switches it to MASTER (GUI "Switch to master",
-# `exgs rc acquire`). In master the RC state goes to EVERY connected source with rc_role = "control".
-# rc_role = "mirror" makes a source receive-only (never sent to), "none" the same for sources that carry no RC.
-# The rejection of ground-station RC_STATE is done by the receiving side (Router, later the vehicle), never here.
+# Command stream (docs/radio.md): the ground station is the vehicle's only control source. Its command engine sends
+# CMD_STATE at 25 Hz from the moment the core runs, the identical frame to EVERY connected source with
+# rc_role = "control" (the Router over the air, the vehicle USB on the bench). Its input is the Pocket's switches
+# (RC_STATE from the Router on USB, never on the air) or, with no Pocket, the GUI's virtual switches.
+# rc_role = "mirror" makes a source receive-only (never sent to), "none" the same for sources that carry no commands.
 
 # Peer 1: the vehicle on USB (ExVectrNetwork node 1, direct). Telemetry at the USB rates including the debug
-# set (ports 0x90 and up). In master it receives the GS RC_STATE; the vehicle accepts it as the bench control
-# source (node 0 over USB).
+# set (ports 0x90 and up). It receives the GS CMD_STATE too; the vehicle accepts it from node 0 over USB.
 [[source]]
 id = "usb"
 kind = "vehicle_usb"
@@ -39,9 +38,9 @@ rc_role = "control"
 enabled = true                                 # set true when the Teensy is on USB (or use tools/fake_vehicle_pty.py)
 
 # Peer 2: the Router (the ExVectrLink Pocket module) on USB (node 2). It also forwards the vehicle's radio set (node 1), the
-# ship radio node (node 3) and the Pocket's RC_STATE (handset origin), plus its own LINK_STATS. In master the
-# GS sends RC_STATE to it too; the Router always rejects it (it drops RC_STATE arriving from USB towards the
-# air). Set rc_role = "mirror" for a receive-only Router (nothing is ever sent to it).
+# ship radio node (node 3) and the Pocket's RC_STATE (handset origin, USB only), plus its own LINK_STATS. The GS
+# sends CMD_STATE to it; the Router forwards only that (src 0, dst 1) over the air. Set rc_role = "mirror" for a
+# receive-only Router (nothing is ever sent to it).
 [[source]]
 id = "link"
 kind = "link_module"
@@ -57,14 +56,14 @@ kind = "fake"
 profile = "usb"                                # "usb" (full set) or "radio" (reduced set)
 seed = 1
 speed = 1.0                                    # simulated seconds per wall second
-rc_role = "none"                              # "control" lets the RC controller send to it (accepts and keeps GS RcState)
+rc_role = "none"                              # "control" lets the command engine send CMD_STATE to it (test double: keeps it in received_cmd)
 answer_requests = true                         # test double: answers REQUESTs with REQUEST_ACK (docs/requests.md)
 answer_telecommands = true                     # test double: accepts the TEMPORARY legacy telecommands (docs/telecommands.md)
 # request_status = 2                           # ACK status to answer with (0 DONE ... 4 FAILED); request_drop_first = 2 to test retries
 # echo_rc = true                               # test only: echo the SA channel value as MissionState.mission_index (docs/testing.md)
 # faults = [ { kind = "dropout", at = 10, duration = 2, types = ["Attitude"] } ]
 
-# REQUESTS (docs/requests.md): the ONLY things the ground station sends besides RC state. A whitelist of one-shot
+# REQUESTS (docs/requests.md): the ONLY things the ground station sends besides the command state. A whitelist of one-shot
 # actions the GUI "Requests" panel and `exgs request send` may send, each only after a deliberate confirmation (hold
 # 1 s in the GUI; `--confirm ACTION` in the CLI). The ground station does not interpret an action: whether the
 # vehicle accepts it (disarmed and on the ground) is the vehicle's decision, and the GUI shows the REQUEST_ACK
@@ -164,7 +163,7 @@ target = 3
 confirm = "danger"
 warning = "Reboots the ship radio node: RC to the vehicle is interrupted for seconds, in flight too. The module always obeys."
 
-# TEMPORARY legacy TELECOMMANDS (docs/telecommands.md). A THIRD uplink, besides RC state and REQUESTs, approved by the
+# TEMPORARY legacy TELECOMMANDS (docs/telecommands.md). A THIRD uplink, besides the command state and REQUESTs, approved by the
 # user on 2026-11-20 and kept ONLY until the flight software's T9b replaces it by RC_STATE mapping and REQUESTs.
 # TODO(T9b): delete this whole section, the `telecommand/` package, `exgs tc` and the GUI panel then.
 # The vehicle takes the old 8-byte Telecommand on ExVectrNetwork port 0x7F (src node 0, dst node 1). Each command is

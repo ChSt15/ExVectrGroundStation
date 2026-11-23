@@ -9,13 +9,14 @@
 1763471000152000000 usb FlapState angle=[1.5707963267948966,0.2617993877991494,1.0,1.2] cmd=[1.5,0.3,1.0,1.2] enabled=true
 1763471000153000000 usb TvcState vane=[0.1,-0.1,0.0,0.05] motor=[0.4,0.4] enabled=true motors_enabled=true
 1763471000160000000 link RcState origin=handset ch_us=[1500,1500,1000,1500,2000,1000,1500,1000,1500,1500,1500,1500,1500,1500,1500,1500] seq=8812
-1763471000165000000 usb RcApplied sa=0 sb=2 sc=0 sd=1 se=0 safe_seen=15 radio_age=0.04 rejects=[0,1,2,3]
+1763471000165000000 usb CmdApplied go=1 profile=2 vehicle_mode=1 motors=1 reset_button=0 failsafe=0 flags=3 safe_seen=13 session=2712847316 age=0.04 usb_age=0.04 rejects=[0,1,2,3]
+1763471000170000000 gs CmdState session=305419896 go=1 profile=2 vehicle_mode=SIMULATION motors=1 reset_button=0 failsafe=0 pocket_live=true input_virtual=false seq=17
 1763471000200000000 link RadioLinkStats rssi_dbm=[-71.0,-74.0] lq_pct=98.0 snr_db=9.5 up_hz=50.0 down_hz=48.0 antenna=0
 1763471000300000000 link LinkStats connected=true rx_bytes_s=8540.0 rx_frames_s=61.0 tx_frames_s=0.0 crc_errors=0 decode_errors=0 reconnects=0
 1763471000350000000 usb ConsoleText text="[teensy] sensor init done"
 1763471000412000000 link RawFrame channel=77 len=4 hex="0a1f00c8" err="unknown channel"
 1763471001000000000 gs Note text="gusts from the west, ~3 m/s"
-1763471001100000000 usb VehicleStatus vehicle_time=123456789012 mode=Running mission_mode=Running mission_phase=Ascent ctrl_source=USB armed=true simulation=true motors_enabled=false gs_present=true incompatible=false failsafe=false failure_bits=0 sensor_state=5 last_req_id=7 last_req_status=0 rc_age=0.04 home_epoch=2 calib_state=23 calib_gyro_ok=true calib_accel_ok=true calib_mag_ok=true calib_session=false ready_to_arm=true
+1763471001100000000 usb VehicleStatus vehicle_time=123456789012 mode=Running mission_mode=Running mission_phase=Ascent ctrl_source=GS armed=true simulation=true motors_enabled=false gs_present=true incompatible=false failsafe=false failure_bits=0 sensor_state=5 last_req_id=7 last_req_status=0 rc_age=0.04 home_epoch=2 calib_state=23 calib_gyro_ok=true calib_accel_ok=true calib_mag_ok=true calib_session=false ready_to_arm=true
 1763471001100001000 usb Actuators flaps=[0.1,0.2,0.3,0.4] tvc=[0.01,-0.02] thrust=11.8 ground_distance=nan roll_torque=0.012
 1763471001100002000 link HandsetTelem armed=true failure=false simulation=true gnss_fix=true mode_text="RUN" latitude=0.8996 longitude=0.0 ground_speed=1.5 heading=1.2 altitude=102.0 satellites=12 vertical_speed=0.5 pitch=0.01 roll=-0.02 yaw=1.2 battery=nan
 1763471001100003000 usb ImuRaw gyro=[0.01,0.02,0.03] accel=[0.0,0.1,9.81] mag=[2e-05,0.0,4e-05] pressure=101325.0 temperature=293.15

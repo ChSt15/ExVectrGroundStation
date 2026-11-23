@@ -1,134 +1,115 @@
-# Virtual radio, leases, safety notes
+# Command engine, virtual Pocket, safety notes
 
-Spec: [ground-station-design.md](ground-station-design.md) sections 1.4, 5.6, 4.2 and decisions 10.1-1, 10.1-4, 10.1-6 and 10.1-7. Implemented in task T6: `src/exvectr_gs/rc/` (`radio_config.py`, `controller.py`), wired in `core/app.py` (`CoreApp.rc`), exposed by the `rc.*` API operations and `exgs rc ...` (see [api.md](api.md)). The radio widget (T9, `web/app/radio/`, [gui.md](gui.md)) is the GUI side. The lock on guarded controls, the keepalive lease that replaced the timed lease, and master/slave mode (below) are user decisions of 2026-11-19.
+Spec: workspace `docs/gs-control-design.md` (the GS-as-control-source design, owner decisions 2026-11-23) and [ground-station-design.md](ground-station-design.md) section 1.4. Implemented in `src/exvectr_gs/rc/`: `command.py` (pure logic), `engine.py` (the sender), `controller.py` (the virtual panel and its leases), `radio_config.py`; wired in `core/app.py` (`CoreApp.engine`, `CoreApp.rc`), exposed by the `rc.*` API operations and `exgs rc ...` (see [api.md](api.md)). The radio widget (`web/app/radio/`, [gui.md](gui.md)) is the GUI side.
 
-**Safety-relevant.** The RC state is the only thing the ground station sends continuously. Since the user decision of 2026-11-19 it also sends whitelisted one-shot `REQUEST`s (calibration, save, link upload) on a deliberate confirmation: see [requests.md](requests.md) (separate controller, separate rules, no lease). The ground station makes no control, mission or safety decision: it maps control positions to channel values from a config and sends them while somebody holds a lease. It does not know what any switch means (the Starship's motor enable, mission go, and so on); the vehicle firmware interprets the channels with its own fixed mapping (workspace `docs/safety.md`, `docs/system-architecture.md` "Switch mapping").
+**Safety-relevant.** The ground station is now the vehicle's **only control source**. The command state `CMD_STATE` (port 0x13, node 0 to vehicle node 1) is the one thing it sends continuously. It still makes no control, mission or safety decision: the engine copies the operator's switch positions into the command state and applies a pickup rule so that no start, reconnect or input change can produce a safe to unsafe change; the vehicle decides what each field means (workspace `docs/safety.md`, rules marked "Owner decision 2026-11-23"). The old `RC_STATE` uplink, the master/slave lease and the "silence is the failsafe" lease rule are gone.
 
-## Master and slave (user decision 2026-11-19, design 10.1-8)
+## Data flow
 
-The user's words: "If the ground station receives an RC packet (from the Pocket), then it goes into slave mode and simply shows the current settings of the Pocket. I can set it to master and then it starts sending the controls to the serial port. The Pocket should always reject them."
+```
+ Pocket --CRSF--> Router (node 2) --USB--> GS core: RcState origin=handset, node 2, 16 channels (never to the air)
+                                           |
+ GUI virtual panel (lease holder) ---------+--> CommandEngine (in the core, not the GUI)
+                                                   CMD_STATE src 0 -> dst 1, 25 Hz + at once on change
+                                   +---------------+---------------+
+                       Router link source (air)          vehicle USB source (bench)
+                       identical frame, same sequence number on every link
+```
 
-- **Slave** is automatic: a handset `RcState` (origin `handset`) arrived within 1 s and nobody holds the lease. The radio widget shows the Pocket's positions read-only and **the core sends nothing**. Nobody needs to do anything.
-- **Idle** is the existing state when no handset data arrives and nobody holds the lease: nothing is sent.
-- **Master** is the explicit user choice, never automatic. The control lease **is** the master switch: GUI "Switch to master", `exgs rc acquire`, `exgs rc session`, the keepalive lease of a one-shot `exgs rc` command. It is allowed while handset data arrives (the user decides). The rules of master are the old control rules, unchanged: 25 Hz sender, safe defaults on every start and every switch, SD lock, connection / keepalive lease timing, silence when the lease ends. "Release (back to slave)" ends the lease, resets every control to its default and closes every lock.
-- **Warning.** In master while the Pocket's state also arrives, `pocket_active` is true and the GUI shows "Pocket also active: the radio rejects ground-station controls". This is display only; the sender does not change. It replaces the old `conflict` mode.
-- **Where master sends.** To **every connected source with `rc_role = "control"`** (several are allowed), including the Router's USB source. A source with `rc_role = "mirror"` (or `none`) is receive-only: `SerialSource.send()` refuses RC state for it and the controller never offers it. The shipped `config/gs.example.toml` sets `control` on both the vehicle USB and the TX-module sources; set `rc_role = "mirror"` on a source to make it receive-only. A source that is not connected is skipped; one source refusing a packet does not stop the others; a source that (re)appears while master is first sent the safe defaults.
-- **Who rejects.** The rejection of ground-station `RC_STATE` is done by the **Router** (it already drops `RC_STATE` arriving from USB towards the air) and later by the vehicle's authority rules. It is **never** done by the ground station: the GS neither filters nor refuses on that ground. Consequence, by user decision: the ground station's old own refusal (never send through the Router) is no longer a defence layer, so a TX-module bug that failed to drop GS `RC_STATE` would reach the air, where the vehicle's own rules are then the protection.
+- One `CommandEngine` per core, started with the core, **independent of GUI clients and leases**. A closed browser tab, a lease end or a CLI exit never stops the stream (it only changes the virtual input). It runs as an asyncio task with a 5 ms loop, no blocking I/O; the `CommandCore` it drives is pure (a fake clock in the tests). It logs a warning when the loop itself ran more than 100 ms late and reports `max_interval_ms`.
+- Replay and observers never send: the engine reads the live bus and sends only through the connected live sources.
+- **Command links:** every connected source with `rc_role = "control"` (the Router link source and/or the vehicle USB source; `mirror` and `none` never carry commands). The engine builds **one** frame, with its own sequence number, and hands the same packet to every link, so the vehicle dedupes one stream that arrives twice. A source that is not connected is skipped; one that refuses or raises does not stop the others. With no command link connected the engine keeps running and counts `unsent`.
+- **Single sender:** the engine is the only sender of `CmdState` in a core, the profile encodes no `RcState` (the `RcState` packet type is receive-only now) and `SerialSource.send` refuses `CmdState` on a non-`control` source, so two senders cannot exist in one core.
+- **Session id:** a random non-zero u32 per core start (`new_session()`), kept for the life of the core. The vehicle latches one session and rejects frames of another; a new session is taken over by the vehicle only when it is not committed or in Failure and the old session was silent for 1 s. Every `REQUEST` to the vehicle (target 1) carries it in `REQUEST.session`; the vehicle accepts a request only from its latched session.
+- **QoS and framing** (from the generated class): control class, latest-wins, port 0x13, 14 bytes, version 1, flags `VALID` plus `POCKET_LIVE` / `INPUT_VIRTUAL` (only 1, 3, 5, 7 are valid), reserved 0. A field out of range is never sent (the profile refuses to encode it; the vehicle would reject the whole frame).
+- **Recording:** the sent `CmdState` is published on the bus on change and at least once per second, so logs hold what was sent (never the vehicle's applied state: that is `CmdApplied`).
+
+## Pocket to command mapping
+
+The Pocket's switches arrive as `RcState` (origin `handset`, from node 2, `SOURCE_OK`) on channels 5 to 9, decoded with the bands of the old vehicle decoder (wire value <= -500 low, -200..200 middle, >= 500 high, i.e. 1250 us / 1400..1600 us / 1750 us; anything else, and an unprovided channel, is invalid). Sticks (channels 1 to 4) and S1 are displayed only.
+
+| Switch | Ch | Command field | Safe value | Meaning (decided by the vehicle) |
+|---|---|---|---|---|
+| SA | 5 | `go` NOT_GO / GO | NOT_GO | up = go (mission begin edge request), down = abort |
+| SB | 6 | `profile` 0, 1, 2 | - | mission profile; always follows the switch; the profile at session start is the first valid SB, else 2 |
+| SC | 7 | `vehicle_mode` REAL 0 / SIMULATION 1 | - | Pocket position 0 = REAL, positions 1 and 2 = SIMULATION (1 <-> 2 is no change) |
+| SD | 8 | `motors` DISABLED / ENABLED | DISABLED | **motors armed / disarmed** (up = armed) |
+| SE | 9 | `reset_button` RELEASED / PRESSED | RELEASED | short press = reset system state, hold >= 1 s = zero estimators while held (the vehicle classifies); a press is stretched to at least 160 ms (4 frames) |
+| GS FAILSAFE (later step) | - | `failsafe` 0 / 1 | 0 | `engine.set_failsafe(True)` (see below) |
+
+An invalid channel decodes to the safe value (SA NOT_GO, SD DISABLED, SE RELEASED); an invalid SB or SC holds the current output.
+
+## The pickup rule (D-GS4)
+
+Per switch the engine keeps a `picked up` bit. The input is the Pocket or the virtual panel (below).
+
+1. **Session start:** the output is go NOT_GO, motors DISABLED, reset RELEASED, failsafe 0, profile as above, `vehicle_mode` = the vehicle's reported applied mode (`VEHICLE_STATUS.simulation`), REAL if nothing is reported within 2 s. Nothing is sent until the mode is known or the 2 s are over. Every pickup is false.
+2. **Every input sample:** SA, SD, SE: an input at the safe value is applied at once (and counts as picked up). An input in the unsafe direction is applied only if the input has been seen at the value being sent (picked up); an input equal to the output is picked up. SC: the output follows only after the input was once equal to it. SB always follows.
+3. **Pocket lost** (no valid handset `RcState` for 300 ms): a **WARNING** event only (`GsEvent` link_warning, shown as a banner and toast), no abort and no failsafe, the output is held and the engine **keeps sending its last command state**, with one exception: **SE is forced RELEASED** while no input exists (a held SE would keep the vehicle zeroing). Every pickup is forgotten.
+4. **Pocket back** (3 consecutive valid frames): rule 2 applies. SA released sends the abort at once, SD down disarms at once; SA or SD up while the output shows NOT_GO or DISABLED does nothing until the switch is cycled; an SC that differs does nothing until it matches. The display shows what the operator must do ("SA is up while go is off: flip it down first").
+5. **Input change:** see below. The virtual panel is preset to the output when it becomes the input (no output change).
+6. **Buttons** (the failsafe level, later also abort and motors off) act on the output regardless of the input and clear the affected pickups, so the input must be cycled before it can undo them.
+
+Consequence: no start, reconnect or input change can produce a safe to unsafe change of the output. The vehicle also resets its transition detectors on a session change, so a buggy GS would need a second observed edge. `tests/unit/test_command_core.py` checks this with an independent oracle over every start combination of SA, SD and SC and random sequences of loss, return, failsafe and samples.
+
+### Failsafe level and the reset after it
+
+`engine.set_failsafe(True)` latches `failsafe = 1` with motors DISABLED and go NOT_GO in the same frame and holds it until `set_failsafe(False)`; the switches cannot undo it and each affected switch must be cycled afterwards. (The GS FAILSAFE button comes in a later step: only the API exists now.) The vehicle refuses an SE reset while the failsafe request is still 1 (owner decision Q6), so when an SE press is taken while the failsafe is latched the engine **clears the failsafe field first, sends that frame, and sends the press in a later frame**.
+
+## Input selection: the Pocket wins, the virtual panel replaces it
+
+- Input = **Pocket** while its stream is live. Otherwise, **virtual** while a client holds the virtual panel lease. Otherwise **none** (the output is held, SE released).
+- The `INPUT_VIRTUAL` flag is set while the virtual panel is the input, `POCKET_LIVE` while the Pocket stream is live. Both are information only; the vehicle reports them and never acts on them.
+- A client that takes the lease starts the panel at what is being sent (`RcController.preset`, called from `acquire` through the engine): taking the panel changes nothing that is sent, and an edit made right after is a deliberate change. When the Pocket is lost while the panel is held, the panel becomes the input the same way (preset to the output). When the Pocket returns it takes over with the reconnect rule.
+- SD stays behind its lock (`lock = true`): the panel cannot arm the motors without the 1 s padlock hold or `exgs rc ... --unlock SD`. A panel preset with SD armed opens the guard for the usual time; when the guard times out SD returns to disarmed, a safe-direction change.
+
+## Virtual panel and leases (`controller.py`)
+
+Leases only decide **who may move the virtual switches** (D-GS5). The rules of the old controller that remain: control hosts only (`server.control_hosts`), one holder, a `connection` lease (GUI, `exgs rc session`) needs a heartbeat at least every 1 s (the GUI sends one every 300 ms; the WebSocket closing ends it at once), a `keepalive` lease (one-shot CLI commands) ends when it was not renewed for its idle time (default 5 s, max 9 s), expiry is checked before every operation, every lease end returns the panel to its defaults and closes every lock, a momentary control (SE) is held by the core (`hold_s` or 300 ms after its last refresh), the SD lock and the validation (`invalid_value`, `control_locked`, nothing of a bad request applied). What changed: no source needs to be connected to take the panel, and a lease end **does not stop or change what is sent**: the engine holds its last command state (a closed tab with the motors armed leaves them armed; so does a Pocket loss, by the owner's decision).
+
+`RcStatus.mode`: `virtual` (a lease holds the panel), `pocket` (no lease and a handset `RcState` arrived within 1 s: the Pocket's positions are shown), `idle`. `controls` is the panel state (virtual), the Pocket's positions (pocket) or the defaults. `sending`, `target`, `targets` of the `rc` push come from the engine.
 
 ## Radio config (`config/radio.pocket.toml`)
 
-A config, never code: the vehicle-side channel mapping is fixed in the vehicle firmware and may change, then only this file changes. The core loads it at start (`[radio] config` in `gs.toml`) and the GUI reads it over `config.get radio` or `GET /config/radio.json`.
+A config, never code: the layout and defaults of the virtual panel. The engine reads the Pocket on the fixed channels 5 to 9 itself (`rc/command.py` `CHANNELS`). `send_rate_hz` is kept for compatibility and no longer used (the engine's rate is fixed at 25 Hz).
 
 | Key | Meaning |
 |---|---|
-| `name`, `mapping_note` | Informational. `mapping_note` should name the vehicle channel table revision this file matches. |
-| `send_rate_hz` | Fixed sender rate while a lease is active (1..100, default 25). |
+| `name`, `mapping_note` | Informational. |
+| `send_rate_hz` | Unused since the cutover (valid range 1..100 kept). |
 | `channel_count` | 1..16 (the `RcState` packet carries 16 channels). |
-| `channel_default_us`, `channel_defaults` | Pulse width of every channel not owned by a control: sticks neutral (1500 us) and, by `channel_defaults = { 3 = 1000 }` (1-based channel), throttle low. |
-| `[[controls]]` | `id` (stable id for API/CLI), `kind` (`toggle2`, `switch3`, `momentary`, `slider`), `channel` (1-based), `values_us` (one per position, ascending, lowest first; switches) or `range_us` (slider), `default` (switch index or slider position: the **safe** position), `label`, `meaning`, `svg = {x, y}` (position in the 200 x 140 viewBox of `web/app/radio/pocket.svg`), `lock` (default false), `lock_timeout_s` (default 60). |
+| `channel_default_us`, `channel_defaults` | Pulse width of every channel not owned by a control (display of the panel's channel vector). |
+| `[[controls]]` | `id` (stable id for API/CLI), `kind` (`toggle2`, `switch3`, `momentary`, `slider`), `channel` (1-based), `values_us` (one per position, ascending, lowest first; switches) or `range_us` (slider), `default` (switch index or slider position: the **safe** position), `label`, `meaning`, `svg = {x, y}`, `lock` (default false), `lock_timeout_s` (default 60). |
+| `[sticks]` | Display only: which channels the two gimbals show. |
 
-Pocket set shipped: SA (toggle2, ch 5), SB (switch3, ch 6), SC (switch3, ch 7), SD (toggle2, ch 8, **`lock = true`**), SE (momentary, ch 9), S1 (slider, ch 10); the sticks are channels 1 to 4 at neutral. `meaning` texts (SA mission go, SB mission type, SC vehicle mode, SD motor enable, SE reset hold, S1 unassigned) are **labels for the operator only**: nothing in the core reads them.
+Pocket set shipped: SA (toggle2, ch 5), SB (switch3, ch 6), SC (switch3, ch 7), SD (toggle2, ch 8, `lock = true`), SE (momentary, ch 9), S1 (slider, ch 10); sticks on channels 1 to 4. The `meaning` texts are labels for the operator only. Validation (`RadioConfigError`) is unchanged: unique ids and channels, channels within `channel_count`, pulse widths within 1000..2000 us, ascending `values_us`, defaults in range, a momentary control defaults to released, `lock_timeout_s` within (0, 3600], no unknown keys. If the config is invalid or missing, `CoreApp.rc` is `None` (the API answers `not_implemented` to `rc.*`) and the engine still runs with the Pocket as its only input.
 
-Validation (`RadioConfigError`, the RC controller does not start): unique ids and channels, channels within `channel_count`, all pulse widths within 1000..2000 us, `values_us` ascending with 2 (toggle2, momentary) or 3 (switch3) entries, slider range ascending, defaults in range, a momentary control defaults to released, `lock` a boolean, `lock_timeout_s` within (0, 3600], no unknown keys. If the config is invalid or missing, `CoreApp.rc` is `None` and an error is logged; the rest of the core runs and the API answers `not_implemented` to `rc.*`.
+Control values: switches take a position **index** (0 = lowest), sliders 0..1, momentary 0 or 1. Anything else is rejected with `invalid_value` and nothing of that request is applied.
 
-Control values: switches take a position **index** (0 = lowest), sliders 0..1, momentary 0 (released) or 1 (pressed). Anything else is rejected with `invalid_value` and **nothing** of that request is applied.
+## What reaches the vehicle, and what happens on each path
 
-## Locked controls (user decision 2026-11-19)
-
-A control with `lock = true` in the radio config is a **deliberate-action guard**, not a safety decision. In the shipped Pocket config it is set on SD, which the vehicle interprets as the motor enable (workspace `docs/safety.md` section 3); the vehicle's own 1 s motor gate is unchanged. The ground station does not know what SD means: the lock is a generic per-control option.
-
-- A locked control is forced to, and held at, its default. Setting it to a **non-default value while locked is rejected** (`control_locked` in the API, exit 3 in the CLI) and applies **nothing** of that request. Setting it to its default is always allowed.
-- `rc.unlock {control}` needs a held lease. The control is then operable for `lock_timeout_s` (default 60 s), after which it **relocks and returns to its default (off)**. Unlocking again restarts the timer.
-- `rc.lock {control}` relocks at once and resets the control to its default.
-- **Every end of control relocks and resets:** a lease end (release, heartbeat loss, keepalive expiry, connection drop), a control-source drop, an `acquire`, and a core start all return every control to its defaults and close every lock. Nothing about a lock is persisted.
-- The lock state is part of the RC status: `locks: {"SD": {"locked": true, "remaining_s": null, "timeout_s": 60}}` for every lockable control (also while idle, in slave and in `status.rc`). Expiry is applied by the sender tick and before every operation, like lease expiry.
-- GUI: shown as a padlock, hold it 1 s to unlock, remaining time and a Relock button ([gui.md](gui.md)). CLI: `exgs rc set SD=1 --unlock SD` (the CLI calls `rc.unlock` first), `exgs rc unlock SD`, `exgs rc lock SD`.
-
-## Safe defaults, no persistence
-
-Every control starts at its configured default (lowest/off, sticks neutral, throttle low) on every core start, on every `acquire`, whenever a lease ends, and whenever the control source drops. Every lock is closed at the same moments. RC state is never written to disk and never resumed: after any end of control the next holder starts from the defaults, and the vehicle sees the safe state first (safety.md section 2, rule 3). The GS never toggles anything by itself.
-
-## Control lease and sender
-
-- **One holder, control hosts only.** `acquire` is denied (`ControlDenied` / `control_denied`) when a lease is already held, when no control source is connected, or when the client address is not in `server.control_hosts`. The API checks the address and the controller checks again (`remote_addr`), so a missing or unknown address is denied.
-- **Two lease kinds, both short (user decision 2026-11-19; the 600 s timed lease is gone).** If nobody is actively in control, sending stops within single-digit seconds:
-
-  | Kind | Held by | Kept alive by | Ends |
-  |---|---|---|---|
-  | `connection` | The GUI, and `exgs rc session` | `rc.heartbeat` at least every 1 s (the GUI and the session send one every 300 ms) | Heartbeat missing for 1 s; the WebSocket closing (crash, exit, closed tab) ends it **at once**; `rc.release` |
-  | `keepalive` | One-shot `exgs rc ...` commands (separate short-lived processes) | **Every** lease operation (`rc.set`, `rc.unlock`, `rc.lock`, `rc.heartbeat`), so every `exgs rc` command renews it, and `exgs rc keepalive` renews it without doing anything else | Not renewed for its `idle_s` (default **5 s**, configurable per `rc.acquire` or `--idle`, **max 9 s**); `rc.release`. It does **not** end with the WebSocket of the process that took it |
-
-  A keepalive lease is renewed by operations only, never by reading the status. An `exgs rc set` with no lease held takes a keepalive lease itself (and says so: a new lease starts from the defaults with every lock closed, so a script that pauses longer than the idle time starts over from the safe state). A control-host client without a lease of its own can use and renew the current keepalive lease, so separate `exgs` processes drive one lease. `exgs rc session` is the way to hold control for longer: one process, one connection lease.
-- **Source and expiry.** Expiry is checked on every tick **and before every operation**, so a late heartbeat or renewal cannot revive an expired lease (the operation is refused with `no_lease`, the check comes before the renewal).
-- **Targets:** every connected `[[source]]` with `rc_role = "control"` (see "Master and slave"). A `mirror` or `none` source never receives GS RC state. With no connected `control` source, `acquire` is denied.
-- **Fixed rate.** One timer at `send_rate_hz` sends the complete channel vector (origin `gs`, 16 channels, `seq` counter modulo 256) while a lease is active, independent of clicks. Clicks only change the core's state. The timer never bursts to catch up.
-- **Lease end means silence.** When a lease ends the core stops sending entirely (the vehicle sees silence and enters its link-loss failsafe) and returns all controls to their defaults, with every lock closed. The last state is never kept sending (decision 10.1-1). Sending stops within one period (40 ms at 25 Hz); a release stops it before the next tick.
-- **Refused send = skip.** If `Source.send()` returns `False` (not connected, not encodable) or raises, that tick is skipped, nothing is queued up, and the lease stays. While the control source is not connected the controls are reset to defaults (and relocked) every tick, so the vehicle sees the safe state first when the link returns.
-- **Momentary controls are held by the core.** `rc.set {"SE": 1, "hold_s": 0.5}` presses for 0.5 s and the core releases it, even if the client is killed. Without `hold_s` a press lapses 300 ms after the last refresh (the GUI repeats `SE=1` every 100 ms while the pointer is down). Setting 0 releases at once. A lease ending releases it. `hold_s` is only valid for momentary controls (0 < s <= 10). An `exgs rc set SE=1 --hold S` keeps its keepalive lease renewed while it waits.
-- **Recording.** What was commanded is published on the bus as `RcState` with `src = "gs"`, origin `gs`, on change and at least once per second while sending, and only for frames the control source accepted. It is recorded in logs like any packet and never replayed back out (replay has its own bus). Its `t` is the send time.
-
-## Modes (`RcStatus.mode`)
-
-| Mode | Condition |
-|---|---|
-| `master` | A lease is held and at least one `control` source is connected: sending to all of them (`targets`, `target` is the comma-joined ids). `controls` and `channels_us` are the state being sent, `origin = gs`. `pocket_active` is true while handset state also arrives (warning only). |
-| `slave` | A handset `RcState` (origin `handset`, from any source, never our own `gs` packets) arrived within 1 s and we are not master. Nothing is sent. `controls` are the handset channels mapped to the nearest configured position (sliders continuous), `origin = handset`, `pocket_active = true`. This is the flight-test default: the Pocket's Router on USB; the GS only displays what the Pocket sends. |
-| `idle` | Neither. Nothing is sent; `controls` shows the defaults. |
-
-The old modes `controlling`, `mirroring` and `conflict` are gone (renamed or replaced by `pocket_active`).
-
-## What reaches the vehicle, and what happens on each disconnect path
-
-Through the RC controller only `RcState` (origin `gs`) packets, produced from the configured mapping, to the connected `control` sources, and only while a lease is active (master). The one other thing the ground station can send is a whitelisted `REQUEST` from the request controller ([requests.md](requests.md)); no other packet type can be sent (the serial source refuses non-`UP` types and the profiles encode only these); there is no raw-send API.
+Through the engine only `CmdState` packets, to the connected `control` sources. Besides it the ground station sends whitelisted `REQUEST`s ([requests.md](requests.md), now with the session) and, TEMPORARILY, whitelisted legacy telecommands ([telecommands.md](telecommands.md)). No other packet type can be sent (the serial source refuses non-`UP` types; the profile encodes only these; there is no raw-send API).
 
 | Event | Result |
 |---|---|
-| Controlling GUI tab closed, crashed, or loses the network | Connection dropped (at once) or heartbeat missing for 1 s: lease ends, silence, defaults, locks closed. |
-| GUI still connected but not heartbeating (hidden tab throttled, frozen) | Same after 1 s. |
-| `exgs rc session` exits or crashes | Its connection drops: lease ends at once. Frozen without crashing: the heartbeat is missing, lease ends within 1 s (the session then exits with code 3 when it resumes). |
-| One-shot `exgs rc ...` process exits | The keepalive lease continues until its idle timeout (default 5 s, at most 9 s) unless the next command renews it. `exgs rc release` ends it at once. Its core-held momentary press still releases on its own. |
-| Nobody renews a keepalive lease (script paused, agent crashed) | Silence and defaults after the idle timeout, at most 9 s. |
-| Core process killed or crashed | No process, no frames: silence. A restart sends nothing and starts at defaults, every lock closed. |
-| Control source unplugged | `send` fails, ticks are skipped, controls reset to defaults and relock; sending resumes with defaults if the lease is still valid when the device returns (with several sources: while any other stays connected they keep receiving, and the returning one is sent the defaults first). |
-| Mirror-only setup (every source `mirror` or `none`) | No lease can be taken: nothing is ever sent. |
-| One of several `control` sources unplugged | The others keep receiving; when it returns it is first sent the safe defaults. |
-| Client on another host | `control_denied`; view only. |
+| GUI tab closed, crashed or lost; a lease ends; `exgs rc` exits | The panel lease ends (panel back to defaults). The command stream is unaffected: the output is held. |
+| Pocket stream lost (Router on USB, Pocket off or unplugged) | WARNING only. The stream goes on with the last state, SE released. On return the pickup rule applies. |
+| Command link unplugged or disabled by the user | No frame reaches it. The engine goes on (same session, same output); the other link carries the stream if there is one. A link that returns just receives the current frames. |
+| Core killed or crashed, PC dead, Router USB unplugged | No command: the vehicle's own protection applies (motors off after 1 s, latched failsafe after 2 s while committed). **Accepted by the owner (2026-11-23).** |
+| Core restart | New session, safe output, nothing picked up: a switch left up must be cycled. The vehicle takes the new session only when not committed or in Failure and the old one was silent for 1 s. |
+| Second ground station | The vehicle keeps the first session and reports `MULTI_MASTER`; the other core shows NOT MASTER (display only: it keeps sending, the vehicle rejects it). |
+| Malformed field | Never sent (the profile refuses it). |
 
-The vehicle's own failsafes (link timeout, motor interlock, transition-based enabling) are the real protection; the GS only guarantees it does not keep a stale state alive and does not synthesise transitions.
+The vehicle's own checks (observed edges, preconditions, 1 s motor gate, 2 s control timeout) are the protection; the GS guarantees only that it does not synthesise transitions.
 
-## GUI behaviour (T9)
+## What the vehicle and the Router must provide
 
-Details in [gui.md](gui.md) ("Virtual radio"). The rules that matter here: the widget shows the state the core reports in its `rc` pushes (labelled "sent"), never an optimistic local state, with a MASTER / SLAVE / IDLE indicator; a client holds control only through `rc.acquire {"kind": "connection"}` and heartbeats every 300 ms; `rc.set {"SE": 1}` repeats every 100 ms while the momentary control is pressed and the widget sends `SE=0` on pointerup, pointercancel, blur and when the page is hidden; a locked control is a padlock that needs a 1 s hold; switching to the replay view while holding control asks for the release first, and a client never holds control while it shows replay data.
-
-## Source disabled by the user
-
-`sources.enable {enabled: false}` (GUI switch in the Link & power tab, `exgs sources disable ID`) closes the source's port, so it is no longer `connected` and the sender skips it like any dropped source: with no connected control source left nothing is sent and every control returns to its default; when the source is enabled again it is a new connection with an empty queue and, under a lease, it first receives the safe defaults (tested in `tests/integration/test_source_enable.py`). A connection lease whose holder stops its heartbeat ends as usual.
+The vehicle: `CMD_STATE` ingress for node 0 on USB and UART with the session latch and per-session sequence, `CMD_APPLIED` (0x84, USB) and `VEHICLE_STATUS` with `cmd_session`, `ctrl_source` GS, `ctrl_flags` USB_FRESH / UART_FRESH / MULTI_MASTER / GS_FAILSAFE_REQ and `failure_bits` bit 14. The Router: forward port 0x13 from USB to the air as a control-class latest-wins frame (src 0, dst 1 only) and keep the Pocket `RC_STATE` on its USB (profile flag `pocket_rc_to_air` off). See workspace `docs/gs-control-design.md` section 7.
 
 ## Stick display (GUI, display only)
 
-The radio panel shows the two sticks of the Pocket: in slave what arrives from the handset, in master what the core sends (the channel defaults, sticks neutral 1500 µs and throttle low 1000 µs: **the ground station has no stick sending and this display adds none**), in replay the recorded `RcState`. Which channels are shown comes from the optional `[sticks]` table of the radio config (`config/radio.pocket.toml`):
+The radio panel shows the two sticks of the Pocket: what arrives from the handset when it is live, the channel defaults otherwise (**the ground station sends no stick values and this display adds none**), in replay the recorded `RcState`. The optional `[sticks]` table of the radio config (mode 1 or 2, distinct channels) is validated by `rc/radio_config.py` and never used for sending; `web/app/radio/sticks.js` maps pulse widths to -1..1 and 0..1.
 
-```toml
-[sticks]      # display only; all keys optional, these are the defaults
-mode = 2      # 2: left stick yaw (x) / throttle (y), right stick roll (x) / pitch (y); 1: left yaw / pitch, right roll / throttle
-roll = 1
-pitch = 2
-throttle = 3
-yaw = 4
-```
+## Source disabled by the user
 
-The core validates it (`rc/radio_config.py`: known keys, mode 1 or 2, distinct channels within `channel_count`, no channel shared with a control when the table is given) and never uses it for sending. The GUI maps pulse widths to −1..1 (centred axes, 1500 µs = 0) and 0..1 (throttle, 1000 µs = 0) in `web/app/radio/sticks.js`.
-
-## Switch meanings on the vehicle (flight software T9b-4): the virtual radio gives all safety commands
-
-Since T9b-4 the vehicle takes every safety command from RC state, from the Pocket or from this virtual radio (the `bench` source on USB, master mode), and ignores the old Arm, SimulationMode, MissionBegin, MissionSelect, MissionAbort and SystemReset telecommands. The ground station still interprets nothing: the `meaning` texts of `config/radio.pocket.toml` are labels and `mapping_note` names the firmware table revision. The virtual switches behave like the Pocket's:
-
-| Switch | Ch | Vehicle meaning (vehicle docs `hardware-and-drivers.md` section 5) |
-|---|---|---|
-| SA | 5 | up = go (only an observed down-to-up change starts a mission, never a level; a held SA gives no second go), down = abort: RTH in flight, reset and stop in the countdown |
-| SB | 6 | mission profile 0/1/2, read at the go edge and latched; only profile 2 flies, 0 and 1 refuse the go (`go_refusal` 5) |
-| SC | 7 | simulation (0) / real (1). **The vehicle boots real.** Simulation is entered only by an observed change (0 -> 1 -> 0, i.e. the edge into position 0), real by an observed 0 -> 1, only on the ground and not committed; otherwise `SC_MISMATCH`, and a go is refused (`go_refusal` 4). Position 2 is reserved |
-| SD | 8 | motor interlock: off, then on opens it (`ARMED` now means "interlock open"); the vehicle asks `INTERLOCK_NEED_TOGGLE` ("Toggle SD off, then on") when SD shows on without an observed edge. The GUI guards it with the padlock |
-| SE | 9 | momentary: a short press resets the system state (on the ground, interlock closed; clears latches); held for 1 s or more it zeroes the estimators while held (the vehicle stops at release, staleness or 60 s) |
-
-The GUI SE button sends 1 every 100 ms while pressed (the `hold_s` mechanism of `rc.set` / `exgs rc ... --hold` does the same from scripts, for example `exgs rc set SE=1 --hold 3`). The go countdown is fixed on the vehicle (about 15 s) and is not set by the ground station. The Virtual radio panel and the Simulation testing page show the vehicle's own answers from `VEHICLE_STATUS` (mode, interlock, `SC_MISMATCH`, `SE_HOLD_ZEROING`, `SE_REFUSED`, `FAILSAFE_LATCHED`, `INTERLOCK_NEED_TOGGLE`, the go refusal reason, the profile): see [gui.md](gui.md).
+`sources.enable {enabled: false}` closes the source's port: it is no longer `connected`, so the engine skips it like any dropped link (nothing is received or sent through it). When it is enabled again it is a new connection with an empty queue and receives the engine's current frames (same session, same output). Tested in `tests/integration/test_source_enable.py`.

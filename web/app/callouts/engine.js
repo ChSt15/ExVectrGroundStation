@@ -10,7 +10,7 @@ import { goRefusalText } from "../status/status_logic.js";
 export const FAILURE_TEXT = [
   "Sensor failure", "Attitude failure", "Position failure", "Position out of bounds", "Attitude out of bounds", "Control source lost",
   "GNSS lost", "Magnetometer lost", "Barometer failure", "Gyro failure", "Accelerometer failure",
-  "Attitude estimate failure", "Position estimate failure", "Interlock watchdog failure",
+  "Attitude estimate failure", "Position estimate failure", "Motors armed watchdog failure", "GS failsafe",
 ];
 export const failureText = (i) => FAILURE_TEXT[i] || `Failure bit ${i}`;
 
@@ -179,14 +179,14 @@ export class CalloutEngine {
       const e = v ? rise : fall;
       if (e) out.push(e);
     };
-    edge("armed", f.armed, ev("state.armed", "state", "Interlock open", "warning", PRIORITY.state), ev("state.disarmed", "state", "Interlock closed", "info", PRIORITY.state));
-    edge("motors", f.motors_enabled, ev("state.motors", "state", "Motors enabled", "failure", PRIORITY.failure), null);
-    // "Motors enabled" is said twice (once more after MOTORS_REPEAT_S) while the vehicle still reports it
+    edge("armed", f.armed, ev("state.armed", "state", "Motors armed", "warning", PRIORITY.state), ev("state.disarmed", "state", "Motors disarmed", "info", PRIORITY.state));
+    edge("motors", f.motors_enabled, ev("state.motors", "state", "Motors live", "failure", PRIORITY.failure), null);
+    // "Motors live" (the hard motor gate is open) is said twice (once more after MOTORS_REPEAT_S) while the vehicle still reports it
     if (st.motors === true && st.motorsAt === undefined && out.some((e) => e.id === "state.motors")) st.motorsAt = now + MOTORS_REPEAT_S;
     if (st.motors !== true) st.motorsAt = undefined;
     else if (typeof st.motorsAt === "number" && now >= st.motorsAt) {
       st.motorsAt = null;
-      out.push(ev("state.motors", "state", "Motors enabled", "failure", PRIORITY.failure, { repeat: true }));
+      out.push(ev("state.motors", "state", "Motors live", "failure", PRIORITY.failure, { repeat: true }));
     }
     // T9b-4: SD must be toggled off, then on (ctrl_flags bit 0 INTERLOCK_NEED_TOGGLE)
     if (finite(f.ctrl_flags)) {

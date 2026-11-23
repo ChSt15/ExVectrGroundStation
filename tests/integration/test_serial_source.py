@@ -3,7 +3,6 @@
 import asyncio
 import contextlib
 import math
-import struct
 from collections import Counter
 
 import pytest
@@ -98,18 +97,16 @@ async def test_values_match_scenario(vehicle):
         assert att.tilt_acc == pytest.approx(0.0035, abs=0.001)
 
 
-async def test_rc_uplink_reaches_vehicle_and_gates(vehicle, tmp_path):
+async def test_nothing_is_sent_on_the_provisional_wire_not_even_to_a_control_source(vehicle, tmp_path):
+    """The provisional-1 wire has no command state, and the GS no longer sends RC_STATE: every send is refused."""
     ctrl = SerialSource(cfg(vehicle.link, rc_role="control"), PROFILE)
     assert await ctrl.send(rc()) is False  # not connected
     async with running(ctrl):
         await wait_for(lambda: ctrl.status().state == "connected")
-        assert await ctrl.send(rc(seq=7, v=1234)) is True
-        await wait_for(lambda: any(f.channel == 0x10 for f in vehicle.received), what="rc frame")
-        f = next(f for f in vehicle.received if f.channel == 0x10)
-        assert f.payload == bytes([7]) + struct.pack("<16H", *[1234] * 16)
-        # refusals: handset-origin, non-UP types, wrong length
         n = len(vehicle.received)
+        assert await ctrl.send(rc(seq=7, v=1234)) is False
         assert await ctrl.send(rc(origin=RcOrigin.handset)) is False
+        assert await ctrl.send(REGISTRY.get("CmdState").cls(session=1)) is False
         assert await ctrl.send(REGISTRY.get("Note").cls(text="x")) is False
         assert await ctrl.send(REGISTRY.get("Attitude").cls()) is False
         assert await ctrl.send(RcState(origin=RcOrigin.gs, ch_us=[1500] * 3, seq=1)) is False
@@ -147,7 +144,7 @@ async def test_unplug_and_replug(vehicle):
         n = len(pkts)
         await wait_for(lambda: any(p.TYPE == "Attitude" for p in pkts[n:]), what="data after reconnect")
         await wait_for(lambda: any(p.TYPE == "LinkStats" and p.connected and p.reconnects == 1 for p in pkts))
-        assert await src.send(rc()) is True
+        assert src.status().state == "connected"
         # a second cycle
         vehicle.stop()
         await wait_for(lambda: src.status().state == "searching")

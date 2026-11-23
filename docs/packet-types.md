@@ -133,7 +133,7 @@ Version 1, direction `down`, nominal rate 5 Hz, history: no.
 | `mode` | enum (VehicleMode: Startup=0, SensorInit=1, SensorCalib=2, Ready=3, Running=4, Failure=5) | - |  |
 | `mission_mode` | enum (MissionMode: Idle=0, Initialisation=1, Startup=2, Running=3, Finished=4) | - |  |
 | `mission_phase` | enum (MissionPhase: Idle=0, Hover=1, Ascent=2, Descent=3, Deceleration=4, RTH=5, Landing=6, Completed=7) | - |  |
-| `ctrl_source` | enum (ControlSource: NONE=0, RADIO=1, USB=2, UART=3) | - | active control source as applied by the vehicle |
+| `ctrl_source` | enum (ControlSource: NONE=0, GS=1) | - | active control source as applied by the vehicle |
 | `armed` | bool | - | applied arm state |
 | `simulation` | bool | - |  |
 | `motors_enabled` | bool | - | the hard motor gate is currently open |
@@ -154,29 +154,34 @@ Version 1, direction `down`, nominal rate 5 Hz, history: no.
 | `calib_mag_ok` | bool | - | mag calibration valid; None = unknown |
 | `calib_session` | bool | - | a calibration session is active (collecting or fitting); None = unknown |
 | `ready_to_arm` | bool | - | the vehicle reports that all its Arm / MissionBegin gates are satisfied; None = unknown |
-| `ctrl_flags` | int | - | T9b command-path bits (schema ctrl_flags: INTERLOCK_NEED_TOGGLE 0, ABORT_LATCHED 1, FAILSAFE_LATCHED 2, NOPOS_RTH 3, SC_MISMATCH 4, SE_HOLD_ZEROING 5, SE_REFUSED 6, RADIO_FRESH 7, BENCH_FRESH 8, SOURCE_LATCHED 9, REQ_QUEUE_FULL 10); None = older sender (payload too short) |
+| `ctrl_flags` | int | - | T9b command-path bits (schema ctrl_flags: INTERLOCK_NEED_TOGGLE 0, ABORT_LATCHED 1, FAILSAFE_LATCHED 2, NOPOS_RTH 3, SC_MISMATCH 4, SE_HOLD_ZEROING 5, SE_REFUSED 6, USB_FRESH 7, UART_FRESH 8, SOURCE_LATCHED 9, REQ_QUEUE_FULL 10, MULTI_MASTER 11, GS_FAILSAFE_REQ 12); None = older sender (payload too short) |
 | `go_refusal` | int | - | reason for the last refused go: 0 none, 1 not Ready, 2 latched abort/failsafe, 3 zeroing, 4 SC mismatch, 5 SB invalid or profile not implemented, 6 interlock, 7 request in progress; None = older sender |
 | `degraded_bits` | int | - | degraded warnings, no action taken: bit 0 ToF lost, 1 ship-node LINK_STATS lost, 2 ship-node UART heartbeat lost; None = older sender |
 | `mission_profile` | int | - | SB position latched at the last go (0, 1, 2), 255 = none; None = older sender |
-| `rc_rejected` | int | - | wrapping count of rejected RC_STATE frames on the vehicle; None = older sender |
+| `rc_rejected` | int | - | wrapping count of rejected CMD_STATE frames on the vehicle; None = older sender |
+| `cmd_session` | int | - | low 16 bits of the CMD_STATE session the vehicle latched, 0 = none; None = older sender |
 
-## RcApplied
+## CmdApplied
 
-RC_APPLIED (USB only, T9b): the switch positions as the vehicle decodes them, the transition detectors' safe-seen bits, the age of both control sources and the reject counters. For bench debugging; display only.
+CMD_APPLIED (USB only, 0x84, replaces RC_APPLIED): the CMD_STATE fields as the vehicle applies them (last accepted frame of the latched session), the detectors' safe-seen bits, ages and reject counters. For bench debugging; display only.
 
 Version 1, direction `down`, nominal rate 10 Hz, history: no.
 
 | Field | Kind | Unit | Description |
 |---|---|---|---|
-| `sa` | int | - | SA decoded: 0 not go, 1 go |
-| `sb` | int | - | SB decoded: 0, 1, 2, 255 = invalid |
-| `sc` | int | - | SC decoded: 0 simulation, 1 real, 2 reserved, 255 = invalid |
-| `sd` | int | - | SD decoded: 0 disabled, 1 enabled |
-| `se` | int | - | SE decoded: 0 released, 1 pressed |
+| `go` | int | - | last accepted go: 0 NOT_GO, 1 GO |
+| `profile` | int | - | last accepted profile 0, 1, 2 |
+| `vehicle_mode` | int | - | last accepted vehicle_mode field: 0 REAL, 1 SIMULATION (not the applied mode) |
+| `motors` | int | - | last accepted motors field: 0 DISABLED, 1 ENABLED |
+| `reset_button` | int | - | last accepted reset_button field: 0 RELEASED, 1 PRESSED |
+| `failsafe` | int | - | last accepted failsafe field: 0 none, 1 requested |
+| `flags` | int | - | information flags of the last accepted frame: bit 0 POCKET_LIVE, bit 1 INPUT_VIRTUAL |
 | `safe_seen` | int | - | bits: 0 GO, 1 SC_REAL, 2 SD_ENABLE, 3 SE_PRESS safe value seen |
-| `radio_age` | float | s | age of the last accepted RC_STATE from the radio source, None = none |
-| `bench_age` | float | s | age of the last accepted RC_STATE from the USB (bench) source, None = none |
-| `rejects` | int_array[4] | - | wrapping reject counters: bad length, source not in table, stale or repeated, SOURCE_OK clear |
+| `session` | int | - | full latched session id, 0 = none |
+| `age` | float | s | age of the last accepted CMD_STATE (either link), None = none |
+| `usb_age` | float | s | age of the last copy of the latched session on the USB link, None = none |
+| `uart_age` | float | s | same for the UART link, None = none |
+| `rejects` | int_array[4] | - | wrapping reject counters: bad length or field, source not node 0, foreign session, stale or duplicate |
 
 ## HomePosition
 
@@ -296,9 +301,9 @@ Version 1, direction `down`, nominal rate 0.5 Hz, history: no.
 
 ## RcState
 
-RC channel state. Sent by the GS (origin gs) or mirrored from the handset via the Router. ch_us 0 = channel not provided (exvectrnet-1).
+RC channel state of the handset (origin handset), received from the Router on USB; the input of the command engine. The GS never sends it any more (it sends CmdState). Old logs may hold origin gs frames. ch_us 0 = channel not provided (exvectrnet-1).
 
-Version 1, direction `up`, nominal rate 25 Hz, history: no.
+Version 1, direction `down`, nominal rate 25 Hz, history: no.
 
 | Field | Kind | Unit | Description |
 |---|---|---|---|
@@ -307,6 +312,26 @@ Version 1, direction `up`, nominal rate 25 Hz, history: no.
 | `seq` | int | - | wire sequence number (exvectrnet-1) or the sender's counter (provisional-1) |
 | `flags` | int | - | generic flag byte of the wire packet (exvectrnet-1), as sent or received |
 | `source_ok` | bool | - | SOURCE_OK flag: the input is fresh (exvectrnet-1) |
+| `node` | int | - | network node that sent the frame (exvectrnet-1; the Router is node 2), None = unknown |
+
+## CmdState
+
+GS command state (CMD_STATE, port 0x13, node 0 -> vehicle node 1): the one thing the ground station sends continuously, produced by the command engine from the Pocket / virtual switches. Recorded as sent.
+
+Version 1, direction `up`, nominal rate 25 Hz, history: no.
+
+| Field | Kind | Unit | Description |
+|---|---|---|---|
+| `session` | int | - | random per core start, never 0 |
+| `go` | int | - | 0 NOT_GO, 1 GO (SA) |
+| `profile` | int | - | mission profile 0, 1, 2 (SB) |
+| `vehicle_mode` | enum (CmdVehicleMode: REAL=0, SIMULATION=1) | - | 0 REAL, 1 SIMULATION (SC: position 0 real, 1 and 2 simulation) |
+| `motors` | int | - | 0 DISABLED (motors disarmed), 1 ENABLED (motors armed) (SD) |
+| `reset_button` | int | - | 0 RELEASED, 1 PRESSED (SE) |
+| `failsafe` | int | - | 0 none, 1 GS failsafe requested |
+| `pocket_live` | bool | - | flags bit 1 POCKET_LIVE: the handset stream is alive at the ground station |
+| `input_virtual` | bool | - | flags bit 2 INPUT_VIRTUAL: the virtual panel is the input |
+| `seq` | int | - | transport sequence number: identical on every link carrying this frame |
 
 ## Request
 
@@ -321,6 +346,7 @@ Version 1, direction `up`, nominal rate n/a, history: no.
 | `target` | int | - | destination node id |
 | `arg_i` | int | - |  |
 | `arg_f` | float | - |  |
+| `session` | int | - | command session id of this core; the vehicle accepts a vehicle-directed REQUEST (target 1) only from its latched session; 0 or None = none |
 
 ## LinkConfig
 

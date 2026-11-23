@@ -1,22 +1,23 @@
 // Pure logic of the mission status bar (docs/gui.md). Vehicle-reported values only: nothing here is computed from
 // what the ground station sent, and nothing is assumed. Stale data is marked, never hidden.
 import { ageOf, fmtAge, fmtNum, isStale } from "../fmt.js";
+import { commandSourceCell } from "../command/command_logic.js";
 
 /** Names of all defined failure_bits of VEHICLE_STATUS (flight-software docs/project/hardware-and-drivers.md, field
  * mapping): bit 5 is "control source lost" (T9b-3, was "radio connection loss"), bits 6-13 were added by T9b, bit 13 is the
- * motor-interlock watchdog. Used by the status bar, the Health panel and (by length) the callouts. */
+ * motors-armed (interlock) watchdog and bit 14 the GS failsafe (a GS FAILSAFE request in an accepted CMD_STATE). Used by the status bar, the Health panel and (by length) the callouts. */
 export const FAILURE_BIT_NAMES = [
   "sensor", "attitude", "position", "position out of bounds", "attitude out of bounds", "control source lost",
   "GNSS lost", "magnetometer lost", "barometer", "gyro", "accelerometer", "attitude estimate", "position estimate",
-  "motor-interlock watchdog",
+  "motors-armed watchdog", "GS failsafe",
 ];
 export const FAILURE_BITS = FAILURE_BIT_NAMES;
 
 /** ctrl_flags of VEHICLE_STATUS (T9b command-path state). Bit index -> [short name, tone]. */
 export const CTRL_FLAGS = [
-  ["Toggle SD off, then on", "warn"], ["ABORT latched", "bad"], ["FAILSAFE latched", "bad"], ["no-position RTH", "warn"],
-  ["SC mismatch", "warn"], ["SE hold zeroing", ""], ["SE refused", "warn"], ["radio fresh", ""], ["bench fresh", ""],
-  ["source latched", ""], ["request queue full", "warn"],
+  ["Toggle SD off, then on (motors armed)", "warn"], ["ABORT latched", "bad"], ["FAILSAFE latched", "bad"], ["no-position RTH", "warn"],
+  ["SC mismatch", "warn"], ["SE hold zeroing", ""], ["SE refused", "warn"], ["USB fresh", ""], ["UART fresh", ""],
+  ["source latched", ""], ["request queue full", "warn"], ["MULTI_MASTER", "bad"], ["GS failsafe request", "bad"],
 ];
 /** go_refusal of VEHICLE_STATUS (vehicle docs hardware-and-drivers.md, T9b-4): the reason the last go edge (SA) was refused. */
 export const GO_REFUSALS = [
@@ -26,7 +27,7 @@ export const GO_REFUSALS = [
   "estimator zeroing window or no valid zero",
   "SC invalid, reserved or different from the vehicle mode",
   "SB invalid or profile not implemented (only SB 2 flies)",
-  "reserved (the interlock is not a go precondition)",
+  "reserved (motors armed is not a go precondition)",
   "calibration session or gyro run in progress",
 ];
 /** Text for a go_refusal code (1-7); unknown codes are shown as "reason n". */
@@ -75,7 +76,7 @@ function item(key, label, text, tone = "", extra = {}) {
  * Returns { state: "missing"|"stale"|"fresh", age, items[] }. Booleans the wire profile did not supply
  * (null/undefined) are shown as "n/s", never as false.
  */
-export function describeVehicleStatus(entry, now, schemaType, zeroSent = null) {
+export function describeVehicleStatus(entry, now, schemaType, zeroSent = null, own16 = null) {
   if (!entry) return { state: "missing", age: null, items: [], src: "" };
   const f = entry.f || {};
   const stale = isStale(entry, now, schemaType);
@@ -98,12 +99,13 @@ export function describeVehicleStatus(entry, now, schemaType, zeroSent = null) {
   items.push(item("mode", "Mode", f.mode === undefined ? "n/s" : String(f.mode), MODE_TONE[f.mode] || ""));
   items.push(item("mission", "Mission", f.mission_mode === undefined ? "n/s" : `${f.mission_mode} / ${f.mission_phase ?? "n/s"}`));
 
-  // T9b-4: the vehicle's ARMED flag now means "motor interlock open" (SD toggled on); it is no longer an arm command state.
-  const [armText, armTone] = bool(f.armed, "MOTOR INTERLOCK OPEN", "interlock closed", "warn");
-  items.push(item("armed", "Motor interlock", armText, armTone, { title: "VEHICLE_STATUS ARMED flag: since T9b-4 it means the motor interlock is open (SD observed off, then on, with a fresh state). Motors run only if the control system also commands them." }));
+  // T9b-4: the vehicle's ARMED flag means "motors armed" (the interlock input: SD up, observed after SD down, with a fresh
+  // command state); it is no longer an arm command state. Named "motors armed / disarmed" since 2026-11-23.
+  const [armText, armTone] = bool(f.armed, "MOTORS ARMED", "motors disarmed", "warn");
+  items.push(item("armed", "Motors armed", armText, armTone, { title: "VEHICLE_STATUS ARMED flag: motors armed (SD up, observed after SD down, with a fresh command state). Motors run only if the control system also commands them." }));
 
-  const [motText, motTone] = bool(f.motors_enabled, "MOTORS ENABLED", "motors off", "motors", "");
-  items.push(item("motors_enabled", "Motors", motText, motTone, { loud: true }));
+  const [motText, motTone] = bool(f.motors_enabled, "MOTORS LIVE", "motors off", "motors", "");
+  items.push(item("motors_enabled", "Motors", motText, motTone, { loud: true, title: "VEHICLE_STATUS MOTORS_ENABLED: the hard motor gate at the output is open" }));
 
   const [fsText, fsTone] = bool(f.failsafe, "FAILSAFE", "no failsafe", "bad");
   items.push(item("failsafe", "Failsafe", fsText, fsTone));
@@ -120,11 +122,10 @@ export function describeVehicleStatus(entry, now, schemaType, zeroSent = null) {
   const [uartText, uartTone] = bool(f.uart_peer_seen, "seen", "lost", "ok", "warn");
   items.push(item("uart_peer_seen", "Ship node UART", uartText, uartTone, { title: "VEHICLE_STATUS UART_PEER_SEEN: the vehicle received a valid frame from the ship radio node on its UART in the last 3 s (information only)" }));
 
-  // T9b-1: the vehicle's own ctrl_source, with the latch (SOURCE_LATCHED bit 9) and which sources are fresh (bits 7, 8).
-  const cfs = typeof f.ctrl_flags === "number" ? f.ctrl_flags : 0;
-  const latched = !!(cfs & (1 << 9));
-  const fresh = [cfs & (1 << 7) ? "radio" : null, cfs & (1 << 8) ? "bench" : null].filter(Boolean);
-  items.push(item("ctrl_source", "Control source", f.ctrl_source === undefined ? "n/s" : String(f.ctrl_source) + (latched ? " (latched)" : ""), "", { title: `VEHICLE_STATUS ctrl_source; fresh sources (accepted RC_STATE at most 2 s old): ${fresh.length ? fresh.join(", ") : "none"}${latched ? "; latched: the vehicle is committed to this source" : ""}` }));
+  // The command source (GS-control cutover): GS, the latched session, MULTI_MASTER, USB / UART fresh, GS_FAILSAFE_REQ, and NOT
+  // MASTER when the latched session is not this ground station's (`own16` from the core's `rc` push).
+  const cs = commandSourceCell(f, own16);
+  items.push(item("ctrl_source", "Command source", cs.text, cs.tone, { title: cs.title }));
 
   // T9b tail fields, all vehicle-reported. Null/undefined = older sender: no cell. Zero or "none" values add nothing
   // alarming: the cells below appear only when something is set.
@@ -144,12 +145,12 @@ export function describeVehicleStatus(entry, now, schemaType, zeroSent = null) {
     items.push(item("mission_profile", "Profile", String(f.mission_profile), "", { title: "VEHICLE_STATUS mission_profile: SB position latched at the last go" }));
   }
   if (typeof f.rc_rejected === "number" && f.rc_rejected > 0) {
-    items.push(item("rc_rejected", "RC rejected", String(f.rc_rejected), "", { title: "VEHICLE_STATUS rc_rejected: wrapping count of rejected RC_STATE frames" }));
+    items.push(item("rc_rejected", "Cmd rejected", String(f.rc_rejected), "", { title: "VEHICLE_STATUS rc_rejected: wrapping count of rejected CMD_STATE frames" }));
   }
 
   const rcAge = f.rc_age;
   const nfRc = entry.nf && entry.nf.rc_age;
-  items.push(item("rc_age", "RC age", typeof rcAge === "number" ? `${fmtNum(rcAge, 2)} s` : nfRc === "nan" || rcAge === null ? "none (NaN)" : "n/s"));
+  items.push(item("rc_age", "Command age", typeof rcAge === "number" ? `${fmtNum(rcAge, 2)} s` : nfRc === "nan" || rcAge === null ? "none (NaN)" : "n/s"));
 
   const he = f.home_epoch;
   items.push(item("home_epoch", "Home epoch", he === undefined ? "n/s" : he === 0 ? "no home yet (0)" : String(he), "", { title: "VEHICLE_STATUS home_epoch: increments whenever the vehicle's home reference changes (0 = none yet). A HOME_POSITION with this epoch, if one was received, is shown in the GNSS panel." }));

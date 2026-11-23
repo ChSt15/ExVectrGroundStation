@@ -1,20 +1,18 @@
-"""RC loop end to end: API with the FakeSource echo, control_hosts, disconnects, mirror, and the pty fake vehicle.
+"""Command engine and virtual panel end to end: API with the FakeSource echo, control_hosts, disconnects, Pocket loss,
+and the pty fake vehicle. The engine is the only sender; leases only guard the virtual panel.
 
 Never touches real hardware. Recordings go to temp dirs."""
 
 import asyncio
 import contextlib
-import struct
 import tempfile
 import time
 
 import pytest
 
-from exvectr_gs.api import protocol as P
 from exvectr_gs.core.app import CoreApp
 from exvectr_gs.core.config import parse_config
-from exvectr_gs.packets.defs.link import RcOrigin
-from exvectr_gs.wire.provisional_1 import layouts
+from exvectr_gs.packets.defs.link import RcOrigin, RcState
 
 from ..support_pty import FakeVehiclePty, wait_for
 from .test_api import Client, running
@@ -25,7 +23,17 @@ def make_rc_app(control_hosts=("127.0.0.1", "::1"), rc_role="control", **fake):
         {
             "core": {"source_priority": ["fake"]},
             "server": {"bind": "127.0.0.1", "port": 1, "control_hosts": list(control_hosts)},
-            "source": [{"id": "fake", "kind": "fake", "rc_role": rc_role, "echo_rc": True, "seed": 1, **fake}],
+            "source": [
+                {
+                    "id": "fake",
+                    "kind": "fake",
+                    "rc_role": rc_role,
+                    "echo_rc": True,
+                    "echo_field": "go",
+                    "seed": 1,
+                    **fake,
+                }
+            ],
             "recorder": {"directory": tempfile.mkdtemp(prefix="exgs-test-rec-")},
         }
     )
@@ -36,7 +44,7 @@ def make_rc_app(control_hosts=("127.0.0.1", "::1"), rc_role="control", **fake):
 async def rc_running(app=None):
     app = app or make_rc_app()
     async with running(app) as rig:
-        task = asyncio.create_task(app.rc.run())
+        task = asyncio.create_task(app.engine.run())
         try:
             yield rig
         finally:
@@ -45,12 +53,37 @@ async def rc_running(app=None):
                 await task
 
 
+def make_two_source_app(roles=("control", "control", "mirror"), **kw):
+    """A radio-profile fake (provides the Pocket's handset RcState) plus two more fakes."""
+    ids = ["pocket", "usb", "link"]
+    cfg = parse_config(
+        {
+            "core": {"source_priority": ids},
+            "server": {"bind": "127.0.0.1", "port": 1, "control_hosts": ["127.0.0.1", "::1"]},
+            "source": [
+                {
+                    "id": i,
+                    "kind": "fake",
+                    "rc_role": r,
+                    "echo_rc": True,
+                    "echo_field": "go",
+                    "seed": n,
+                    "profile": "radio" if n == 1 else "usb",
+                }
+                for n, (i, r) in enumerate(zip(ids, roles, strict=True), 1)
+            ],
+            "recorder": {"directory": tempfile.mkdtemp(prefix="exgs-test-rec-")},
+        }
+    )
+    return CoreApp(cfg)
+
+
 def received(rig):
-    return len(rig.app.sources[0].received_rc)
+    return len(rig.app.sources[0].received_cmd)
 
 
 async def applied(c, expect, timeout=3.0):
-    """Wait until the echoed MissionState.mission_index (the fake vehicle's 'applied' value) equals `expect`."""
+    """Wait until the echoed MissionState.mission_index (the fake vehicle's 'applied' go value) equals `expect`."""
     end = time.monotonic() + timeout
     while time.monotonic() < end:
         snap = await c.ok("get_snapshot", view="live", types=["MissionState"], src="fake")
@@ -61,57 +94,69 @@ async def applied(c, expect, timeout=3.0):
     raise AssertionError(f"applied value never became {expect}")
 
 
+async def test_the_stream_runs_without_any_client_or_lease_at_25_hz():
+    async with rc_running() as rig:
+        await wait_for(lambda: received(rig) > 5, what="frames")
+        n0, t0 = received(rig), time.monotonic()
+        await asyncio.sleep(2.0)
+        rate = (received(rig) - n0) / (time.monotonic() - t0)
+        assert rate == pytest.approx(25.0, rel=0.1), rate
+        last = rig.app.sources[0].last_cmd
+        assert last.session == rig.app.engine.session and last.go == 0 and last.motors == 0
+        assert rig.app.rc.status().lease is None
+
+
 async def test_round_trip_through_api_and_fake_echo():
     async with rc_running() as rig:
         c = await Client.connect(rig)
         lease = await c.ok("rc.acquire", kind="connection")
         assert lease["kind"] == "connection" and lease["expires"] is None
         st = await c.ok("rc.set", values={"SA": 1, "S1": 0.5})
-        assert st["mode"] == "master" and st["controls"]["SA"] == 1 and st["channels_us"][9] == 1500
+        assert st["mode"] == "virtual" and st["controls"]["SA"] == 1 and st["channels_us"][9] == 1500
         for _ in range(5):  # a GUI heartbeats every 300 ms
             await c.ok("rc.heartbeat")
             await asyncio.sleep(0.1)
-        await applied(c, 2)  # SA=1 -> 2000 us -> echoed
+        await applied(c, 1)  # SA up -> go GO -> echoed
+        assert rig.app.sources[0].last_cmd.input_virtual is True
         await c.ok("rc.set", values={"SA": 0})
         await applied(c, 0)
-        assert received(rig) > 10
         pushed = [m for m in c.inbox if m["op"] == "rc"]
         assert pushed and pushed[-1]["holder_is_you"] is True
+        cmd = pushed[-1]["command"]
+        assert cmd["session"] == rig.app.engine.session and cmd["input"] == "virtual" and cmd["sending"] is True
+        assert pushed[-1]["target"] == "fake" and pushed[-1]["sending"] is True
         await c.ok("rc.release")
         await asyncio.sleep(0.15)
         n = received(rig)
         await asyncio.sleep(0.3)
-        assert received(rig) == n  # silence after release
+        assert received(rig) > n + 5  # releasing the panel never stops the command stream
         await c.close()
 
 
-async def test_gs_rcstate_is_recorded_on_the_bus_not_replayed():
+async def test_the_sent_command_state_is_recorded_on_the_bus():
     async with rc_running() as rig:
-        c = await Client.connect(rig)
-        await c.ok("rc.acquire", kind="keepalive", idle_s=9)
-        await c.ok("rc.unlock", control="SD")
-        await c.ok("rc.set", values={"SD": 1})
-        await asyncio.sleep(0.3)
-        st = rig.app.store.get("RcState", "gs")
-        assert st is not None and st.packet.origin == RcOrigin.gs and st.packet.ch_us[7] == 2000
-        await c.close()  # keepalive lease: survives the CLI process
+        await wait_for(lambda: rig.app.store.get("CmdState", "gs") is not None, what="recorded CmdState")
+        st = rig.app.store.get("CmdState", "gs")
+        assert st.packet.session == rig.app.engine.session and st.packet.motors == 0
 
 
-async def test_client_disconnect_stops_sending_connection_lease():
+async def test_client_disconnect_ends_the_lease_but_never_the_stream():
     async with rc_running() as rig:
         c = await Client.connect(rig)
         await c.ok("rc.acquire", kind="connection")
         await c.ok("rc.set", values={"SA": 1})
-        await wait_for(lambda: received(rig) > 3, what="frames")
+        await applied(c, 1)
         await c.close()  # GUI tab closed or crashed
-        await asyncio.sleep(0.2)
-        n = received(rig)
         await asyncio.sleep(0.3)
-        assert received(rig) == n
+        n = received(rig)
+        await asyncio.sleep(0.4)
+        assert received(rig) > n + 8  # still 25 Hz
         assert rig.app.rc.status().lease is None and rig.app.rc.status().controls["SA"] == 0
+        last = rig.app.sources[0].last_cmd
+        assert last.go == 1 and last.input_virtual is False  # the last command state is held (D-GS5)
 
 
-async def test_heartbeat_loss_stops_sending_with_connection_still_open():
+async def test_heartbeat_loss_ends_the_lease_the_stream_continues():
     async with rc_running() as rig:
         c = await Client.connect(rig)
         await c.ok("rc.acquire", kind="connection")
@@ -119,10 +164,10 @@ async def test_heartbeat_loss_stops_sending_with_connection_still_open():
         await asyncio.sleep(1.3)  # no heartbeat: lease dies after 1 s
         n = received(rig)
         await asyncio.sleep(0.3)
-        assert received(rig) == n
+        assert received(rig) > n
         assert await c.err("rc.set", values={"SA": 1}) == "control_denied"  # the lease is gone
-        again = await c.ok("rc.acquire", kind="connection")  # and the same connection can take control again
-        assert again["id"] != "" and rig.app.rc.status().controls == rig.app.rc.cfg.default_state()
+        again = await c.ok("rc.acquire", kind="connection")  # and the same connection can take the panel again
+        assert again["id"] != ""
         await c.close()
 
 
@@ -132,13 +177,11 @@ async def test_keepalive_lease_survives_clients_expires_when_not_renewed():
         await c1.ok("rc.acquire", kind="keepalive", idle_s=0.8)
         await c1.close()  # short-lived CLI process
         c2 = await Client.connect(rig)
-        await c2.ok("rc.set", values={"SB": 2})  # a second process may use the current keepalive lease
+        await c2.ok("rc.set", values={"SB": 1})  # a second process may use the current keepalive lease
         await asyncio.sleep(0.3)
-        assert received(rig) > 3
-        await asyncio.sleep(0.8)
-        n = received(rig)
-        await asyncio.sleep(0.3)
-        assert received(rig) == n and rig.app.rc.status().lease is None
+        assert rig.app.sources[0].last_cmd.profile == 1
+        await asyncio.sleep(1.0)
+        assert rig.app.rc.status().lease is None
         await c2.close()
 
 
@@ -150,7 +193,8 @@ async def test_control_hosts_enforced_through_the_api():
         assert await c.err("rc.acquire", kind="keepalive", idle_s=9) == "control_denied"
         assert await c.err("rc.set", values={"SA": 1}) == "no_lease"
         await asyncio.sleep(0.2)
-        assert received(rig) == 0 and rig.app.rc.status().lease is None
+        assert rig.app.rc.status().lease is None
+        await wait_for(lambda: received(rig) > 2, what="the engine still sends: it needs no client")
         await c.close()
 
 
@@ -181,7 +225,7 @@ async def test_invalid_values_rejected_with_nothing_changed():
             assert await c.err("rc.set", values=values) == "invalid_value"
         assert await c.err("rc.set", values={"SA": 1}, hold_s=1) == "invalid_value"  # hold: momentary only
         assert await c.err("rc.set", values={"SE": 1}, hold_s=99) == "invalid_value"
-        assert rig.app.rc.status().controls == rig.app.rc.cfg.default_state()
+        assert rig.app.rc.status().controls["SA"] == 0 and rig.app.rc.status().controls["SE"] == 0
         await c.ok("rc.release")
         await c.close()
 
@@ -191,17 +235,15 @@ async def test_momentary_hold_is_released_by_the_core_even_if_the_client_dies():
         c = await Client.connect(rig)
         await c.ok("rc.acquire", kind="keepalive", idle_s=9)
         await c.ok("rc.set", values={"SE": 1}, hold_s=0.4)
-        await wait_for(lambda: any(p.ch_us[8] == 2000 for p in rig.app.sources[0].received_rc), what="pressed")
+        await wait_for(lambda: any(p.reset_button == 1 for p in rig.app.sources[0].received_cmd), what="pressed")
         await c.close()  # killed before it could release
-        await wait_for(lambda: rig.app.sources[0].received_rc[-1].ch_us[8] == 1000, 2.0, "released by core")
-        sent = [p.ch_us[8] for p in rig.app.sources[0].received_rc]
-        assert 8 <= sent.count(2000) <= 13  # about 0.4 s at 25 Hz
+        await wait_for(lambda: rig.app.sources[0].received_cmd[-1].reset_button == 0, 2.0, "released by core")
+        sent = [p.reset_button for p in rig.app.sources[0].received_cmd]
+        assert 8 <= sent.count(1) <= 14  # about 0.4 s at 25 Hz
 
 
-async def test_refused_send_skips_ticks_and_reports_not_sending():
+async def test_a_link_that_refuses_is_skipped_and_the_engine_keeps_going():
     async with rc_running() as rig:
-        c = await Client.connect(rig)
-        await c.ok("rc.acquire", kind="keepalive", idle_s=9)
         await wait_for(lambda: received(rig) > 2, what="frames")
         src = rig.app.sources[0]
 
@@ -209,47 +251,71 @@ async def test_refused_send_skips_ticks_and_reports_not_sending():
             return False
 
         orig, src.send = src.send, refuse
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.3)
         n = received(rig)
         await asyncio.sleep(0.2)
-        assert received(rig) == n and rig.app.rc.skipped_count > 3
+        assert received(rig) == n and rig.app.engine.unsent_count > 3
         src.send = orig
         await wait_for(lambda: received(rig) > n, what="sending resumes")
-        await c.close()
 
 
-async def test_mirror_mode_through_the_api():
+async def test_a_mirror_source_is_never_a_command_link_and_the_pocket_shows_in_the_status():
     app = make_rc_app(rc_role="mirror", profile="radio")
     async with rc_running(app) as rig:
         c = await Client.connect(rig)
-        await wait_for(lambda: app.rc.status().mode == "slave", what="slave")
+        await wait_for(lambda: app.rc.status().mode == "pocket", what="pocket")
         st = app.rc.status()
         assert st.origin == "handset" and not st.sending
-        assert await c.err("rc.acquire", kind="connection") == "control_denied"  # mirror link: GS never sends
         assert received(rig) == 0
+        push = await c.ok("get_status") if False else None  # noqa: F841
+        await wait_for(lambda: app.engine.status()["pocket"] == "live", what="Pocket live in the engine")
+        assert app.engine.status()["links"] == [] and app.engine.status()["sending"] is False
         await c.close()
 
 
-async def test_core_restart_sends_nothing_and_starts_with_defaults():
+async def test_core_restart_has_a_new_session_and_starts_safe():
     async with rc_running() as rig:
         c = await Client.connect(rig)
         await c.ok("rc.acquire", kind="keepalive", idle_s=9)
-        await c.ok("rc.set", values={"SA": 1, "SB": 2})
+        await c.ok("rc.set", values={"SA": 1, "SB": 1})
+        s1 = rig.app.engine.session
         await c.close()
     async with rc_running() as rig2:  # a "restart": a new core from the same config
-        await asyncio.sleep(0.5)
+        await wait_for(lambda: received(rig2) > 2, what="frames")
         st = rig2.app.rc.status()
         assert st.lease is None and st.controls == rig2.app.rc.cfg.default_state()
-        assert received(rig2) == 0 and st.mode == "idle"
+        assert rig2.app.engine.session != s1 and rig2.app.engine.session != 0
+        first = rig2.app.sources[0].received_cmd[0]
+        assert (first.go, first.motors, first.reset_button, first.failsafe) == (0, 0, 0, 0)
 
 
-# ---------------------------------------------------------------- pty fake vehicle: real bytes
+async def test_pocket_loss_is_a_warning_event_and_the_stream_keeps_its_last_state():
+    app = make_rc_app()
+    events = []
+    app.bus.subscribe(lambda p: events.append(p.detail), {"GsEvent"})
+    async with rc_running(app) as rig:
+        for _ in range(60):  # the Pocket: SA down, then SA up (cycled)
+            ch = [1500] * 16
+            ch[4] = 1000 if _ < 30 else 2000
+            app.bus.publish(RcState(t=app.clock.now(), src="fake", origin=RcOrigin.handset, ch_us=ch, seq=_, node=2))
+            await asyncio.sleep(0.005)
+        await wait_for(lambda: rig.app.sources[0].last_cmd.go == 1, what="go from the Pocket")
+        await asyncio.sleep(0.8)  # the Pocket stops
+        assert app.engine.status()["pocket"] == "lost"
+        assert any("Pocket stream lost" in e for e in events)
+        n = received(rig)
+        await asyncio.sleep(0.4)
+        assert received(rig) > n + 8 and rig.app.sources[0].last_cmd.go == 1  # no abort, no failsafe
+        assert rig.app.sources[0].last_cmd.failsafe == 0
+
+
+# ---------------------------------------------------------------- pty fake vehicle (exvectrnet-1): real bytes
 
 
 def pty_app(link, **opts):
     cfg = parse_config(
         {
-            "core": {"wire_profile": "provisional-1", "source_priority": ["usb"]},
+            "core": {"wire_profile": "exvectrnet-1", "source_priority": ["usb"]},
             "server": {"bind": "127.0.0.1", "port": 1, "control_hosts": ["127.0.0.1"]},
             "source": [
                 {
@@ -267,22 +333,16 @@ def pty_app(link, **opts):
     return CoreApp(cfg)
 
 
-def decode_rc_state(payload):
-    """Independent decode of the provisional RcState payload: uint8 seq, uint16 LE x 16."""
-    seq, *ch = struct.unpack("<B16H", payload)
-    return seq, ch
-
-
-def rc_frames(vehicle):
-    return [f for f in list(vehicle.received) if f.channel == layouts.PORT_RC_STATE]
+def cmd_frames(vehicle):
+    return [c for c in list(vehicle.received_cmd)]
 
 
 @contextlib.asynccontextmanager
 async def pty_core(tmp_path):
-    v = FakeVehiclePty(tmp_path / "veh", speed=1.0)
+    v = FakeVehiclePty(tmp_path / "veh", speed=1.0, profile="exvectrnet-1")
     v.start()
     app = pty_app(tmp_path / "veh")
-    tasks = [asyncio.create_task(app.sources[0].run(app.bus.publish)), asyncio.create_task(app.rc.run())]
+    tasks = [asyncio.create_task(app.sources[0].run(app.bus.publish)), asyncio.create_task(app.engine.run())]
     await wait_for(lambda: app.sources[0].status().state == "connected", what="connected")
     try:
         yield app, v
@@ -295,59 +355,65 @@ async def pty_core(tmp_path):
         v.stop()
 
 
-async def test_pty_uplink_rate_stops_on_release_and_lease_expiry(tmp_path):
+async def test_pty_cmd_state_bytes_rate_session_and_no_unsafe_edge_at_start(tmp_path):
     async with pty_core(tmp_path) as (app, v):
-        await asyncio.sleep(0.4)
-        assert rc_frames(v) == []  # connected, no lease: nothing on the wire
-        lease = app.rc.acquire("t", "keepalive", 9, "127.0.0.1")
-        app.rc.set(lease.id, {"SA": 1, "SB": 2, "S1": 0.5})
-        n0, t0 = len(rc_frames(v)), time.monotonic()
+        await wait_for(lambda: len(cmd_frames(v)) > 10, what="frames")
+        n0, t0 = len(cmd_frames(v)), time.monotonic()
         await asyncio.sleep(3.0)
-        n1, t1 = len(rc_frames(v)), time.monotonic()
-        rate = (n1 - n0) / (t1 - t0)
-        assert rate == pytest.approx(25.0, rel=0.05), rate
-        f = rc_frames(v)[-1]
-        seq, chans = decode_rc_state(f.payload)
-        assert chans[4] == 2000 and chans[5] == 2000 and chans[9] == 1500 and chans[2] == 1000 and chans[0] == 1500
-        assert len(rc_frames(v)) >= 2 and rc_frames(v)[-1].payload[0] != rc_frames(v)[-2].payload[0]  # seq moves
-        app.rc.release(lease.id)
-        stop = time.monotonic()
-        await asyncio.sleep(0.1)  # one period (40 ms) plus transport slack
-        n = len(rc_frames(v))
-        await asyncio.sleep(0.5)
-        assert len(rc_frames(v)) == n, "frames after release"
-        assert time.monotonic() - stop < 1.0
-
-        lease = app.rc.acquire("cli", "keepalive", 0.6, "127.0.0.1")  # expiry path
-        await asyncio.sleep(0.9)
-        n = len(rc_frames(v))
-        await asyncio.sleep(0.4)
-        assert len(rc_frames(v)) == n
-        # a start from defaults: the first frame of the new lease carries no residue of the old state
-        lease = app.rc.acquire("cli", "keepalive", 9, "127.0.0.1")
-        await wait_for(lambda: len(rc_frames(v)) > n, what="new lease frames")
-        _, chans = decode_rc_state(rc_frames(v)[n].payload)
-        assert chans == app.rc.cfg.channels_us(app.rc.cfg.default_state())
-        app.rc.release(lease.id)
+        rate = (len(cmd_frames(v)) - n0) / (time.monotonic() - t0)
+        assert rate == pytest.approx(25.0, rel=0.08), rate
+        fr = cmd_frames(v)
+        assert all(not f["rejected"] for f in fr), "every frame passes the vehicle's strict parser"
+        assert all(f["src"] == 0 and f["dst"] == 1 for f in fr)
+        assert {f["session"] for f in fr} == {app.engine.session} and v.cmd_session == app.engine.session
+        assert all((f["go"], f["motors"], f["reset_button"], f["failsafe"]) == (0, 0, 0, 0) for f in fr)
+        seqs = [f["seq"] for f in fr]
+        assert all((b - a) & 0xFF == 1 for a, b in zip(seqs, seqs[1:], strict=False))  # one stream, one counter
+        assert v.cmd_rejects == 0
 
 
-async def test_pty_unplug_stops_frames_and_replug_starts_from_defaults(tmp_path):
+async def test_pty_virtual_switch_change_goes_out_at_once_and_the_vehicle_reports_it_back(tmp_path):
     async with pty_core(tmp_path) as (app, v):
-        lease = app.rc.acquire("cli", "keepalive", 9, "127.0.0.1")
-        app.rc.unlock(lease.id, "SD")
-        app.rc.set(lease.id, {"SD": 1})
-        await wait_for(lambda: len(rc_frames(v)) > 5, what="frames")
+        await wait_for(lambda: len(cmd_frames(v)) > 3, what="frames")
+        lease = app.rc.acquire("t", "keepalive", 9, "127.0.0.1")
+        await asyncio.sleep(0.1)
+        t_set = time.monotonic_ns()
+        app.rc.set(lease.id, {"SA": 1})
+        await wait_for(lambda: cmd_frames(v)[-1]["go"] == 1, 1.0, "go on the wire")
+        assert (cmd_frames(v)[-1]["t"] - t_set) / 1e6 < 60  # well inside one 40 ms period plus the loop
+        assert cmd_frames(v)[-1]["input_virtual"] is True
+        # the vehicle's own report (CMD_APPLIED over the same wire), never the sent state
+        await wait_for(lambda: (app.store.get("CmdApplied") or None) is not None, 3.0, "CMD_APPLIED")
+        await wait_for(lambda: app.store.get("CmdApplied").packet.go == 1, 3.0, "applied go")
+        assert app.store.get("CmdApplied").packet.session == app.engine.session
+        app.rc.release(lease.id)
+
+
+async def test_pty_requests_to_the_vehicle_carry_the_session(tmp_path):
+    from exvectr_gs.packets.defs.link import Request, RequestAction
+
+    async with pty_core(tmp_path) as (app, v):
+        await wait_for(lambda: len(cmd_frames(v)) > 3, what="frames")
+        pkt = Request(t=1, src="gs", req_id=7, action=RequestAction.SAVE_CONFIG, target=1, session=app.engine.session)
+        assert await app.sources[0].send(pkt)
+        await wait_for(lambda: v.received_requests, what="request")
+        assert v.received_requests[-1]["session"] == app.engine.session
+
+
+async def test_pty_unplug_stops_frames_and_replug_continues_the_same_session(tmp_path):
+    async with pty_core(tmp_path) as (app, v):
+        await wait_for(lambda: len(cmd_frames(v)) > 5, what="frames")
+        session = app.engine.session
         v.stop()  # unplug
         await wait_for(lambda: app.sources[0].status().state != "connected", what="down")
-        assert app.rc.status().sending is False
-        v.received.clear()
+        assert app.engine.status()["sending"] is False
+        v.received_cmd.clear()
+        v.cmd_session = None
         v.start()  # replug
         await wait_for(lambda: app.sources[0].status().state == "connected", 5, "reconnect")
-        await wait_for(lambda: len(rc_frames(v)) > 2, what="frames after replug")
-        _, chans = decode_rc_state(rc_frames(v)[0].payload)
-        assert chans[7] == 1000  # SD back at its default: the old state was not resumed
-        assert app.rc.status().locks["SD"]["locked"] is True  # and relocked
-        app.rc.release(lease.id)
+        await wait_for(lambda: len(cmd_frames(v)) > 2, what="frames after replug")
+        assert cmd_frames(v)[0]["session"] == session  # the session lives with the core, not the link
+        assert (cmd_frames(v)[0]["go"], cmd_frames(v)[0]["motors"]) == (0, 0)
 
 
 # ---------------------------------------------------------------- locked control (SD) through the API
@@ -375,39 +441,32 @@ async def test_locked_control_api_flow_and_push_state():
             await asyncio.sleep(0.05)
         msg = [m for m in c.inbox if m["op"] == "rc"][-1]  # the push carries the lock state
         assert msg["controls"]["SD"] == 1 and msg["locks"]["SD"]["locked"] is False and msg["channels_us"][7] == 2000
-        await applied_channel(rig, 8, 2000)
+        await wait_for(lambda: rig.app.sources[0].last_cmd.motors == 1, 2.0, "motors armed on the wire")
         st = await c.ok("rc.lock", control="SD")  # relock: back to off
         assert st["controls"]["SD"] == 0 and st["locks"]["SD"]["locked"] is True and st["channels_us"][7] == 1000
         assert await c.err("rc.set", values={"SD": 1}) == "control_locked"
         await c.close()
 
 
-async def applied_channel(rig, ch, us, timeout=2.0):
-    end = time.monotonic() + timeout
-    while time.monotonic() < end:
-        if any(p.ch_us[ch - 1] == us for p in list(rig.app.sources[0].received_rc)[-3:]):
-            return
-        await asyncio.sleep(0.02)
-    raise AssertionError(f"channel {ch} never reached {us}")
-
-
-async def test_lease_end_by_connection_drop_returns_sd_to_off_and_relocks():
+async def test_lease_end_by_connection_drop_holds_the_output_relocks_the_panel_and_the_next_holder_starts_from_it():
     async with rc_running() as rig:
         c = await Client.connect(rig)
         await c.ok("rc.acquire", kind="connection")
         await c.ok("rc.unlock", control="SD")
         await c.ok("rc.set", values={"SD": 1})
-        await applied_channel(rig, 8, 2000)
+        await wait_for(lambda: rig.app.sources[0].last_cmd.motors == 1, 2.0, "motors armed on the wire")
         await c.close()
         await asyncio.sleep(0.3)
         st = rig.app.rc.status()
-        assert st.lease is None and st.controls["SD"] == 0 and st.locks["SD"]["locked"] is True
-        n = received(rig)
-        await asyncio.sleep(0.2)
-        assert received(rig) == n  # silence
+        assert st.lease is None and st.controls["SD"] == 0 and st.locks["SD"]["locked"] is True  # the panel is reset
+        # the engine holds its last command state: a closed tab never disarms (nor does it abort or failsafe)
+        assert rig.app.sources[0].last_cmd.motors == 1 and rig.app.engine.status()["input"] == "none"
         d = await Client.connect(rig)
-        await d.ok("rc.acquire", kind="connection")  # the next holder starts off and locked
-        assert await d.err("rc.set", values={"SD": 1}) == "control_locked"
+        await d.ok("rc.acquire", kind="connection")  # the next holder starts at what is being sent
+        st = rig.app.rc.status()
+        assert st.controls["SD"] == 1
+        await d.ok("rc.set", values={"SD": 0})  # the safe direction is always allowed
+        await wait_for(lambda: rig.app.sources[0].last_cmd.motors == 0, 2.0, "motors disarmed on the wire")
         await d.close()
 
 
@@ -422,81 +481,8 @@ async def test_keepalive_lease_renewal_and_idle_expiry_through_the_api():
             await b.ok("rc.heartbeat")
             await b.close()
         assert rig.app.rc.status().lease is not None
-        n = received(rig)
         await asyncio.sleep(0.9)
-        st = rig.app.rc.status()
-        assert st.lease is None and not st.sending
-        m = received(rig)
-        await asyncio.sleep(0.2)
-        assert received(rig) == m and m > n
+        assert rig.app.rc.status().lease is None
         c = await Client.connect(rig)
         assert await c.err("rc.heartbeat") == "no_lease"  # a late renewal does not revive it
-        await c.close()
-
-
-# ---------------------------------------------------------------- master / slave (decision 10.1-8)
-
-
-def rc_json(rig):
-    return P.rc_status_json(rig.app.rc.status())
-
-
-def make_two_source_app(roles=("control", "control", "mirror"), **kw):
-    """A radio-profile fake (provides the Pocket's handset RcState) plus two more fakes."""
-    ids = ["pocket", "usb", "link"]
-    cfg = parse_config(
-        {
-            "core": {"source_priority": ids},
-            "server": {"bind": "127.0.0.1", "port": 1, "control_hosts": ["127.0.0.1", "::1"]},
-            "source": [
-                {
-                    "id": i,
-                    "kind": "fake",
-                    "rc_role": r,
-                    "echo_rc": True,
-                    "seed": n,
-                    "profile": "radio" if n == 1 else "usb",
-                }
-                for n, (i, r) in enumerate(zip(ids, roles, strict=True), 1)
-            ],
-            "recorder": {"directory": tempfile.mkdtemp(prefix="exgs-test-rec-")},
-        }
-    )
-    return CoreApp(cfg)
-
-
-async def test_slave_by_default_then_master_sends_to_every_rc_source_and_never_to_mirror():
-    app = make_two_source_app()
-    async with rc_running(app) as rig:
-        c = await Client.connect(rig)
-        await wait_for(lambda: app.rc.status().mode == "slave", what="slave")
-        await asyncio.sleep(0.4)
-        assert all(not s.received_rc for s in app.sources), "slave sends nothing"
-        st = rc_json(rig)
-        assert st["mode"] == "slave" and st["pocket_active"] is True and st["targets"] == [] and st["sending"] is False
-        # master is the user's choice, allowed while the Pocket is active
-        await c.ok("rc.acquire", kind="connection")
-        await c.ok("rc.set", values={"SA": 1})
-        await wait_for(lambda: app.sources[0].received_rc and app.sources[1].received_rc, what="sent to both")
-        st = rc_json(rig)
-        assert st["mode"] == "master" and st["pocket_active"] is True and st["targets"] == ["pocket", "usb"]
-        assert st["target"] == "pocket, usb" and st["origin"] == "gs" and st["controls"]["SA"] == 1
-        assert not app.sources[2].received_rc, "a mirror-only source is never sent to"
-        # release: back to slave, silence, defaults
-        await c.ok("rc.release")
-        await asyncio.sleep(0.1)
-        n = [len(s.received_rc) for s in app.sources]
-        await asyncio.sleep(0.3)
-        assert [len(s.received_rc) for s in app.sources] == n
-        st = rc_json(rig)
-        assert st["mode"] == "slave" and not st["sending"] and app.rc.cfg.default_state() == app.rc._state
-        await c.close()
-
-
-async def test_mirror_only_everywhere_cannot_become_master():
-    app = make_two_source_app(roles=("mirror", "mirror", "none"))
-    async with rc_running(app) as rig:
-        c = await Client.connect(rig)
-        await wait_for(lambda: app.rc.status().mode == "slave", what="slave")
-        assert await c.err("rc.acquire", kind="connection") == "control_denied"
         await c.close()

@@ -76,7 +76,14 @@ def _calib(bits: int) -> dict:
 
 #: VEHICLE_STATUS tail fields (T9b): end offset of each in the payload. A field beyond a short (older) payload
 #: decodes as 0 in the generated module, which is not "none": the GS packet carries None instead.
-_VS_TAIL_END = {"ctrl_flags": 32, "go_refusal": 33, "degraded_bits": 34, "mission_profile": 35, "rc_rejected": 36}
+_VS_TAIL_END = {
+    "ctrl_flags": 32,
+    "go_refusal": 33,
+    "degraded_bits": 34,
+    "mission_profile": 35,
+    "rc_rejected": 36,
+    "cmd_session": 38,
+}
 
 
 def _vehicle_status(p: xp.VehicleStatus, t: int, src: str, meta: dict) -> list[Packet]:
@@ -335,15 +342,18 @@ def _rc_state(p: xp.RcState, t: int, src: str, meta: dict) -> list[Packet]:
             seq=meta.get("seq"),
             flags=p.flags,
             source_ok=_flag(p.flags, xp.RcState, "FLAGS_SOURCE_OK"),
+            node=meta.get("src"),
         )
     ]
 
 
-def _rc_applied(p: xp.RcApplied, t: int, src: str, meta: dict) -> list[Packet]:
+def _cmd_applied(p: xp.CmdApplied, t: int, src: str, meta: dict) -> list[Packet]:
     return [
-        V.RcApplied(
-            t=t, src=src, sa=p.sa, sb=p.sb, sc=p.sc, sd=p.sd, se=p.se, safe_seen=p.safe_seen,
-            radio_age=_nn(p.radio_age), bench_age=_nn(p.bench_age), rejects=[int(x) for x in p.rejects],
+        V.CmdApplied(
+            t=t, src=src, go=int(p.go), profile=p.profile, vehicle_mode=int(p.vehicle_mode), motors=int(p.motors),
+            reset_button=int(p.reset_button), failsafe=int(p.failsafe), flags=p.flags, safe_seen=p.safe_seen,
+            session=p.session, age=_nn(p.age), usb_age=_nn(p.usb_age), uart_age=_nn(p.uart_age),
+            rejects=[int(x) for x in p.rejects],
         )
     ]  # fmt: skip
 
@@ -416,7 +426,7 @@ MAPPERS: dict[type, Callable[..., list[Packet] | str]] = {
     xp.LinkConfig: _link_config,
     xp.LogText: _log_text,
     xp.RcState: _rc_state,
-    xp.RcApplied: _rc_applied,
+    xp.CmdApplied: _cmd_applied,
     xp.RequestAck: _request_ack,
     xp.Request: _request,
     xp.ImuRaw: _imu_raw,
@@ -443,7 +453,7 @@ PRODUCED_TYPES = {
     "LinkConfig",
     "ConsoleText",
     "RcState",
-    "RcApplied",
+    "CmdApplied",
     "RequestAck",
     "ImuRaw",
     "Calibration",

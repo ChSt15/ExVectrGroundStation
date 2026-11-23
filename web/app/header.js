@@ -8,7 +8,7 @@ import { badgeState } from "./update/update_logic.js";
 
 export const HEADER_CONSUMES = ["RadioLinkStats"];
 
-const RC_TEXT = { master: "MASTER", slave: "SLAVE", idle: "IDLE" };
+const RC_TEXT = { virtual: "VIRTUAL", pocket: "POCKET", idle: "IDLE" };
 
 export function createHeader(ctx, opts) {
   // layout views
@@ -27,7 +27,7 @@ export function createHeader(ctx, opts) {
     toggle.append(dataBtns[v]);
   }
   // RC and link chips
-  const rc = h("span", { class: "chip rc-chip", "data-testid": "rc-chip", title: "RC state as the core reports it (docs/radio.md)" });
+  const rc = h("span", { class: "chip rc-chip", "data-testid": "rc-chip", title: "Command stream of the core's command engine and its input (docs/radio.md)" });
   rc.addEventListener("click", () => window.exgs?.dock?.open("radio"));
   const link = h("span", { class: "chip", title: "radio link quality (Router)" });
   const linkVal = makeCell();
@@ -96,7 +96,7 @@ export function createHeader(ctx, opts) {
     // RC state: what the core reports it does (never inferred from clicks)
     const r = ctx.rc();
     const open = ctx.connState() === "open";
-    rc.textContent = !open ? "RC —" : !r ? "RC n/a" : `RC ${RC_TEXT[r.mode] || r.mode}${r.mode === "master" && r.sending ? " · SENDING" : r.mode === "slave" ? " · Pocket" : ""}`;
+    rc.textContent = !open ? "CMD —" : !r ? "CMD n/a" : `CMD ${r.sending ? "SENDING" : "NO LINK"} · ${RC_TEXT[r.mode] || r.mode}${r.command && r.command.pocket === "lost" ? " · POCKET LOST" : ""}`;
     rc.dataset.mode = open && r ? r.mode : "";
     rc.dataset.sending = String(!!(open && r && r.sending));
     const ub = badgeState(ctx.update && ctx.update());

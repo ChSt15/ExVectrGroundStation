@@ -176,18 +176,18 @@ test("failsafe rising says Failsafe", () => {
   assert.deepEqual(texts(step(0.1, { vs: { failsafe: true } })), ["Failsafe"]);
 });
 
-test("state: armed, disarmed, motors enabled (said twice), zeroing and zero complete", () => {
+test("state: motors armed, disarmed, motors live (said twice), zeroing and zero complete", () => {
   const { run, step } = rig();
   run();
-  assert.deepEqual(texts(step(0.1, { vs: { armed: false } })), ["Interlock closed"]);
-  assert.deepEqual(texts(step(0.1, { vs: { armed: true } })), ["Interlock open"]);
+  assert.deepEqual(texts(step(0.1, { vs: { armed: false } })), ["Motors disarmed"]);
+  assert.deepEqual(texts(step(0.1, { vs: { armed: true } })), ["Motors armed"]);
   const m = step(0.1, { vs: { motors_enabled: true } });
-  assert.deepEqual(texts(m), ["Motors enabled"]);
+  assert.deepEqual(texts(m), ["Motors live"]);
   assert.equal(m.events[0].priority, 0);
   assert.equal(m.events[0].severity, "failure");
   const said = [];
   for (let i = 0; i < 100; i++) said.push(...texts(step(0.1)));
-  assert.deepEqual(said, ["Motors enabled"]); // exactly one repeat
+  assert.deepEqual(said, ["Motors live"]); // exactly one repeat
   assert.deepEqual(texts(step(0.1, { vs: { zeroing: true } })), ["Zeroing"]);
   assert.deepEqual(texts(step(0.1, { vs: { zeroing: false } })), ["Zero complete"]);
 });
@@ -295,10 +295,10 @@ test("position deviation: needs the limit for the hold time, own hysteresis, fir
   assert.equal(w.now > 0, true);
 });
 
-test("T9b-4: interlock watchdog failure, SD toggle needed and a refused go (reason in the toast label)", () => {
+test("T9b-4: motors armed watchdog failure, SD toggle needed and a refused go (reason in the toast label)", () => {
   const { run, step } = rig();
   run();
-  assert.deepEqual(texts(step(0.1, { vs: { failure_bits: 1 << 13, ctrl_flags: 0, go_refusal: 0 } })), ["Interlock watchdog failure"]);
+  assert.deepEqual(texts(step(0.1, { vs: { failure_bits: 1 << 13, ctrl_flags: 0, go_refusal: 0 } })), ["Motors armed watchdog failure"]);
   const t = step(0.1, { vs: { failure_bits: 0, ctrl_flags: 1 } });
   assert.deepEqual(texts(t), ["Failure cleared", "Toggle SD off, then on"]);
   assert.deepEqual(texts(step(0.1, { vs: { ctrl_flags: 1 } })), []); // once per rising edge

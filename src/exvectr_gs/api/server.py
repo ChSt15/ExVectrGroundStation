@@ -180,9 +180,13 @@ class ApiServer:
 
     # ------------------------------------------------------------ public helpers for other modules
 
-    def event(self, level: str, text: str) -> None:
-        """Push an `event` message to all clients (source lost, recording failed, lease expired, ...)."""
-        self.hub.broadcast({"op": "event", "level": level, "text": text, "t": self.ctx.clock.now() / 1e9})
+    def event(self, level: str, text: str, toast: str | None = None) -> None:
+        """Push an `event` message to all clients (source lost, recording failed, lease expired, ...). `toast` (a key)
+        asks the GUI for a toast as well (the command engine's Pocket-loss warning)."""
+        msg = {"op": "event", "level": level, "text": text, "t": self.ctx.clock.now() / 1e9}
+        if toast:
+            msg["toast"] = toast
+        self.hub.broadcast(msg)
 
     def replay_reset(self) -> None:
         """Call after a replay open/seek: clients get a fresh `snapshot` for the replay view."""
@@ -626,8 +630,8 @@ class ApiServer:
 
     async def _op_core_quit(self, client: Client, msg: dict) -> dict:
         """Control hosts only, `confirm: true` required. Not a vehicle uplink: the core shuts down cleanly (recording
-        closed, RC lease released and sender stopped, sources closed) and exits with code 0; start.sh does not
-        restart."""
+        closed, panel lease released, the command stream stopped, sources closed) and exits with code 0; start.sh
+        does not restart."""
         if not client.can_control:
             raise ProtocolError("control_denied", "only a control host may stop the core")
         if msg.get("confirm") is not True:
@@ -700,19 +704,19 @@ class ApiServer:
         args = (self._rc_lease_id(client), values) if hold_s is None else (self._rc_lease_id(client), values, hold_s)
         st = await self._call(rc.set, *args)
         self._push_rc()
-        return P.rc_status_json(st)
+        return self._rc_body(st)
 
     async def _op_rc_unlock(self, client: Client, msg: dict) -> dict:
         rc = self._need("rc", "RC control")
         st = await self._call(rc.unlock, self._rc_lease_id(client), P.parse_rc_control(msg))
         self._push_rc()
-        return P.rc_status_json(st)
+        return self._rc_body(st)
 
     async def _op_rc_lock(self, client: Client, msg: dict) -> dict:
         rc = self._need("rc", "RC control")
         st = await self._call(rc.lock, self._rc_lease_id(client), P.parse_rc_control(msg))
         self._push_rc()
-        return P.rc_status_json(st)
+        return self._rc_body(st)
 
     def _client_gone(self, client: Client) -> None:
         """Decision 10.1-1: when the controlling client disappears, sending stops. A connection lease ends
@@ -759,12 +763,25 @@ class ApiServer:
 
     # ------------------------------------------------------------ status and rc push
 
+    def _rc_body(self, st: Any) -> dict:
+        """The rc status plus the command engine's report. This class and `rc.*` send nothing: the engine is the
+        only sender, so `sending`, `target` and `targets` come from it."""
+        body = P.rc_status_json(st)
+        eng = self._mod("engine")
+        if eng is not None:
+            cmd = eng.status()
+            body["command"] = cmd
+            body["sending"] = cmd["sending"]
+            body["target"] = ", ".join(cmd["links"]) or None
+            body["targets"] = list(cmd["links"])
+        return body
+
     def _rc_json(self) -> dict | None:
         rc = self._mod("rc")
         if rc is None:
             return None
         try:
-            return P.rc_status_json(rc.status())
+            return self._rc_body(rc.status())
         except NotImplementedError:
             return None
 
@@ -828,7 +845,7 @@ class ApiServer:
         key = json.dumps({k: v for k, v in body.items() if k != "t"}, sort_keys=True)
         changed = key != self._last_rc
         self._last_rc = key
-        if changed or body["sending"] or body["mode"] == "slave":
+        if changed or body["sending"] or body["mode"] in ("pocket", "virtual"):
             for c in list(self.hub.clients.values()):
                 if c.hello_done:
                     m = self._rc_msg(c, body)

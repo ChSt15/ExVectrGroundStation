@@ -14,7 +14,7 @@ import "./console.js";
 import "./inspector.js";
 import "./view3d.js";
 import "./radio.js";
-import "./rcapplied.js";
+import "./command.js";
 import "./requests.js";
 import "./telecommands.js";
 import "./simtests.js";

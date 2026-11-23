@@ -14,10 +14,10 @@ export function liveGuards({ apiState, view, canControl, vehicle, recorder, rc, 
   if (!canControl) why.push("this client is on a view-only host");
   const f = (vehicle && vehicle.f) || {};
   if (f.armed === true) why.push("the vehicle reports ARMED");
-  if (f.motors_enabled === true) why.push("the vehicle reports MOTORS ENABLED");
+  if (f.motors_enabled === true) why.push("the vehicle reports MOTORS LIVE");
   if (f.mission_mode === "Running" || f.mission_mode === 3) why.push("the vehicle reports mission mode RUNNING");
   if (recorder && recorder.active) why.push("a recording is active: stop it first");
-  if (rc && rc.lease) why.push("an RC control lease is held: release it first");
+  if (rc && rc.lease) why.push("a virtual panel lease is held: release it first");
   for (const g of coreGuards || []) if (!why.includes(g)) why.push(g); // the core's own list is authoritative
   return why;
 }
@@ -65,8 +65,8 @@ export function checkNotes(c) {
   return n;
 }
 
-export const QUIT_NOTE = "Stops the core: recording ends, RC sending stops, the Router link drops.";
-export const QUIT_RC_WARNING = "RC control is active: quitting stops sending RC state";
+export const QUIT_NOTE = "Stops the core: recording ends and the command stream stops (the vehicle falls back to its own timeouts: motors off after 1 s, latched failsafe after 2 s while committed), the Router link drops.";
+export const QUIT_RC_WARNING = "A virtual panel lease is held: it ends with the core";
 
 /** The Quit button: { enabled, reason, notes[] }. Allowed with an RC lease (extra warning), needs a control host. */
 export function quitState({ apiState, canControl, rc }) {

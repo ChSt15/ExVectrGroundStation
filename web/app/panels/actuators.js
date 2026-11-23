@@ -36,7 +36,7 @@ registerPanel({
       tvcSect = section(el, "TVC state (TvcState, VehicleState)");
       b.row(tvcSect, "Vanes xp xn yp yn", { type: "TvcState", kind: "vec", unit: "°", digits: 1, derive: (e) => e.f.vane?.map(rad2deg) });
       b.row(tvcSect, "Motors m1 m2", { type: "TvcState", field: "motor", kind: "vec", digits: 2 });
-      b.row(tvcSect, "TVC / motors enabled", { type: "TvcState", kind: "vec", derive: (e) => (e.f.enabled === undefined ? undefined : [e.f.enabled ? "yes" : "no", e.f.motors_enabled ? "yes" : "no"]), format: (v) => v.join(" / ") });
+      b.row(tvcSect, "TVC enabled / motors live", { type: "TvcState", kind: "vec", derive: (e) => (e.f.enabled === undefined ? undefined : [e.f.enabled ? "yes" : "no", e.f.motors_enabled ? "yes" : "no"]), format: (v) => v.join(" / ") });
       b.row(tvcSect, "Thrust vector (body)", { type: "VehicleState", field: "tvc_thrust", kind: "vec", unit: "N" });
       b.row(tvcSect, "Torque", { type: "VehicleState", field: "tvc_torque", unit: "N·m" });
       tvcNote = h("div", { class: "hint", text: "TvcState: not received on this link" });

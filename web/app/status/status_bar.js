@@ -8,7 +8,7 @@ import { isStale } from "../fmt.js";
 import { describeAir } from "../rates/rates_logic.js";
 
 export const SERIAL_HOP_HINT =
-  "Frames per second received on the serial connection between the ground station and that device (the vehicle USB, or the Router/Pocket USB). It is NOT the radio rate: for the Router it includes the Pocket's own RC_STATE copies, which never cross the air. See the Data rates tab.";
+  "Frames per second received on the serial connection between the ground station and that device (the vehicle USB, or the Router/Pocket USB). It is NOT the radio rate: for the Router it includes the Pocket's RC_STATE copies, which stay on the USB (they never cross the air). See the Data rates tab.";
 
 export const STATUS_CONSUMES = ["VehicleStatus", "NetworkStatus", "LinkStats", "LinkConfig", "TxModuleStats", "RxModuleStats"];
 // The data-source tag at the start of the row shows VehicleStatus.simulation; the cells do not repeat it.
@@ -41,7 +41,8 @@ export function createStatusBar(ctx) {
     const entry = ctx.store.get(view, "VehicleStatus");
     const sentRec = view === "live" ? lastSent(ctx.telecommands?.(), "ZeroEstimators") : null; // never in replay
     const zeroAge = sentRec && Number.isFinite(now) ? now - sentRec.t : null;
-    const d = describeVehicleStatus(entry, now, schema("VehicleStatus"), zeroAge);
+    const own16 = view === "live" ? ctx.rc?.()?.command?.session16 ?? null : null; // never compared in replay
+    const d = describeVehicleStatus(entry, now, schema("VehicleStatus"), zeroAge, own16);
     el.dataset.state = d.state;
     el.dataset.view = view;
     state.textContent =

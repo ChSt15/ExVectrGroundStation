@@ -8,8 +8,8 @@
         "label": "Radio"
       },
       {
-        "panel": "rcapplied",
-        "label": "RC applied"
+        "panel": "command",
+        "label": "Command"
       },
       {
         "panel": "requests",
