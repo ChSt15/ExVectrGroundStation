@@ -54,7 +54,7 @@ function fakeCtx(log) {
   return class AC {
     constructor() { this.currentTime = 1; this.destination = {}; this.state = "running"; }
     decodeAudioData(buf) { return Promise.resolve({ duration: buf.dur }); }
-    createGain() { const g = { gain: { value: 0 }, connect() {} }; log.push(["gain", g]); return g; }
+    createGain() { const g = { gain: { value: 0, setValueAtTime() {} }, connect() {} }; log.push(["gain", g]); return g; }
     createBufferSource() {
       const s = { start: (t) => log.push(["start", t]), stop: () => log.push(["stop"]), connect() {} };
       log.push(["src", s]);
@@ -93,6 +93,36 @@ test("ClipPlayer + Speaker: recorded clips chained with the gap, volume applied,
   const s2 = log.filter((x) => x[0] === "src").at(-1)[1];
   s2.onended && s2.onended(); // a cancelled playback must not report done
   assert.equal(done, 1);
+});
+
+test("beep and voice are concurrent: a failure beep does not delay the words, a beep-only item does not hold the queue", async () => {
+  const log = [];
+  const AC = fakeCtx(log);
+  const clips = new ClipPlayer({ baseUrl: "/x/", fetchFn: fakeFetch() });
+  let c = mergeSettings(DEFAULTS, {});
+  const sp = new Speaker({ getSettings: () => c, synth: null, Utterance: null, AudioCtx: AC, clips });
+  sp.unlock();
+  await new Promise((r) => setTimeout(r, 20));
+  // failure: the beep oscillators and the first clip start in the same synchronous call (same audio time)
+  sp.speak({ text: "Altitude 50", severity: "failure" }, () => {});
+  const kinds = log.filter((x) => x[0] === "beep" || x[0] === "start").map((x) => x[0]);
+  assert.ok(kinds.includes("beep") && kinds.includes("start"), "beep and clip start immediately");
+  assert.ok(log.find((x) => x[0] === "start")[1] < 1.1); // ctx.currentTime (1) plus the player lead, no 0.3 s delay
+  sp.cancel();
+  // a direct beep (log notification, motor beep) while a clip plays leaves the clip untouched
+  log.length = 0;
+  sp.speak({ text: "Altitude 50", severity: "info" }, () => {});
+  const stops = () => log.filter((x) => x[0] === "stop").length;
+  const before = stops();
+  assert.equal(sp.beep(0.8), true);
+  assert.equal(stops(), before);
+  assert.equal(log.filter((x) => x[0] === "beep").length >= 2, true);
+  sp.cancel();
+  // beeps-only item completes at once (does not hold the queue for the beep length)
+  c = mergeSettings(DEFAULTS, { voiceMode: "beeps" });
+  const t0 = Date.now();
+  await new Promise((r) => sp.speak({ text: "Altitude 50", severity: "info" }, r));
+  assert.ok(Date.now() - t0 < 100);
 });
 
 test("Speaker fallback: no clip for the text -> usable browser speech, else a beep", async () => {
