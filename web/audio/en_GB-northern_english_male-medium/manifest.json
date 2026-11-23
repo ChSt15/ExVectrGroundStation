@@ -5,6 +5,11 @@
  "format": "ogg",
  "licence": "CC-BY-SA 4.0 International",
  "clips": {
+  "accelerometer-failure": {
+   "file": "accelerometer-failure.ogg",
+   "text": "Accelerometer failure",
+   "duration": 1.137
+  },
   "altitude": {
    "file": "altitude.ogg",
    "text": "Altitude",
@@ -20,6 +25,11 @@
    "text": "Ascent",
    "duration": 0.381
   },
+  "attitude-estimate-failure": {
+   "file": "attitude-estimate-failure.ogg",
+   "text": "Attitude estimate failure",
+   "duration": 1.422
+  },
   "attitude-failure": {
    "file": "attitude-failure.ogg",
    "text": "Attitude failure",
@@ -30,10 +40,25 @@
    "text": "Attitude out of bounds",
    "duration": 1.351
   },
+  "barometer-failure": {
+   "file": "barometer-failure.ogg",
+   "text": "Barometer failure",
+   "duration": 0.866
+  },
+  "begin": {
+   "file": "begin.ogg",
+   "text": "Begin",
+   "duration": 0.391
+  },
   "belly-flop": {
    "file": "belly-flop.ogg",
    "text": "Belly flop",
    "duration": 0.529
+  },
+  "control-source-lost": {
+   "file": "control-source-lost.ogg",
+   "text": "Control source lost",
+   "duration": 1.391
   },
   "deceleration": {
    "file": "deceleration.ogg",
@@ -65,10 +90,45 @@
    "text": "Failure cleared",
    "duration": 0.781
   },
+  "gnss-lost": {
+   "file": "gnss-lost.ogg",
+   "text": "GNSS lost",
+   "duration": 0.829
+  },
+  "go-refused": {
+   "file": "go-refused.ogg",
+   "text": "Go refused",
+   "duration": 0.691
+  },
+  "gs-failsafe": {
+   "file": "gs-failsafe.ogg",
+   "text": "GS failsafe",
+   "duration": 0.871
+  },
+  "gyro-failure": {
+   "file": "gyro-failure.ogg",
+   "text": "Gyro failure",
+   "duration": 0.936
+  },
   "hover": {
    "file": "hover.ogg",
    "text": "Hover",
    "duration": 0.389
+  },
+  "interlock-closed": {
+   "file": "interlock-closed.ogg",
+   "text": "Motors disarmed",
+   "duration": 1.013
+  },
+  "interlock-open": {
+   "file": "interlock-open.ogg",
+   "text": "Motors armed",
+   "duration": 0.893
+  },
+  "interlock-watchdog-failure": {
+   "file": "interlock-watchdog-failure.ogg",
+   "text": "Motors armed watchdog failure",
+   "duration": 1.806
   },
   "landed": {
    "file": "landed.ogg",
@@ -79,6 +139,11 @@
    "file": "landing.ogg",
    "text": "Landing",
    "duration": 0.412
+  },
+  "magnetometer-lost": {
+   "file": "magnetometer-lost.ogg",
+   "text": "Magnetometer lost",
+   "duration": 1.197
   },
   "meters": {
    "file": "meters.ogg",
@@ -670,6 +735,11 @@
    "text": "Position deviation",
    "duration": 1.091
   },
+  "position-estimate-failure": {
+   "file": "position-estimate-failure.ogg",
+   "text": "Position estimate failure",
+   "duration": 1.287
+  },
   "position-failure": {
    "file": "position-failure.ogg",
    "text": "Position failure",
@@ -679,11 +749,6 @@
    "file": "position-out-of-bounds.ogg",
    "text": "Position out of bounds",
    "duration": 1.186
-  },
-  "radio-connection-loss": {
-   "file": "radio-connection-loss.ogg",
-   "text": "Radio connection loss",
-   "duration": 1.308
   },
   "real-sensors": {
    "file": "real-sensors.ogg",
@@ -739,6 +804,11 @@
    "file": "thousand.ogg",
    "text": "Thousand",
    "duration": 0.399
+  },
+  "toggle-sd": {
+   "file": "toggle-sd.ogg",
+   "text": "Toggle SD off, then on",
+   "duration": 1.35
   },
   "volume-test": {
    "file": "volume-test.ogg",

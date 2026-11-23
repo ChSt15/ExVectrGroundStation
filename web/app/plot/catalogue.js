@@ -55,6 +55,7 @@ function build() {
   // Actuators (commanded outputs of the vehicle)
   FLAPS.forEach((n, i) => s.push(sig(`act.flap.${n}`, `Flap ${n} (Actuators)`, "Actuators", "deg", "Actuators", (f) => at(f.flaps, i, D))));
   ["x", "y"].forEach((a, i) => s.push(sig(`act.tvc.${a}`, `TVC ${a}`, "Actuators", "deg", "Actuators", (f) => at(f.tvc, i, D))));
+  s.push(sig("act.ground_distance", "Ground distance", "Actuators", "m", "Actuators", (f) => num(f.ground_distance), "downward lidar; NaN gaps when it has no valid reading (out of range, stale)"));
   s.push(sig("act.thrust", "Thrust", "Actuators", "N", "Actuators", (f) => num(f.thrust)));
   s.push(sig("act.roll_torque", "Roll torque (air set only)", "Actuators", "N*m", "Actuators", (f) => num(f.roll_torque)));
   FLAPS.forEach((n, i) => {
