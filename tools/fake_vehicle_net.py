@@ -12,7 +12,7 @@ import math
 import struct
 
 PORT_LINK_STATS, PORT_LOG_TEXT, PORT_HANDSET, PORT_RC_STATE = 0x01, 0x02, 0x03, 0x10
-PORT_LINK_CONFIG, PORT_TELECOMMAND = 0x04, 0x7F  # the latter is the TEMPORARY legacy telecommand port
+PORT_LINK_CONFIG = 0x04
 PORT_REQUEST, PORT_REQUEST_ACK, PORT_CMD_STATE = 0x11, 0x12, 0x13
 PORT_VEHICLE_STATUS, PORT_AIR_POSE, PORT_AIR_ACTUATORS, PORT_AIR_MISSION = 0x20, 0x21, 0x22, 0x23
 PORT_POSE, PORT_ACTUATORS, PORT_MISSION, PORT_GNSS = 0x80, 0x81, 0x82, 0x83
@@ -381,14 +381,6 @@ def pack_link_stats(
 
 def pack_link_config(tx_power_dbm: int, flags: int = 0) -> bytes:
     return struct.pack("<bB", tx_power_dbm, flags)
-
-
-def parse_telecommand(payload: bytes) -> dict:
-    """The legacy 8-byte Telecommand, little-endian (independent of the ground station's encoder)."""
-    if len(payload) != 8:
-        raise ValueError(f"telecommand length {len(payload)}")
-    typ, sub, param_int, param_float = struct.unpack("<BBhf", payload)
-    return {"type": typ, "subsystem": sub, "param_int": param_int, "param_float": param_float}
 
 
 def pack_rc_state(flags: int, ch: list[int]) -> bytes:

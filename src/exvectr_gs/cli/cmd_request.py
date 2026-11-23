@@ -74,6 +74,8 @@ async def _send(c: CoreClient, args: argparse.Namespace) -> int:
         target=args.target,
         confirm=args.confirm,
         understand_link_stops=bool(args.i_understand_the_link_stops),
+        **({} if args.arg_i is None else {"arg_i": args.arg_i}),
+        **({} if args.arg_f is None else {"arg_f": args.arg_f}),
     )
     if args.no_wait:
         emit(args, r, _line(r))
@@ -109,4 +111,8 @@ def register(sub: argparse._SubParsersAction) -> None:
         dest="i_understand_the_link_stops",
         help="also required for `danger` actions (LINK_UPLOAD_MODE, LINK_REBOOT): the module stops its link or reboots",
     )
+    p.add_argument(
+        "--arg-i", type=int, help="integer argument: selects a row with a fixed one (CALIB_CONTROL) or is the value"
+    )
+    p.add_argument("--arg-f", type=float, help="float argument of rows that have a range (default when absent)")
     p.add_argument("--no-wait", action="store_true", help="return after the first attempt without waiting for the ACK")

@@ -23,8 +23,8 @@ def test_all_section_3_2_types_registered():
 
 def test_directions_and_up_types():
     up = [p.name for p in REGISTRY.all() if p.direction is Direction.UP]
-    # the only uplink types: the command state (the engine), whitelisted REQUESTs and the TEMPORARY legacy
-    # Telecommand (user 2026-11-20); RC_STATE is receive-only since the GS-control cutover
+    # the uplink types: the command state (the engine) and whitelisted REQUESTs. Telecommand stays only so old logs
+    # decode (retired, the wire profile never encodes it); RC_STATE is receive-only since the GS-control cutover
     assert up == ["CmdState", "Request", "Telecommand"]
     assert REGISTRY.get("RcState").direction is Direction.DOWN
     assert REGISTRY.get("LinkStats").direction is Direction.LOCAL

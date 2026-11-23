@@ -234,5 +234,5 @@ async def test_request_rules_each_refusal_pair():
     assert src.stop_altitude == 20.0
     # other actions keep the plain configured answer
     src = make(answer_requests=True, request_rules=True, request_status=0)
-    _, got = await _answer(src, _request_packet())
+    _, got = await _answer(src, _act(8))  # SAVE_CONFIG is not ruled
     assert [(p.status, p.detail) for p in got] == [(0, 0)]

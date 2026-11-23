@@ -91,15 +91,6 @@ def test_request_in_flight_guard(monkeypatch):
     assert any("request" in w for w in update_guards(app))
 
 
-def test_recent_telecommand_guard(monkeypatch):
-    app = make_app()
-    now = app.clock.now()
-    monkeypatch.setattr(app.telecommands, "status", lambda: {"recent": [{"t": now - 1_000_000_000}]})
-    assert any("telecommand" in w for w in update_guards(app))
-    monkeypatch.setattr(app.telecommands, "status", lambda: {"recent": [{"t": now - 10_000_000_000}]})
-    assert update_guards(app) == []
-
-
 def test_config_update_section():
     assert make_app().cfg.update.branch == "master" and make_app().cfg.update.enabled
     for bad in ({"auto_check_interval_s": 10}, {"branch": "a b"}, {"remote": "-x"}, {"nope": 1}):

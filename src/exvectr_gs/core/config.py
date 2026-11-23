@@ -83,6 +83,17 @@ class RequestEntry:
     arg_f_max: float | None = None
     arg_f_default: float | None = None
     arg_f_name: str = ""  # shown next to the field (for example "window, s")
+    # Integer argument (`arg_i` on the wire). Without `arg_i_min`/`arg_i_max` it is FIXED: `arg_i` is sent as is and is
+    # part of the row's identity (several rows may share an action: CALIB_CONTROL codes, CALIB_APPLY subsystems).
+    # With both set the client chooses a value in [arg_i_min, arg_i_max] (`arg_i` is then the default).
+    arg_i: int = 0
+    arg_i_min: int | None = None
+    arg_i_max: int | None = None
+    arg_i_name: str = ""
+
+    @property
+    def arg_i_ranged(self) -> bool:
+        return self.arg_i_min is not None
 
 
 @dataclass
@@ -93,47 +104,6 @@ class RequestsSection:
     # every vehicle_usb source, then every link_module source, then fake sources, each in config order.
     source_preference: list[str] | None = None
     actions: list[RequestEntry] = field(default_factory=list)
-
-
-TELECOMMAND_CONFIRM_LEVELS = ("hold",)
-# flight software `Subsystem` 0 gyro, 1 accel, ...; SimFlapStuck/SimFlapSlow use the flap index 0..3
-TELECOMMAND_SUBSYSTEMS = tuple(range(0, 7))
-
-
-@dataclass(frozen=True)
-class TelecommandEntry:
-    """One whitelisted legacy telecommand (TEMPORARY, docs/telecommands.md). `type` is the flight software's
-    `TelecommandType` name. `param_int` is the fixed int16 parameter, or the default of a client-settable one
-    when `param_min`/`param_max` are given (then a client may send any value within [param_min, param_max]).
-    The ground station does not interpret the command."""
-
-    name: str
-    type: str
-    label: str
-    group: str
-    subsystem: int = 0
-    param_int: int = 0
-    param_min: int | None = None
-    param_max: int | None = None
-    confirm: str = "hold"
-    note: str = ""  # shown next to the button (for example "toggles on the vehicle")
-    # Optional client-settable float parameter (ZeroEstimators duration in s). `param_float` is the fixed value, or
-    # the default when `param_float_min`/`param_float_max` are given. Sent as the frame's float32, nothing else.
-    param_float: float = 0.0
-    param_float_min: float | None = None
-    param_float_max: float | None = None
-    param_float_name: str = ""  # label of the float field in the GUI/CLI (for example "duration_s")
-    # Entries sharing a non-empty `rate_group` (the simulation wind commands) may follow each other from one client
-    # at GROUP_MIN_INTERVAL_S instead of 500 ms; the vehicle handles one command per 100 ms tick. Nothing else.
-    rate_group: str = ""
-
-
-@dataclass
-class TelecommandsSection:
-    """`[telecommands]`: the only legacy telecommands the ground station will ever send. Empty = none."""
-
-    source_preference: list[str] | None = None
-    commands: list[TelecommandEntry] = field(default_factory=list)
 
 
 @dataclass
@@ -178,7 +148,6 @@ class GsConfig:
     radio: RadioSection = field(default_factory=RadioSection)
     gui: GuiSection = field(default_factory=GuiSection)
     requests: RequestsSection = field(default_factory=RequestsSection)
-    telecommands: TelecommandsSection = field(default_factory=TelecommandsSection)
     rates: RatesSection = field(default_factory=RatesSection)
     update: UpdateSection = field(default_factory=UpdateSection)
 
@@ -211,7 +180,7 @@ def _requests(data: dict) -> RequestsSection:
     sec = RequestsSection(source_preference=pref)
     if not isinstance(raw, list):
         raise ConfigError("[[requests.action]] must be an array of tables")
-    seen: set[tuple[str, int]] = set()
+    seen: set[tuple[str, int, int | None]] = set()
     for i, d in enumerate(raw):
         where = f"[[requests.action]] #{i + 1}"
         unknown = set(d) - {
@@ -225,6 +194,10 @@ def _requests(data: dict) -> RequestsSection:
             "arg_f_max",
             "arg_f_default",
             "arg_f_name",
+            "arg_i",
+            "arg_i_min",
+            "arg_i_max",
+            "arg_i_name",
         }
         if unknown:
             raise ConfigError(f"{where}: unknown key(s) {sorted(unknown)}")
@@ -237,9 +210,21 @@ def _requests(data: dict) -> RequestsSection:
         confirm = d.get("confirm", "hold")
         if confirm not in REQUEST_CONFIRM_LEVELS:
             raise ConfigError(f"{where} {name}: confirm must be one of {REQUEST_CONFIRM_LEVELS}")
-        if (name, target) in seen:
+        ai, ai_min, ai_max = d.get("arg_i", 0), d.get("arg_i_min"), d.get("arg_i_max")
+        for k, v in (("arg_i", ai), ("arg_i_min", ai_min), ("arg_i_max", ai_max)):
+            if v is not None and (isinstance(v, bool) or not isinstance(v, int)):
+                raise ConfigError(f"{where} {name}: {k} must be an integer")
+        if (ai_min is None) != (ai_max is None):
+            raise ConfigError(f"{where} {name}: arg_i_min and arg_i_max must both be set or both absent")
+        if ai_min is not None and not ai_min <= ai <= ai_max:
+            raise ConfigError(f"{where} {name}: need arg_i_min <= arg_i (the default) <= arg_i_max")
+        ai_name = d.get("arg_i_name", "")
+        if not isinstance(ai_name, str):
+            raise ConfigError(f"{where} {name}: arg_i_name must be a string")
+        ident = (name, target, None if ai_min is not None else ai)
+        if ident in seen or any(x[:2] == ident[:2] and (x[2] is None or ident[2] is None) for x in seen):
             raise ConfigError(f"{where}: {name} for target {target} is listed twice")
-        seen.add((name, target))
+        seen.add(ident)
         label, group = d.get("label", name), d.get("group", "Other")
         if not isinstance(label, str) or not isinstance(group, str) or not label or not group:
             raise ConfigError(f"{where} {name}: label and group must be non-empty strings")
@@ -256,91 +241,8 @@ def _requests(data: dict) -> RequestsSection:
         arg_name = d.get("arg_f_name", "")
         if not isinstance(arg_name, str):
             raise ConfigError(f"{where} {name}: arg_f_name must be a string")
-        sec.actions.append(RequestEntry(name, target, label, group, confirm, warning, *af, arg_name))
-    return sec
-
-
-def _telecommands(data: dict) -> TelecommandsSection:
-    from ..packets.defs.link import TelecommandType
-
-    data = dict(data)
-    pref = data.pop("source_preference", None)
-    raw = data.pop("command", [])
-    if data:
-        raise ConfigError(f"[telecommands]: unknown key(s) {sorted(data)}")
-    if pref is not None and not (isinstance(pref, list) and all(isinstance(x, str) for x in pref)):
-        raise ConfigError("[telecommands] source_preference must be a list of source ids")
-    sec = TelecommandsSection(source_preference=pref)
-    if not isinstance(raw, list):
-        raise ConfigError("[[telecommands.command]] must be an array of tables")
-    seen: set[str] = set()
-
-    def i16(where: str, key: str, v: object) -> int:
-        if isinstance(v, bool) or not isinstance(v, int) or not -32768 <= v <= 32767:
-            raise ConfigError(f"{where}: {key} must be an integer within the int16 range")
-        return v
-
-    def num(where: str, key: str, v: object) -> float:
-        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or abs(v) > 3e38:
-            raise ConfigError(f"{where}: {key} must be a finite number")
-        return float(v)
-
-    for i, d in enumerate(raw):
-        where = f"[[telecommands.command]] #{i + 1}"
-        unknown = set(d) - {
-            "name", "type", "label", "group", "subsystem", "param_int", "param_min", "param_max", "confirm", "note",
-            "param_float", "param_float_min", "param_float_max", "param_float_name", "rate_group",
-        }  # fmt: skip
-        if unknown:
-            raise ConfigError(f"{where}: unknown key(s) {sorted(unknown)}")
-        name = d.get("name")
-        if not isinstance(name, str) or not name or " " in name:
-            raise ConfigError(f"{where}: name must be a non-empty string without spaces")
-        where = f"{where} {name}"
-        if name in seen:
-            raise ConfigError(f"{where}: listed twice")
-        seen.add(name)
-        typ = d.get("type")
-        if typ not in TelecommandType.__members__:
-            raise ConfigError(f"{where}: unknown telecommand type {typ!r}")
-        sub = d.get("subsystem", 0)
-        if isinstance(sub, bool) or sub not in TELECOMMAND_SUBSYSTEMS:
-            raise ConfigError(f"{where}: subsystem must be 0..6 or 0x10..0x13")
-        param = i16(where, "param_int", d.get("param_int", 0))
-        lo, hi = d.get("param_min"), d.get("param_max")
-        if (lo is None) != (hi is None):
-            raise ConfigError(f"{where}: param_min and param_max go together")
-        if lo is not None:
-            lo, hi = i16(where, "param_min", lo), i16(where, "param_max", hi)
-            if not lo <= param <= hi:
-                raise ConfigError(f"{where}: param_int (the default) must lie within param_min..param_max")
-
-        fval = num(where, "param_float", d.get("param_float", 0.0))
-        flo, fhi = d.get("param_float_min"), d.get("param_float_max")
-        if (flo is None) != (fhi is None):
-            raise ConfigError(f"{where}: param_float_min and param_float_max go together")
-        if flo is not None:
-            flo, fhi = num(where, "param_float_min", flo), num(where, "param_float_max", fhi)
-            if not flo <= fval <= fhi:
-                raise ConfigError(
-                    f"{where}: param_float (the default) must lie within param_float_min..param_float_max"
-                )
-        fname = d.get("param_float_name", "")
-        if not isinstance(fname, str):
-            raise ConfigError(f"{where}: param_float_name must be a string")
-        rate_group = d.get("rate_group", "")
-        if not isinstance(rate_group, str):
-            raise ConfigError(f"{where}: rate_group must be a string")
-        confirm = d.get("confirm", "hold")
-        if confirm not in TELECOMMAND_CONFIRM_LEVELS:
-            raise ConfigError(f"{where}: confirm must be one of {TELECOMMAND_CONFIRM_LEVELS}")
-        label, group, note = d.get("label", name), d.get("group", "Other"), d.get("note", "")
-        if not all(isinstance(x, str) for x in (label, group, note)) or not label or not group:
-            raise ConfigError(f"{where}: label and group must be non-empty strings, note a string")
-        sec.commands.append(
-            TelecommandEntry(
-                name, typ, label, group, sub, param, lo, hi, confirm, note, fval, flo, fhi, fname, rate_group
-            )
+        sec.actions.append(
+            RequestEntry(name, target, label, group, confirm, warning, *af, arg_name, ai, ai_min, ai_max, ai_name)
         )
     return sec
 
@@ -348,6 +250,11 @@ def _telecommands(data: dict) -> TelecommandsSection:
 def parse_config(data: dict) -> GsConfig:
     """Build and validate a GsConfig from parsed TOML."""
     data = dict(data)
+    if "telecommands" in data:
+        raise ConfigError(
+            "[telecommands] is retired (the vehicle has no telecommand port): remove the section and use "
+            "[[requests.action]] rows (docs/requests.md)"
+        )
     cfg = GsConfig(
         core=_section(CoreSection, data.pop("core", {}), "core"),
         server=_section(ServerSection, data.pop("server", {}), "server"),
@@ -356,7 +263,6 @@ def parse_config(data: dict) -> GsConfig:
         radio=_section(RadioSection, data.pop("radio", {}), "radio"),
         gui=_section(GuiSection, data.pop("gui", {}), "gui"),
         requests=_requests(data.pop("requests", {})),
-        telecommands=_telecommands(data.pop("telecommands", {})),
         rates=_section(RatesSection, data.pop("rates", {}), "rates"),
         update=_section(UpdateSection, data.pop("update", {}), "update"),
     )
@@ -383,9 +289,6 @@ def validate(cfg: GsConfig) -> None:
     unknown = [i for i in cfg.requests.source_preference or [] if i not in ids]
     if unknown:
         raise ConfigError(f"requests.source_preference names unknown source(s) {unknown}")
-    unknown = [i for i in cfg.telecommands.source_preference or [] if i not in ids]
-    if unknown:
-        raise ConfigError(f"telecommands.source_preference names unknown source(s) {unknown}")
     if cfg.recorder.raw_frames != "unknown":
         raise ConfigError('recorder.raw_frames: only "unknown" is supported')
     if not 0 < cfg.server.port < 65536:

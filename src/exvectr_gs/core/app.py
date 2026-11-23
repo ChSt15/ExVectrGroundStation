@@ -19,7 +19,6 @@ from ..recording import LogLibrary, Recorder
 from ..replay import Replayer
 from ..requests import RequestController
 from ..sources import Source, build_source
-from ..telecommand import TelecommandController
 from ..update import UpdateService, update_guards
 from ..wire import ProfileNotFound, WireProfile, load_profile
 from .bus import Bus
@@ -110,12 +109,7 @@ class CoreApp:
         self.requests = RequestController(
             cfg.requests, self.sources, self.bus, clock=self.clock, control_hosts=cfg.server.control_hosts
         )
-        # TEMPORARY legacy telecommand sender (user decision 2026-11-20, docs/telecommands.md): third uplink, one
-        # frame per confirmation, deleted with the flight software's T9b.
         self.requests.session_fn = lambda: self.engine.session
-        self.telecommands = TelecommandController(
-            cfg.telecommands, self.sources, self.bus, clock=self.clock, control_hosts=cfg.server.control_hosts
-        )
         self.library = LogLibrary(Path(cfg.recorder.directory).expanduser())
         # Replay is a separate view (design 6.4): it publishes on replay_bus only, never on the live bus,
         # so replayed data is not recorded and live recording continues during replay.
@@ -214,7 +208,7 @@ class CoreApp:
 
     async def set_source_enabled(self, sid: str, enabled: bool) -> None:
         """Disable: a true disconnect. The source task is cancelled, which closes the port (nothing is received or
-        sent through it: no RC state, requests, telecommands or heartbeats), in-flight REQUESTs are aborted so no
+        sent through it: no RC state, requests or heartbeats), in-flight REQUESTs are aborted so no
         retry goes out after a re-enable, and a GsEvent records it. Enable: the source starts again from scratch
         (a fresh connection with an empty send queue; the RC controller sends safe defaults first to a source
         that reappears). Not persisted: a core restart uses the config's `enabled`."""

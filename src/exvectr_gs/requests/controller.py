@@ -94,6 +94,7 @@ class RequestState:
     detail: int | None = None
     abort_reason: str | None = None
     arg_f: float = 0.0  # the float argument sent (0 for actions without one)
+    arg_i: int = 0  # the integer argument sent (0 for actions without one)
 
 
 class RequestController:
@@ -111,11 +112,10 @@ class RequestController:
         self._bus = bus
         self._clock = clock or MonotonicClock()
         self._control_hosts = None if control_hosts is None else list(control_hosts)
-        self._by_key = {(e.action, e.target): e for e in cfg.actions}
         # A random start: the vehicle remembers the last ids it executed, so a restarted ground station
         # counting from 1 again could have a fresh action mistaken for a repeat and never executed.
         self._next_id = (secrets.randbelow(0xFFFF) + 1) if first_id is None else first_id
-        self._inflight: dict[tuple[str, int], RequestState] = {}
+        self._inflight: dict[tuple[str, int, int | None], RequestState] = {}
         self._recent: deque[RequestState] = deque(maxlen=RECENT_KEPT)
         self._last_by_client: dict[str, int]  # peer address -> ns of its last accepted request
         self._last_by_client = {}
@@ -168,25 +168,33 @@ class RequestController:
         c = self.candidates(target)
         return c[0].id if c else None
 
-    def _entry(self, action: str, target: int | None) -> RequestEntry:
+    def _entry(self, action: str, target: int | None, arg_i: int | None = None) -> RequestEntry:
         if not isinstance(action, str):
             raise RequestError("not_whitelisted", "action must be a name")
         entries = [e for e in self.cfg.actions if e.action == action]
         if not entries:
             raise RequestError("not_whitelisted", f"{action} is not in the request whitelist")
+        targets = sorted({e.target for e in entries})
         if target is None:
-            if len(entries) > 1:
-                raise RequestError(
-                    "not_whitelisted", f"{action} needs a target, one of {sorted(e.target for e in entries)}"
-                )
-            return entries[0]
-        e = self._by_key.get((action, target))
-        if e is None:
+            if len(targets) > 1:
+                raise RequestError("not_whitelisted", f"{action} needs a target, one of {targets}")
+            target = targets[0]
+        entries = [e for e in entries if e.target == target]
+        if not entries:
             raise RequestError(
-                "not_whitelisted",
-                f"{action} is not whitelisted for target {target} (allowed: {sorted(x.target for x in entries)})",
+                "not_whitelisted", f"{action} is not whitelisted for target {target} (allowed: {targets})"
             )
-        return e
+        if len(entries) == 1:
+            return entries[0]
+        # several rows for one action and target: they differ in their fixed arg_i, which picks the row
+        if arg_i is not None:
+            for e in entries:
+                if not e.arg_i_ranged and e.arg_i == arg_i:
+                    return e
+        raise RequestError(
+            "not_whitelisted",
+            f"{action} needs arg_i, one of {sorted(e.arg_i for e in entries if not e.arg_i_ranged)}",
+        )
 
     def _packet(self, st: RequestState) -> Request:
         return Request(
@@ -195,7 +203,7 @@ class RequestController:
             req_id=st.req_id,
             action=RequestAction[st.action],
             target=st.target,
-            arg_i=0,
+            arg_i=st.arg_i,
             arg_f=st.arg_f,
             session=(self.session_fn() if self.session_fn is not None else 0) if st.target == 1 else 0,
         )
@@ -229,6 +237,10 @@ class RequestController:
                 "arg_f": None
                 if e.arg_f_min is None
                 else {"min": e.arg_f_min, "max": e.arg_f_max, "default": e.arg_f_default, "name": e.arg_f_name},
+                "arg_i": e.arg_i,
+                "arg_i_range": {"min": e.arg_i_min, "max": e.arg_i_max, "name": e.arg_i_name}
+                if e.arg_i_ranged
+                else None,
                 "route": self.route(e.target),
             }
             for e in self.cfg.actions
@@ -261,6 +273,7 @@ class RequestController:
             "detail": s.detail,
             "abort_reason": s.abort_reason,
             "arg_f": s.arg_f,
+            "arg_i": s.arg_i,
         }
 
     async def send(
@@ -273,11 +286,12 @@ class RequestController:
         confirm: str | None,
         understand_link_stops: bool = False,
         arg_f: float | None = None,
+        arg_i: int | None = None,
     ) -> RequestState:
         """Send one whitelisted REQUEST (first attempt now, retries by `tick`). Raises RequestError."""
         if self._control_hosts is not None and not is_control_host(remote_addr, self._control_hosts):
             raise RequestError("control_denied", "this client is not on a control host (view only)")
-        entry = self._entry(action, target)
+        entry = self._entry(action, target, arg_i)
         if confirm != entry.action:
             raise RequestError("confirm_required", f"confirmation missing: repeat the action name ({entry.action})")
         if entry.confirm == "danger" and not understand_link_stops:
@@ -296,11 +310,21 @@ class RequestController:
                 raise RequestError(
                     "invalid_value", f"{entry.action}: argument must be within {entry.arg_f_min:g}..{entry.arg_f_max:g}"
                 )
+        if entry.arg_i_ranged:
+            ivalue = entry.arg_i if arg_i is None else arg_i
+            if not entry.arg_i_min <= ivalue <= entry.arg_i_max:
+                raise RequestError(
+                    "invalid_value", f"{entry.action}: arg_i must be within {entry.arg_i_min}..{entry.arg_i_max}"
+                )
+        else:
+            ivalue = entry.arg_i
+            if arg_i is not None and arg_i != ivalue:
+                raise RequestError("invalid_value", f"{entry.action}: arg_i is fixed at {ivalue} for this row")
         now = self._clock.now()
         last = self._last_by_client.get(remote_addr)
         if last is not None and now - last < int(MIN_INTERVAL_S * 1e9):
             raise RequestError("rate_limited", f"at most one new request per {MIN_INTERVAL_S * 1000:.0f} ms")
-        key = (entry.action, entry.target)
+        key = (entry.action, entry.target, None if entry.arg_i_ranged else entry.arg_i)
         if key in self._inflight:
             cur = self._inflight[key]
             raise RequestError(
@@ -325,6 +349,7 @@ class RequestController:
             t_first=now,
             next_at=now + int(RETRY_PERIOD_S * 1e9),
             arg_f=float(value),
+            arg_i=int(ivalue),
         )
         self._inflight[key] = st  # registered before sending: an ACK can never overtake the state
         src = await self._transmit(st)
@@ -376,7 +401,9 @@ class RequestController:
                 n += 1
         return n
 
-    def _finish(self, key: tuple[str, int], st: RequestState, state: Literal["acked", "timeout", "aborted"]) -> None:
+    def _finish(
+        self, key: tuple[str, int, int | None], st: RequestState, state: Literal["acked", "timeout", "aborted"]
+    ) -> None:
         self._inflight.pop(key, None)
         st.state = state
         st.t_done = self._clock.now()

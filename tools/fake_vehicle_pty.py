@@ -152,7 +152,8 @@ class FakeVehiclePty:
                  hb_hz: float = 1.0, schema_hash: int | None = None, net_version: int = 1,
                  request_status: int = 0, request_drop_first: int = 0,
                  request_rules: bool = False, request_on_ground: bool = True,
-                 request_latched_session: int | None = None):  # fmt: skip
+                 request_latched_session: int | None = None, request_simulation: bool = False,
+                 request_calib_refuse: bool = False, request_no_home: bool = False):  # fmt: skip
         if profile not in ("provisional-1", "exvectrnet-1") or role not in ("vehicle", "txmodule"):
             raise ValueError(f"unknown profile {profile!r} or role {role!r}")
         self.profile = profile
@@ -193,6 +194,10 @@ class FakeVehiclePty:
         self.request_rules = request_rules
         self.request_on_ground = request_on_ground
         self.request_latched_session = request_latched_session
+        # the same test-double answers as the fake source for the actions 7 and 14..23 (no argument range checks here)
+        self.request_simulation = request_simulation
+        self.request_calib_refuse = request_calib_refuse
+        self.request_no_home = request_no_home
         self.stop_altitude = 20.0
         self.received_requests: list[dict] = []
         # CMD_STATE test double (port 0x13, no vehicle logic): every frame is parsed strictly like the vehicle
@@ -203,12 +208,9 @@ class FakeVehiclePty:
         self.cmd_session: int | None = None
         self.cmd_rejects = 0
         self._req_attempts: dict[int, int] = {}
-        # TEMPORARY legacy telecommand test double (port 0x7F, addressed to this node as `vehicle`): every frame is
-        # parsed and recorded in `received_telecommands` (with src, dst, seq, qos, ctrl). The few effects below are
-        # test doubles only: Arm 0xA5 arms (any other value disarms), SimulationMode 0xA9 TOGGLES `simulation`
-        # (once per frame, de-duplicating nothing, like the vehicle). Until the first command the reported
-        # simulation/armed come from the scenario.
-        self.received_telecommands: list[dict] = []
+        # Test setters (the telecommand port is gone): when not None, `sim_state` / `armed_state` override the
+        # reported simulation/armed flags and `zeroing_until` (monotonic s) shows the ZEROING flag. Until set, they
+        # come from the scenario.
         self.sim_state: bool | None = None
         self.armed_state: bool | None = None
         self.zeroing_until: float | None = None  # monotonic s; ZEROING flag (VEHICLE_STATUS bit 7) while it is ahead
@@ -468,7 +470,7 @@ class FakeVehiclePty:
         if n <= self.request_drop_first:
             return
         status, detail = self.request_status, 0
-        if self.request_rules and req["action"] in (12, 13):
+        if self.request_rules and req["action"] in (7, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23):
             if req["target"] != self.node:
                 status, detail = 3, 2
             elif not req["session"] or req["session"] != (self.request_latched_session or self.cmd_session):
@@ -477,11 +479,21 @@ class FakeVehiclePty:
                 status, detail = 2, 1
             elif req["action"] == 13 and not (math.isfinite(req["arg_f"]) and req["arg_f"] >= 1.0):
                 status, detail = 3, 1
+            elif 15 <= req["action"] <= 22 and not self.request_simulation:
+                status, detail = 2, 5
+            elif req["action"] in (7, 14) and self.request_calib_refuse:
+                status, detail = 2, 6
+            elif req["action"] == 23 and self.request_no_home:
+                status, detail = 2, 4
             else:
                 status, detail = 0, 0
                 if req["action"] == 13:
                     self.stop_altitude = req["arg_f"]
         self.send_net(self.node, 0, net.PORT_REQUEST_ACK, net.pack_request_ack(req["req_id"], status, detail))
+        if self.request_rules and req["action"] == 23 and status == 0 and self.role == "vehicle":
+            # DONE, then the plain HOME_POSITION packet (like the vehicle)
+            home = self.scenario.fields("HomePosition", time.monotonic())
+            self.send_net(self.node, 0, net.PORT_HOME_POSITION, net.pack_home_position(home))
 
     def _on_cmd_state(self, f: dict) -> None:
         """A CMD_STATE frame: parsed strictly, recorded, the first valid session is latched."""
@@ -498,34 +510,6 @@ class FakeVehiclePty:
             self.cmd_session = cmd["session"]
         if cmd["session"] == self.cmd_session:
             self.last_cmd = cmd
-
-    def _on_telecommand(self, f: dict) -> None:
-        """TEMPORARY legacy telecommand frame (port 0x7F): record it, apply the tiny test-double effects."""
-        try:
-            tc = net.parse_telecommand(f["payload"])
-        except Exception:
-            return
-        tc.update({k: f[k] for k in ("src", "dst", "seq") if k in f}, ctrl=f.get("ctrl"), ttl=f.get("ttl"))
-        self.received_telecommands.append(tc)
-        if f["dst"] != self.node or self.role != "vehicle":
-            return
-        cur_arm = (
-            self.armed_state
-            if self.armed_state is not None
-            else bool(self.scenario.fields("VehicleState", 0.0)["armed"])
-        )
-        cur_sim = (
-            self.sim_state if self.sim_state is not None else bool(self.scenario.fields("VehicleState", 0.0)["sim"])
-        )
-        if tc["type"] == 5:  # Arm
-            self.armed_state = tc["param_int"] == 0xA5
-        elif tc["type"] == 10 and tc["param_int"] == 0x2E:  # ZeroEstimators: flag for the clamped duration
-            dur = tc["param_float"]
-            dur = 10.0 if not dur >= 0 or dur == 0 else min(60.0, max(1.0, dur))  # 0 or NaN = default, clamp 1..60
-            self.zeroing_until = time.monotonic() + dur
-        elif tc["type"] == 6 and tc["param_int"] == 0xA9:  # SimulationMode toggles
-            self.sim_state = not cur_sim
-            self.armed_state = cur_arm
 
     def _rx_net(self, data: bytes) -> None:
         """What the ground station sends: DATA frames, parsed with the independent decoder."""
@@ -549,8 +533,6 @@ class FakeVehiclePty:
                 self._on_request(f)
             if f and f["type"] == "data" and f["port"] == net.PORT_CMD_STATE:
                 self._on_cmd_state(f)
-            if f and f["type"] == "data" and f["port"] == net.PORT_TELECOMMAND:
-                self._on_telecommand(f)
             if f and f["type"] == "data":
                 meta = {"src": f["src"], "dst": f["dst"], "seq": f["seq"], "ttl": f["ttl"]}
                 self.received.append(Frame(channel=f["port"], payload=f["payload"], t=time.monotonic_ns(), meta=meta))
@@ -568,13 +550,19 @@ def main() -> None:
     ap.add_argument(
         "--request-rules",
         action="store_true",
-        help="answer ZERO_ESTIMATORS / SET_STOP_ALTITUDE like the vehicle executor",
+        help="answer the vehicle actions (7, 12..23) like the vehicle executor",
     )
+    ap.add_argument("--request-simulation", action="store_true", help="SIM_* requests are done")
+    ap.add_argument("--request-calib-refuse", action="store_true", help="calibration requests: REJECTED_STATE 2/6")
+    ap.add_argument("--request-no-home", action="store_true", help="GET_HOME_POSITION: REJECTED_STATE 2/4")
     args = ap.parse_args()
     veh = FakeVehiclePty(
         args.link, seed=args.seed, speed=args.speed, profile=args.profile, role=args.role,
         request_status=args.request_status, request_drop_first=args.request_drop_first,
         request_rules=args.request_rules,
+        request_simulation=args.request_simulation,
+        request_calib_refuse=args.request_calib_refuse,
+        request_no_home=args.request_no_home,
     )  # fmt: skip
     veh.start()
     print(f"fake vehicle on {args.link} -> {os.ttyname(veh._slave)} (Ctrl-C to stop)")
