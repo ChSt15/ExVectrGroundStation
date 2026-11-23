@@ -115,15 +115,14 @@ test("ZEROING is shown only as the vehicle reports it, with the sent time as a p
 
 test("T9b tail fields: nothing for zero or older senders, compact cells when set", () => {
   const none = byKey(describeVehicleStatus(entry({ ...FULL, ctrl_flags: 0, go_refusal: 0, degraded_bits: 0, mission_profile: 255, rc_rejected: 0 }), 100.2));
-  for (const k of ["ctrl_flags", "go_refusal", "degraded", "mission_profile", "rc_rejected"]) assert.equal(none[k], undefined, k);
+  for (const k of ["ctrl_flags", "go_refusal", "degraded", "rc_rejected"]) assert.equal(none[k], undefined, k);
   const old = byKey(describeVehicleStatus(entry({ ...FULL, ctrl_flags: null, mission_profile: null }), 100.2));
   assert.equal(old.ctrl_flags, undefined);
-  assert.equal(old.mission_profile, undefined);
   const d = byKey(describeVehicleStatus(entry({ ...FULL, ctrl_flags: 0b110, go_refusal: 6, degraded_bits: 0b101, mission_profile: 2, rc_rejected: 3 }), 100.2));
   assert.deepEqual([d.ctrl_flags.text, d.ctrl_flags.tone], ["ABORT latched, FAILSAFE latched", "bad"]);
   assert.equal(d.go_refusal.text, "reserved (motors armed is not a go precondition)");
   assert.equal(d.degraded.text, "ToF lost, ship-node heartbeat lost");
-  assert.equal(d.mission_profile.text, "2 (flight)");
+  assert.equal(d.mission_profile, undefined); // replaced by the MISSION cell
   assert.equal(d.rc_rejected.text, "3");
   assert.equal(byKey(describeVehicleStatus(entry({ ...FULL, ctrl_flags: 0x180 }), 100.2)).ctrl_flags.tone, "");
   assert.deepEqual(decodeFailureBits(1 << 13), ["motors-armed watchdog"]);
