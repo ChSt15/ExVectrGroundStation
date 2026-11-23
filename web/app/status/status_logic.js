@@ -2,7 +2,7 @@
 // what the ground station sent, and nothing is assumed. Stale data is marked, never hidden.
 import { ageOf, fmtAge, fmtNum, isStale } from "../fmt.js";
 import { commandSourceCell } from "../command/command_logic.js";
-import { profileText } from "../command/profile.js";
+import { missionIndicator } from "../command/profile.js";
 
 /** Names of all defined failure_bits of VEHICLE_STATUS (flight-software docs/project/hardware-and-drivers.md, field
  * mapping): bit 5 is "control source lost" (T9b-3, was "radio connection loss"), bits 6-13 were added by T9b, bit 13 is the
@@ -79,7 +79,7 @@ function item(key, label, text, tone = "", extra = {}) {
  * Returns { state: "missing"|"stale"|"fresh", age, items[] }. Booleans the wire profile did not supply
  * (null/undefined) are shown as "n/s", never as false.
  */
-export function describeVehicleStatus(entry, now, schemaType, zeroSent = null, own16 = null, thrust = null) {
+export function describeVehicleStatus(entry, now, schemaType, zeroSent = null, own16 = null, thrust = null, sel = null) {
   if (!entry) return { state: "missing", age: null, items: [], src: "" };
   const f = entry.f || {};
   const stale = isStale(entry, now, schemaType);
@@ -100,6 +100,8 @@ export function describeVehicleStatus(entry, now, schemaType, zeroSent = null, o
   else items.push(item("zeroing", "Estimators", f.zeroing === false ? `not zeroing${sentText}` : `zeroing n/s${sentText}`, "", { title: zeroTitle }));
 
   items.push(item("mode", "Mode", f.mode === undefined ? "n/s" : String(f.mode), MODE_TONE[f.mode] || ""));
+  const mi = missionIndicator(f, sel && sel.applied, sel && sel.sent);
+  items.push(item("mission_sel", "MISSION", mi.text, "", { mtag: mi.tag, mtone: mi.tone, title: mi.title }));
   items.push(item("mission", "Mission", f.mission_mode === undefined ? "n/s" : `${f.mission_mode} / ${f.mission_phase ?? "n/s"}`));
 
   // Motors, three states (owner decision 2026-11-23): ARMED = safety gate open (ARMED flag, SD), ENABLED = control software
@@ -150,9 +152,6 @@ export function describeVehicleStatus(entry, now, schemaType, zeroSent = null, o
   }
   const degraded = bitNames(f.degraded_bits, DEGRADED_BITS);
   if (degraded.length) items.push(item("degraded", "Degraded", degraded.join(", "), "warn", { title: "VEHICLE_STATUS degraded_bits: warnings, no action taken" }));
-  if (typeof f.mission_profile === "number" && f.mission_profile !== 255) {
-    items.push(item("mission_profile", "Profile", profileText(f.mission_profile), "", { title: "VEHICLE_STATUS mission_profile: SB position latched at the last go" }));
-  }
   if (typeof f.rc_rejected === "number" && f.rc_rejected > 0) {
     items.push(item("rc_rejected", "Cmd rejected", String(f.rc_rejected), "", { title: "VEHICLE_STATUS rc_rejected: wrapping count of rejected CMD_STATE frames" }));
   }

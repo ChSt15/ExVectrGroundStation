@@ -42,7 +42,7 @@ export function createStatusBar(ctx) {
     const sentRec = view === "live" ? latestOf(ctx.requests?.(), ["ZERO_ESTIMATORS"]) : null; // never in replay
     const zeroAge = sentRec && Number.isFinite(now) ? now - sentRec.t : null;
     const own16 = view === "live" ? ctx.rc?.()?.command?.session16 ?? null : null; // never compared in replay
-    const d = describeVehicleStatus(entry, now, schema("VehicleStatus"), zeroAge, own16, ctx.store.get(view, "Actuators")?.f?.thrust);
+    const d = describeVehicleStatus(entry, now, schema("VehicleStatus"), zeroAge, own16, ctx.store.get(view, "Actuators")?.f?.thrust, { applied: ctx.store.get(view, "CmdApplied")?.f?.profile, sent: view === "live" ? ctx.rc?.()?.command?.profile : undefined });
     el.dataset.state = d.state;
     el.dataset.view = view;
     state.textContent =
@@ -57,6 +57,9 @@ export function createStatusBar(ctx) {
       c.root.dataset.tone = it.tone || "";
       c.root.dataset.loud = it.loud ? "true" : "false";
       c.root.title = it.title || "";
+      c.v.dataset.tag = it.mtag || "";
+      c.root.dataset.mtone = it.mtone || "";
+      c.root.dataset.mtag = it.mtag || "";
     }
     for (const [k, c] of cellEls) c.root.hidden = !seen.has(k);
 

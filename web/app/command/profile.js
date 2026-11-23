@@ -11,3 +11,24 @@ export function profileText(n) {
   const name = profileName(n);
   return name ? `${n} (${name})` : String(n);
 }
+
+const ACTIVE_MODES = new Set(["Initialisation", "Startup", "Running"]); // go countdown and the mission itself
+
+/**
+ * The status-bar MISSION indicator (display only). `f` = VehicleStatus fields, `applied` = CmdApplied.profile (the SB position
+ * the vehicle sees), `sent` = the profile the GS engine sends. Running (vehicle mission_profile set and mode active) wins over
+ * the selection. Returns { text, tag: "running"|"selected"|"", tone: "flight"|"test"|"none", title }.
+ */
+export function missionIndicator(f, applied, sent) {
+  const num = (n) => (typeof n === "number" && n !== 255 ? n : null);
+  const mp = num(f && f.mission_profile);
+  const running = mp !== null && ACTIVE_MODES.has(f.mission_mode);
+  const ap = num(applied), se = num(sent);
+  const sel = ap !== null ? ap : se;
+  const p = running ? mp : sel;
+  if (p === null) return { text: "none", tag: "", tone: "none", title: "No mission selected or reported yet (no CmdApplied, no command engine report)" };
+  const name = profileName(p) || `profile ${p}`;
+  const parts = [running ? `Running mission: the vehicle's latched profile ${p} (VehicleStatus.mission_profile).` : `Selected by the SB switch: profile ${p}, ${ap !== null ? "as the vehicle applies it (CmdApplied.profile)" : "as the ground station sends it (no CmdApplied yet)"}.`];
+  if (ap !== null && se !== null && ap !== se) parts.push(`Mismatch: the vehicle applies profile ${ap}, the ground station sends ${se} (SB pickup lag).`);
+  return { text: name, tag: running ? "running" : "selected", tone: p === 2 ? "flight" : "test", title: parts.join(" ") };
+}

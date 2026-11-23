@@ -136,6 +136,14 @@ header.top { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center;
 .sb-cell[data-loud="true"] .sb-v { font-size: 16px; font-weight: 800; }
 .sb-cell[data-tone="motors"] { background: var(--warn); border-color: var(--warn); animation: pulse 1s infinite; }
 .sb-cell[data-tone="motors"] .sb-v, .sb-cell[data-tone="motors"] .sb-l { color: #000; }
+.sb-cell[data-key="mission_sel"] { border-width: 2px; border-color: var(--dim); }
+.sb-cell[data-key="mission_sel"] .sb-v { font-size: 16px; font-weight: 800; }
+.sb-cell[data-key="mission_sel"] .sb-v::after { content: attr(data-tag); margin-left: 6px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; opacity: .85; }
+.sb-cell[data-mtone="test"] { border-color: var(--info); } .sb-cell[data-mtone="test"] .sb-v { color: var(--info); }
+.sb-cell[data-mtone="flight"] { border-color: var(--warn); } .sb-cell[data-mtone="flight"] .sb-v { color: var(--warn); }
+.sb-cell[data-mtone="none"] .sb-v { color: var(--dim); font-weight: 600; }
+.sb-cell[data-mtag="running"][data-mtone="test"] { background: var(--info); } .sb-cell[data-mtag="running"][data-mtone="flight"] { background: var(--warn); }
+.sb-cell[data-mtag="running"] .sb-v, .sb-cell[data-mtag="running"] .sb-l { color: #000; }
 .sb-links { display: flex; gap: 2px 14px; flex-wrap: wrap; font-size: var(--fs-xs); margin-top: 3px; color: var(--dim); }
 .sb-link { display: inline-flex; align-items: center; gap: 4px; }
 .sb-link[data-tone="ok"] { color: var(--ok); } .sb-link[data-tone="warn"] { color: var(--warn); } .sb-link[data-tone="bad"] { color: var(--bad); }
