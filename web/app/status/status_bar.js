@@ -42,7 +42,7 @@ export function createStatusBar(ctx) {
     const sentRec = view === "live" ? lastSent(ctx.telecommands?.(), "ZeroEstimators") : null; // never in replay
     const zeroAge = sentRec && Number.isFinite(now) ? now - sentRec.t : null;
     const own16 = view === "live" ? ctx.rc?.()?.command?.session16 ?? null : null; // never compared in replay
-    const d = describeVehicleStatus(entry, now, schema("VehicleStatus"), zeroAge, own16);
+    const d = describeVehicleStatus(entry, now, schema("VehicleStatus"), zeroAge, own16, ctx.store.get(view, "Actuators")?.f?.thrust);
     el.dataset.state = d.state;
     el.dataset.view = view;
     state.textContent =

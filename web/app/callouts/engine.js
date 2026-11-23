@@ -17,7 +17,6 @@ export const failureText = (i) => FAILURE_TEXT[i] || `Failure bit ${i}`;
 /** priority: lower number is more important (failure 0 ... countdown 5). */
 export const PRIORITY = { failure: 0, warning: 1, state: 2, mission: 3, altitude: 4, countdown: 5 };
 
-const MOTORS_REPEAT_S = 3;
 const finite = (x) => typeof x === "number" && Number.isFinite(x);
 const vec3 = (v) => Array.isArray(v) && v.length >= 3 && v.slice(0, 3).every(finite);
 
@@ -179,14 +178,11 @@ export class CalloutEngine {
       const e = v ? rise : fall;
       if (e) out.push(e);
     };
-    edge("armed", f.armed, ev("state.armed", "state", "Motors armed", "warning", PRIORITY.state), ev("state.disarmed", "state", "Motors disarmed", "info", PRIORITY.state));
-    edge("motors", f.motors_enabled, ev("state.motors", "state", "Motors live", "failure", PRIORITY.failure), null);
-    // "Motors live" (the hard motor gate is open) is said twice (once more after MOTORS_REPEAT_S) while the vehicle still reports it
-    if (st.motors === true && st.motorsAt === undefined && out.some((e) => e.id === "state.motors")) st.motorsAt = now + MOTORS_REPEAT_S;
-    if (st.motors !== true) st.motorsAt = undefined;
-    else if (typeof st.motorsAt === "number" && now >= st.motorsAt) {
-      st.motorsAt = null;
-      out.push(ev("state.motors", "state", "Motors live", "failure", PRIORITY.failure, { repeat: true }));
+    edge("armed", f.armed, ev("state.armed", "state", "Motors armed", "warning", PRIORITY.warning), ev("state.disarmed", "state", "Motors disarmed", "info", PRIORITY.state));
+    // Motors ENABLED (control software may drive them) while ARMED (gate open): one red announcement per transition.
+    // Enabled while disarmed, and RUNNING (thrust > 0), are never announced.
+    if (typeof f.armed === "boolean" && typeof f.motors_enabled === "boolean") {
+      edge("motorsEnabledArmed", f.armed && f.motors_enabled, ev("state.motors", "state", "Motors enabled", "failure", PRIORITY.warning), null);
     }
     // T9b-4: SD must be toggled off, then on (ctrl_flags bit 0 INTERLOCK_NEED_TOGGLE)
     if (finite(f.ctrl_flags)) {

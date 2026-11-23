@@ -106,7 +106,6 @@ async def test_status_bar_shows_only_reported_values_and_follows_a_simulation_to
         for want in (
             "Mode",
             "Mission",
-            "Motors armed",
             "Motors",
             "Failsafe",
             "Failures",
@@ -117,7 +116,7 @@ async def test_status_bar_shows_only_reported_values_and_follows_a_simulation_to
             "Sensor state (raw)",
         ):
             assert want in labels, want
-        assert await b.eval(f"document.querySelector({cell('motors_enabled')!r}).parentElement.dataset.loud") == "true"
+        assert await b.eval(f"document.querySelector({cell('motors')!r}).parentElement.dataset.loud") == "true"
         assert "0x" in await text(b, cell("failure_bits")) and "(" in await text(b, cell("failure_bits"))
         links = await b.eval("[...document.querySelectorAll('#statusbar .sb-link')].map(e => e.textContent)")
         assert any(x.strip().startswith("usb") for x in links) and any(x.strip().startswith("link") for x in links)

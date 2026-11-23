@@ -38,20 +38,25 @@ test("simulation versus real sensors comes from VehicleStatus.simulation only, l
   assert.equal(d.simulation.tone, "");
 });
 
-test("motors live is loud, an unsupplied flag is n/s and never false", () => {
-  let d = byKey(describeVehicleStatus(entry({ ...FULL, motors_enabled: true }), 100.2));
-  assert.deepEqual([d.motors_enabled.text, d.motors_enabled.tone, d.motors_enabled.loud], ["MOTORS LIVE", "motors", true]);
-  d = byKey(describeVehicleStatus(entry({ ...FULL, motors_enabled: null, armed: undefined }), 100.2));
-  assert.equal(d.motors_enabled.text, "n/s");
-  assert.equal(d.armed.text, "n/s");
+test("motors cell: off / ARMED / ENABLED / enabled with gate closed, RUNNING tag, n/s", () => {
+  const m = (over, thrust) => byKey(describeVehicleStatus(entry({ ...FULL, ...over }), 100.2, undefined, null, null, thrust)).motors;
+  assert.deepEqual([m({ armed: false, motors_enabled: false }).text, m({ armed: false, motors_enabled: false }).tone], ["motors off", ""]);
+  assert.deepEqual([m({ armed: true, motors_enabled: false }).text, m({ armed: true, motors_enabled: false }).tone], ["motors ARMED", "warn"]);
+  assert.deepEqual([m({ armed: true, motors_enabled: true }).text, m({ armed: true, motors_enabled: true }).tone], ["motors ENABLED", "bad"]);
+  assert.deepEqual([m({ armed: false, motors_enabled: true }).text, m({ armed: false, motors_enabled: true }).tone], ["motors enabled (gate closed)", "ok"]);
+  assert.equal(m({ armed: true, motors_enabled: true }, 3).text, "motors ENABLED RUNNING");
+  assert.equal(m({ armed: true, motors_enabled: true }, 3).tone, "bad");
+  assert.equal(m({ armed: true, motors_enabled: true }, 0.01).text, "motors ENABLED");
+  assert.equal(m({ armed: false, motors_enabled: false }, 3).text, "motors off RUNNING");
+  assert.equal(m({ armed: undefined, motors_enabled: null }).text, "n/s");
+  assert.equal(byKey(describeVehicleStatus(entry(FULL), 100.2)).armed, undefined);
 });
 
 test("armed, failsafe, gs_present, ctrl_source, rc_age, last request", () => {
   const d = byKey(
     describeVehicleStatus(entry({ ...FULL, armed: true, failsafe: true, gs_present: false, ctrl_source: "GS", ctrl_flags: 1 << 7, rc_age: 0.25, last_req_id: 7, last_req_status: 2 }), 100.2),
   );
-  assert.equal(d.armed.text, "MOTORS ARMED");
-  assert.equal(d.armed.label, "Motors armed");
+  assert.equal(d.motors.text, "motors ARMED");
   assert.equal(d.failsafe.text, "FAILSAFE");
   assert.equal(d.gs_present.text, "GS absent");
   assert.equal(d.ctrl_source.text, "GS · USB fresh");
