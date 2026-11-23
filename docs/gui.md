@@ -265,7 +265,7 @@ TEMPORARY, safety-relevant: see [telecommands.md](telecommands.md) (hold 1 s, on
 
 #### Vehicle settings: stop altitude
 
-Group "Vehicle settings" of the Commands (temporary) panel: a number field (5..60 m, default 20) and a **Set** button for `SetStopAltitude` (telecommand id 19, see [telecommands.md](telecommands.md)). The vehicle gives no ACK; the confirmation is the echoed `MissionState.stop_altitude` (current value shown next to the field). Pressing Set sends the command at once and shows a chip: **pending (n/6)** while the echo differs from the target by more than 0.05 m, **set** when it matches, **not confirmed** after the retries ran out (a toast says so; the vehicle accepts the value only on the ground with the motors disarmed). Retry rule: 1 initial send plus up to 5 retries, one every 2 s. Display and command only, nothing sends it automatically. Logic `web/app/telecommand/stopalt_logic.js`.
+Group "Vehicle settings" of the Commands (temporary) panel: a number field (at least 1 m, no maximum, default 20) and a **Set** button for `SetStopAltitude` (telecommand id 19, see [telecommands.md](telecommands.md)). The vehicle gives no ACK; the confirmation is the echoed `MissionState.stop_altitude` (current value shown next to the field). Pressing Set sends the command at once and shows a chip: **pending (n/6)** while the echo differs from the target by more than 0.05 m, **set** when it matches, **not confirmed** after the retries ran out (a toast says so; the vehicle accepts the value only on the ground with the motors disarmed). Retry rule: 1 initial send plus up to 5 retries, one every 2 s. Display and command only, nothing sends it automatically. Logic `web/app/telecommand/stopalt_logic.js`.
 
 ### Requests panel
 
