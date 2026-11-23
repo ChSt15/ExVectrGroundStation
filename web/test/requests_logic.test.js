@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  DANGER_ENABLE_MS, DANGER_TEXT, DangerGate, dangerText, HoldTimer, REQUEST_HOLD_MS, actionKey, describeRequest, groupActions, requestFor,
+  DANGER_ENABLE_MS, DANGER_TEXT, DangerGate, dangerText, HoldTimer, REQUEST_HOLD_MS, actionKey, describeRequest, groupActions, parseArgF, refusalText, requestFor,
   sendState,
 } from "../app/requests/requests_logic.js";
 
@@ -73,7 +73,7 @@ test("describeRequest shows only what the core reports: ACK status exactly, time
   assert.equal(describeRequest({ ...base, state: "acked", status_name: "DONE" }).tone, "ok");
   assert.equal(describeRequest({ ...base, state: "acked", status_name: "DONE" }).text, "ACK DONE (id 7)");
   const rej = describeRequest({ ...base, state: "acked", status_name: "REJECTED_STATE", detail: 3 });
-  assert.deepEqual(rej, { tone: "bad", text: "ACK REJECTED_STATE (detail 3) (id 7)" });
+  assert.deepEqual(rej, { tone: "bad", text: "ACK REJECTED_STATE (detail 3): refused: session mismatch, restart the GS or wait 1 s (id 7)" });
   assert.equal(describeRequest({ ...base, state: "acked", status_name: "#200" }).tone, "bad"); // unknown is never success
   const to = describeRequest({ ...base, attempts: 5, state: "timeout" });
   assert.equal(to.tone, "bad");
@@ -138,4 +138,29 @@ test("a danger row shows its own warning, else the generic text (LINK_REBOOT car
   const w = "Reboots the ship radio node: RC to the vehicle is interrupted for seconds, in flight too.";
   assert.equal(dangerText({ action: "LINK_REBOOT", target: 3, warning: w }), w);
   assert.equal(dangerText(null), DANGER_TEXT);
+});
+
+test("refusalText words every status/detail pair of the vehicle's request executor", () => {
+  assert.equal(refusalText("DONE", 0), "");
+  assert.equal(refusalText("IN_PROGRESS", 0), "");
+  assert.equal(refusalText("REJECTED_STATE", 1), "refused: motors armed or in flight");
+  assert.match(refusalText("REJECTED_STATE", 2), /cannot be zeroed/);
+  assert.match(refusalText("REJECTED_STATE", 3), /session mismatch, restart the GS or wait 1 s/);
+  assert.equal(refusalText("REJECTED_INVALID", 1), "refused: value out of range");
+  assert.equal(refusalText("REJECTED_INVALID", 2), "refused: wrong target");
+  assert.match(refusalText("REJECTED_INVALID", 3), /unknown action/);
+  assert.match(refusalText("REJECTED_STATE", 9), /detail 9/);
+  assert.match(refusalText("FAILED", 0), /failed/);
+  assert.match(refusalText("#200", 0), /unknown answer/);
+});
+
+test("parseArgF: a number within the row's range, else null; sendState blocks an invalid argument", () => {
+  const spec = { min: 1, max: 60, default: 10, name: "window, s" };
+  assert.equal(parseArgF("10", spec), 10);
+  assert.equal(parseArgF("2.5", spec), 2.5);
+  for (const t of ["0", "61", "", "x", "NaN"]) assert.equal(parseArgF(t, spec), null);
+  assert.equal(parseArgF("5", null), null);
+  const ok = { apiState: "open", view: "live", canControl: true, inflight: false, route: "usb" };
+  assert.equal(sendState({ ...ok, argOk: false }).enabled, false);
+  assert.equal(sendState({ ...ok, argOk: true }).enabled, true);
 });

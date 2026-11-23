@@ -37,6 +37,29 @@ export function requestFor(reqs, a) {
   return (reqs.inflight || []).find(same) || (reqs.recent || []).find(same) || null;
 }
 
+/**
+ * Plain words for a vehicle refusal (REQUEST_ACK status name and detail), or "" for DONE / IN_PROGRESS. The codes
+ * are the vehicle's (workspace flight-software request executor); the GS only words them.
+ */
+export function refusalText(statusName, detail) {
+  const d = Number(detail) || 0;
+  if (statusName === "DONE" || statusName === "IN_PROGRESS") return "";
+  if (statusName === "REJECTED_STATE") {
+    if (d === 1) return "refused: motors armed or in flight";
+    if (d === 2) return "refused: the estimators cannot be zeroed in the vehicle's current state";
+    if (d === 3) return "refused: session mismatch, restart the GS or wait 1 s";
+    return `refused: vehicle state does not allow it (detail ${d})`;
+  }
+  if (statusName === "REJECTED_INVALID") {
+    if (d === 1) return "refused: value out of range";
+    if (d === 2) return "refused: wrong target";
+    if (d === 3) return "refused: unknown action (vehicle software too old?)";
+    return `refused: invalid request (detail ${d})`;
+  }
+  if (statusName === "FAILED") return "failed on the vehicle";
+  return `unknown answer ${statusName}`;
+}
+
 /** Text and tone of one request, from the core's report only. */
 export function describeRequest(r) {
   if (!r) return { tone: "dim", text: "" };
@@ -46,19 +69,30 @@ export function describeRequest(r) {
   if (r.state === "timeout") return { tone: "bad", text: `TIMEOUT: no ACK after ${r.attempts} attempts (${id})` };
   if (r.state === "acked") {
     const ok = r.status_name === "DONE" || r.status_name === "IN_PROGRESS";
-    return { tone: ok ? "ok" : "bad", text: `ACK ${r.status_name}${r.detail ? ` (detail ${r.detail})` : ""} (${id})` };
+    const why = refusalText(r.status_name, r.detail);
+    return { tone: ok ? "ok" : "bad", text: `ACK ${r.status_name}${r.detail ? ` (detail ${r.detail})` : ""}${why ? `: ${why}` : ""} (${id})` };
   }
   return { tone: "dim", text: String(r.state) };
 }
 
 /** Whether the send button can be used, and why not. The core still checks everything itself. */
-export function sendState({ apiState, view, canControl, inflight, route }) {
+export function sendState({ apiState, view, canControl, inflight, route, argOk = true }) {
   if (view !== "live") return { enabled: false, reason: "replay view: nothing is ever sent" };
   if (apiState !== "open") return { enabled: false, reason: "no connection to the core" };
   if (!canControl) return { enabled: false, reason: "this client is on a view-only host" };
   if (inflight) return { enabled: false, reason: "already in flight" };
   if (!route) return { enabled: false, reason: "no connected source can reach the target" };
+  if (!argOk) return { enabled: false, reason: "argument outside its allowed range" };
   return { enabled: true, reason: "" };
+}
+
+/** An action's float argument field as a number within [min, max] of the whitelist row's `arg_f`, else null. */
+export function parseArgF(text, spec) {
+  if (!spec) return null;
+  const t = String(text).trim();
+  if (!/^-?\d+(\.\d+)?$/.test(t)) return null;
+  const v = Number(t);
+  return v >= spec.min && v <= spec.max ? v : null;
 }
 
 /** The deliberate gate of a `danger` action: `ready()` becomes true 2 s after `open()`. */

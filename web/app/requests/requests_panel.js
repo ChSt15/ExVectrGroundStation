@@ -4,7 +4,7 @@
 import { h } from "../ui.js";
 import {
   DANGER_ENABLE_MS, DANGER_TEXT, DangerGate, dangerText, HoldTimer, REQUEST_HOLD_MS, actionKey, describeRequest, groupActions,
-  requestFor, sendState,
+  requestFor, sendState, parseArgF,
 } from "./requests_logic.js";
 
 /** Modal for a `danger` action. Resolves true only when the operator presses the confirm button, which stays disabled for 2 s. */
@@ -52,7 +52,7 @@ export function createRequestsPanel(el, ctx) {
 
   async function load() {
     try {
-      actions = (await ctx.api.request("request.list", {}, 5000)).actions;
+      actions = (await ctx.api.request("request.list", {}, 5000)).actions.filter((a) => a.action !== "SET_STOP_ALTITUDE"); // that one has its own control (Commands panel, Vehicle settings)
       listError = "";
       reqs = await ctx.api.request("request.status", {}, 5000);
     } catch (e) {
@@ -62,21 +62,21 @@ export function createRequestsPanel(el, ctx) {
     render();
   }
 
-  async function send(a, understand) {
+  async function send(a, understand, argF) {
     try {
-      await ctx.api.request("request.send", { action: a.action, target: a.target, confirm: a.action, understand_link_stops: !!understand }, 5000);
+      await ctx.api.request("request.send", { action: a.action, target: a.target, confirm: a.action, understand_link_stops: !!understand, ...(argF === null || argF === undefined ? {} : { arg_f: argF }) }, 5000);
       msg.textContent = "";
     } catch (e) {
       msg.textContent = `${a.action}: ${e.message}`;
     }
   }
 
-  async function confirmed(a) {
+  async function confirmed(a, argF) {
     if (a.confirm === "danger") {
       if (!(await dangerDialog(a))) return;
-      return send(a, true);
+      return send(a, true, argF);
     }
-    return send(a, false);
+    return send(a, false, argF);
   }
 
   function build() {
@@ -89,6 +89,8 @@ export function createRequestsPanel(el, ctx) {
       for (const a of g.items) {
         const bar = h("span", { class: "bar" });
         const btn = h("button", { class: `rq-btn${a.confirm === "danger" ? " danger" : ""}`, "data-action": a.action, "data-target": String(a.target), "data-confirm": a.confirm, title: `hold ${REQUEST_HOLD_MS / 1000} s to send` }, h("span", { class: "rq-label", text: a.label }), bar);
+        const finput = a.arg_f ? h("input", { type: "number", class: "tc-param tc-float", value: String(a.arg_f.default), min: String(a.arg_f.min), max: String(a.arg_f.max), step: "any", title: a.arg_f.name || "argument", "data-testid": "rq-arg", "aria-label": `${a.action} ${a.arg_f.name || "argument"}` }) : null;
+        if (finput) finput.addEventListener("input", render);
         const route = h("span", { class: "rq-route" });
         const state = h("span", { class: "rq-state" });
         let anim = null;
@@ -99,7 +101,7 @@ export function createRequestsPanel(el, ctx) {
         };
         const timer = new HoldTimer(() => {
           stopAnim();
-          confirmed(a);
+          confirmed(a, finput ? parseArgF(finput.value, a.arg_f) : null);
         }, undefined, REQUEST_HOLD_MS);
         const stop = () => { timer.cancel(); stopAnim(); };
         const start = () => {
@@ -118,8 +120,8 @@ export function createRequestsPanel(el, ctx) {
         for (const ev of ["pointerup", "pointercancel", "lostpointercapture", "pointerleave", "blur"]) btn.addEventListener(ev, stop);
         btn.addEventListener("keydown", (e) => { if ((e.key === " " || e.key === "Enter") && !e.repeat) { start(); e.preventDefault(); } });
         btn.addEventListener("keyup", (e) => { if (e.key === " " || e.key === "Enter") stop(); });
-        sec.append(h("div", { class: "rq-row", "data-key": actionKey(a) }, btn, h("span", { class: "rq-target", text: `${a.target_name} (node ${a.target})` }), route, state));
-        rows.set(actionKey(a), { a, btn, route, state, stop });
+        sec.append(h("div", { class: "rq-row", "data-key": actionKey(a) }, btn, finput, h("span", { class: "rq-target", text: `${a.target_name} (node ${a.target})` }), route, state));
+        rows.set(actionKey(a), { a, btn, finput, route, state, stop });
       }
       body.append(sec);
     }
@@ -136,7 +138,7 @@ export function createRequestsPanel(el, ctx) {
       const cur = requestFor(reqs, r.a);
       const inflight = !!cur && cur.state === "sending";
       const route = routeOf(r.a);
-      const s = sendState({ apiState: ctx.api.state, view: ctx.view(), canControl, inflight, route });
+      const s = sendState({ apiState: ctx.api.state, view: ctx.view(), canControl, inflight, route, argOk: !r.finput || parseArgF(r.finput.value, r.a.arg_f) !== null });
       r.btn.disabled = !s.enabled;
       if (!s.enabled) r.stop();
       r.btn.dataset.why = s.reason;
