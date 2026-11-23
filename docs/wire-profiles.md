@@ -97,7 +97,7 @@ Vehicle time (`t_us` of each packet) is not carried into the GS packets: `t` is 
 
 ### Uplink (`encode`)
 
-`CMD_STATE` from the command engine, `REQUEST` and, TEMPORARILY, the legacy `Telecommand`. **The GS no longer sends `RC_STATE`** (the profile returns `None` for it, and the `RcState` packet type is receive-only).
+`CMD_STATE` from the command engine, `REQUEST`. The legacy `Telecommand` is retired and never encoded. **The GS no longer sends `RC_STATE`** (the profile returns `None` for it, and the `RcState` packet type is receive-only).
 
 `CMD_STATE` (port 0x13, 14 B): `flags` = `VALID` plus `POCKET_LIVE` and `INPUT_VIRTUAL` as the packet says (1, 3, 5 or 7), `version` 1, `session` (non-zero), `go`, `profile`, `vehicle_mode`, `motors`, `reset_button`, `failsafe` and a zero `reserved`. Each field must be in range: otherwise `encode` returns `None` (the vehicle would drop the whole frame). The frame is addressed to the vehicle (DST 1, SRC 0, TTL 3; QoS control and LATEST from the generated class), whichever link carries it. **The sequence number is the packet's `seq`** (set by the command engine): the same packet on two links is the same frame with the same sequence number, which the vehicle dedupes; without a `seq` the profile counts per port.
 
@@ -163,13 +163,9 @@ Who sends it: `CoreApp._heartbeat_loop` (`core/app.py`), a periodic task of its 
 
 `encode` also accepts the `Request` packet (the request controller's, [requests.md](requests.md)): `req_id` 1..65535, `action` (`RequestAction`), `target`, `arg_i`, `arg_f` become `xp.Request` (port 0x11, QoS and LATEST from the generated class), addressed to **DST = `target`** (1 vehicle, 2 TX module, 3 RX module), SRC 0, with its own per-port sequence counter. A missing or out-of-range field returns `None`. The wire profile does not know which actions are allowed: the whitelist lives in the request controller. `REQUEST_ACK` (0x12) decodes to `RequestAck` as before. `SerialSource` sends a `Request` on any `rc_role`, but only for a target within its `SourceCaps.request_targets` (the vehicle's USB reaches node 1; a TX module reaches 1, 2 and 3).
 
-### Legacy Telecommand (TEMPORARY, port 0x7F)
-
-`encode` also accepts the `Telecommand` packet (the telecommand controller's, [telecommands.md](telecommands.md)): `tc_type`, `subsystem`, `param_int` and `param_float` are packed little-endian as `<BBhf` (8 bytes) on **port 0x7F**, which is **not in the ExVectrPackets schema** (so the layout lives here, in `_encode_telecommand`, and nowhere else), addressed to node 1, DATA frame, QoS EVENT (2), not latest, TTL 3, so CTRL is `0x48`. The sequence number counts per port. `SerialSource.send` carries it only if the source reaches node 1. Delete with the flight software's T9b.
-
 ### RC state
 
-Only `UP` packet types can be encoded. On `exvectrnet-1` that is `CmdState`, `Request` and, TEMPORARILY, `Telecommand`; **`provisional-1` encodes nothing** (it has no command state and the GS sends no RC state). A received `RcState` (the Pocket via the Router) decodes with `origin = handset`. There is no encoder for legacy telecommands and none will be added (design 1.4).
+Only `UP` packet types can be encoded. On `exvectrnet-1` that is `CmdState` and `Request`; **`provisional-1` encodes nothing** (it has no command state and the GS sends no RC state). A received `RcState` (the Pocket via the Router) decodes with `origin = handset`. There is no encoder for legacy telecommands and none will be added (design 1.4).
 
 ## Serial source (`exvectr_gs.sources.serial_source`)
 

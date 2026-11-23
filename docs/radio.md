@@ -97,7 +97,7 @@ Control values: switches take a position **index** (0 = lowest), sliders 0..1, m
 
 ## What reaches the vehicle, and what happens on each path
 
-Through the engine only `CmdState` packets, to the connected `control` sources. Besides it the ground station sends whitelisted `REQUEST`s ([requests.md](requests.md), now with the session) and, TEMPORARILY, whitelisted legacy telecommands ([telecommands.md](telecommands.md)). No other packet type can be sent (the serial source refuses non-`UP` types; the profile encodes only these; there is no raw-send API).
+Through the engine only `CmdState` packets, to the connected `control` sources. Besides it the ground station sends whitelisted `REQUEST`s ([requests.md](requests.md), now with the session); the legacy telecommands are retired ([telecommands.md](telecommands.md)). No other packet type can be sent (the serial source refuses non-`UP` types; the profile encodes only these; there is no raw-send API).
 
 | Event | Result |
 |---|---|

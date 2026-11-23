@@ -30,7 +30,6 @@ FakeSource ---------------------------------------------> Packet -^
 | Data-rate statistics (`RateTracker`, paths; fed per frame by `SerialSource`, per packet by `CoreApp` for the fake source, `Replayer.read_rates` in replay) | `exvectr_gs.core.rates` | implemented (`feature/data-rates`), [api.md](api.md) |
 | RcController, radio config | `exvectr_gs.rc` | implemented (T6), `docs/radio.md` |
 | RequestController (whitelisted REQUEST sender, second uplink) | `exvectr_gs.requests` | implemented (`feature/request-sender`), `docs/requests.md` |
-| TelecommandController (TEMPORARY legacy telecommand sender, third uplink, delete at T9b) | `exvectr_gs.telecommand` | implemented (`feature/ops-and-telecommand`), `docs/telecommands.md` |
 
 ## Notes on the implementation
 

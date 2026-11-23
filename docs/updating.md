@@ -33,7 +33,7 @@ Every step has a timeout (fetch 60 s, merge 60 s, submodules 300 s, pip 900 s), 
 
 ## Guards (checked in the core, not only in the GUI)
 
-The update is refused while any of these holds: the vehicle reports **armed** (motors armed), **motors enabled** (live), or **mission mode Running** (latest known values of `VehicleStatus` and `MissionState`, even when old: an armed vehicle whose link dropped is still armed); a **recording** is active (stop it first); a **virtual panel lease** is held, or the command state sent is motors armed or go (a restart ends the command stream); a **request** is in flight; a telecommand was sent less than 3 s ago (telecommands have no ACK, so "in flight" is approximated); the client is not a control host. The replay view is refused by the GUI only (the core has no view per client).
+The update is refused while any of these holds: the vehicle reports **armed** (motors armed), **motors enabled** (live), or **mission mode Running** (latest known values of `VehicleStatus` and `MissionState`, even when old: an armed vehicle whose link dropped is still armed); a **recording** is active (stop it first); a **virtual panel lease** is held, or the command state sent is motors armed or go (a restart ends the command stream); a **request** is in flight; the client is not a control host. The replay view is refused by the GUI only (the core has no view per client).
 
 ## Offline: `exgs update --local`
 

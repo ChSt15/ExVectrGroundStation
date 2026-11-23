@@ -96,7 +96,7 @@ Version 1, direction `down`, nominal rate 2 Hz, history: no.
 | `mission_index` | int | - |  |
 | `waypoint` | int | - | current waypoint of the waypoint mission; only AIR_MISSION carries it, None = not that mission |
 | `flip_start_altitude` | float | m | altitude (NWU up) at which the vehicle begins the upright flip = its getStopAltitude(); sent only during the bellyflop freefall, None = not sent / older sender |
-| `stop_altitude` | float | m | the stop altitude parameter (echo that cross-checks the SET_STOP_ALTITUDE request), None = unknown / older sender |
+| `stop_altitude` | float | m | the stop altitude parameter (echo that cross-checks SET_STOP_ALTITUDE), None = unknown / older sender |
 
 ## FlapState
 
@@ -344,7 +344,7 @@ Version 1, direction `up`, nominal rate n/a, history: no.
 | Field | Kind | Unit | Description |
 |---|---|---|---|
 | `req_id` | int | - | non-zero, new per action, reused on every retry |
-| `action` | enum (RequestAction: NONE=0, CALIB_GYRO_START=1, CALIB_GYRO_STOP=2, CALIB_ACCEL_START=3, CALIB_ACCEL_STOP=4, CALIB_MAG_START=5, CALIB_MAG_STOP=6, CALIB_APPLY=7, SAVE_CONFIG=8, SYSTEM_RESET=9, LINK_UPLOAD_MODE=10, LINK_REBOOT=11, ZERO_ESTIMATORS=12, SET_STOP_ALTITUDE=13) | - |  |
+| `action` | enum (RequestAction: NONE=0, CALIB_GYRO_START=1, CALIB_GYRO_STOP=2, CALIB_ACCEL_START=3, CALIB_ACCEL_STOP=4, CALIB_MAG_START=5, CALIB_MAG_STOP=6, CALIB_APPLY=7, SAVE_CONFIG=8, SYSTEM_RESET=9, LINK_UPLOAD_MODE=10, LINK_REBOOT=11, ZERO_ESTIMATORS=12, SET_STOP_ALTITUDE=13, CALIB_CONTROL=14, SIM_WIND_SPEED=15, SIM_WIND_DIRECTION=16, SIM_GUST_STRENGTH=17, SIM_GUST_PERIOD=18, SIM_GUST_SEED=19, SIM_FLAP_STUCK=20, SIM_FLAP_SLOW=21, SIM_FAULT_CLEAR=22, GET_HOME_POSITION=23) | - |  |
 | `target` | int | - | destination node id |
 | `arg_i` | int | - |  |
 | `arg_f` | float | - |  |
@@ -364,7 +364,7 @@ Version 1, direction `down`, nominal rate 2 Hz, history: no.
 
 ## Telecommand
 
-TEMPORARY legacy 8-byte telecommand (port 0x7F), sent once per deliberate confirmation by the telecommand controller, never by hand and never repeated. Delete with the flight software's T9b.
+RETIRED legacy 8-byte telecommand (port 0x7F). Never sent any more (use REQUEST); the type stays so old logs decode.
 
 Version 1, direction `up`, nominal rate n/a, history: no.
 
