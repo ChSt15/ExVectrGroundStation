@@ -10,7 +10,9 @@ change produce a safe -> unsafe change of the output:
 
 - A switch that moves in the safe direction (SA down, SD down, SE released) is applied at once.
 - A switch in the unsafe direction (SA up, SD up, SE pressed) is applied only after the input has been seen at the
-  value the engine is currently sending ("picked up"). The same for any SC change (SC has no safe value).
+  value the engine is currently sending ("picked up"). SC (mode) and SB (profile) are not like that: they follow the
+  switch at once (SC only after MODE_SETTLE_NS from the first frame, so the vehicle sees the start mode first), also at
+  start and after a Pocket reconnect. They cannot produce a go or arm edge.
 - The engine starts every session with go NOT_GO, motors DISABLED, SE released, failsafe 0, nothing picked up.
 - While the Pocket is lost and no virtual panel is the input, the output is held (SE is forced released) and every
   pickup is forgotten; the Pocket coming back applies the rule above, so a switch left up must first be cycled.
@@ -30,6 +32,9 @@ POCKET_LOST_NS = 300_000_000  # no valid handset RcState for this long: Pocket s
 POCKET_BACK_FRAMES = 3  # consecutive valid frames before a lost Pocket counts as back
 SE_MIN_PRESS_NS = 160_000_000  # a press is stretched to 4 frames so the vehicle's classifier sees it
 START_WAIT_NS = 2 * NS  # wait this long for the vehicle's reported mode before the first frame
+# The vehicle takes a mode change only as an OBSERVED change between consecutive accepted frames: after the first frame
+# the engine keeps the start mode for this long (>= 3 frames at 25 Hz), and only then follows SC.
+MODE_SETTLE_NS = 300_000_000
 
 # Pulse widths (us) of the Pocket channels, the bands of the old vehicle decoder (wire value = (us - 1500) * 2):
 # <= -500 low, -200..200 middle, >= 500 high. Anything else (and an unprovided channel, 0) is invalid.
@@ -124,7 +129,7 @@ class PickupHints:
     sa: bool = False  # SA is up while the output is NOT_GO: flip it down first
     sd: bool = False
     se: bool = False
-    sc: int | None = None  # flip SC to this vehicle_mode value (0 REAL, 1 SIMULATION) to take over
+    sc: int | None = None  # unused (SC always follows); kept for the API shape
 
 
 @dataclass
@@ -132,7 +137,7 @@ class CommandCore:
     """The engine's state machine. Feed it samples, call `tick(now)` to get the frame to send (or None)."""
 
     out: Output = field(default_factory=Output)
-    picked: dict[str, bool] = field(default_factory=lambda: {"sa": False, "sc": False, "sd": False, "se": False})
+    picked: dict[str, bool] = field(default_factory=lambda: {"sa": False, "sd": False, "se": False})
     failsafe_latched: bool = False
     pocket_state: Literal["absent", "live", "lost"] = "absent"
     input: InputName = "none"
@@ -140,6 +145,7 @@ class CommandCore:
     def __post_init__(self) -> None:
         self._t0: int | None = None
         self._ready = False
+        self._settle_until: int | None = None
         self._profile_known = False
         self._pocket_last_valid: int | None = None
         self._pocket_run = 0
@@ -275,12 +281,8 @@ class CommandCore:
             profile = sw.sb
             self._profile_known = True
         vm = o.vehicle_mode
-        if sw.sc is not None:
-            want = mode_of_sc(sw.sc)
-            if want == vm:
-                self.picked["sc"] = True
-            elif self.picked["sc"]:
-                vm = want
+        if sw.sc is not None and self._settle_until is not None and now >= self._settle_until:
+            vm = mode_of_sc(sw.sc)  # follows at once (also at start / reconnect), once the start mode was observed
         if self.failsafe_latched:
             go, md = 0, 0
         self._set(replace(o, go=go, profile=profile, vehicle_mode=vm, motors=md, reset_button=se, failsafe=fs), now)
@@ -301,8 +303,6 @@ class CommandCore:
         h.sa = sw.sa == 1 and o.go == 0
         h.sd = sw.sd == 1 and o.motors == 0
         h.se = sw.se == 1 and o.reset_button == 0
-        if sw.sc is not None and mode_of_sc(sw.sc) != o.vehicle_mode and not self.picked["sc"]:
-            h.sc = o.vehicle_mode
         return h
 
     # ------------------------------------------------------------ failsafe level (GS FAILSAFE button, later step)
@@ -343,6 +343,8 @@ class CommandCore:
         if not send:
             return None
         self._dirty = False
+        if self._settle_until is None:
+            self._settle_until = now + MODE_SETTLE_NS  # the first frame carries the start mode
         self._last_send = now
         self._se_holdoff = False  # a frame (with failsafe = 0) goes out now; the held-back SE press may follow
         self._seq = (self._seq + 1) & 0xFF
