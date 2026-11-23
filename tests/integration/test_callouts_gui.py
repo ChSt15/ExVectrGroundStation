@@ -62,11 +62,14 @@ async def test_mission_callouts_are_spoken_with_styles_and_shown(tmp_path):
         assert await b.eval("localStorage.getItem('exgs.callouts.audio')") == "1"
         await until(lambda: b.eval(f"{SPOKEN}.includes('Landed')"), timeout=45, what="the whole mission spoken")
         spoken = await b.eval(SPOKEN)
-        for want in ("Ascent", "Belly flop", "Landing", "Landed", "Altitude 2", "Altitude 4"):
+        for want in ("Ascent", "Belly flop", "Landing", "Landed", "2", "4"):
             assert want in spoken, (want, spoken)
         assert spoken.index("Ascent") < spoken.index("Belly flop") < spoken.index("Landing") < spoken.index("Landed")
-        # up and down: Altitude 4, then later Altitude 2 again on the way down
-        assert spoken.count("Altitude 4") == 2 and spoken.count("Altitude 2") == 2
+        # ascent altitude callouts say the number only, once each; they are muted during Descent. The fake source sends
+        # no flip_start_altitude (NaN), so the freefall countdown (5..1, Begin) stays silent (engine tests cover it)
+        assert spoken.count("4") == 1 and spoken.count("2") == 1
+        assert "Begin" not in spoken and "Altitude 4" not in spoken
+        assert spoken.index("2") < spoken.index("4") < spoken.index("Belly flop")
         first = await b.eval("window.__spoken.find(s => s.text === 'Ascent')")
         assert first["rate"] == 1.0 and first["pitch"] == 1.0 and abs(first["volume"] - 0.9 * 0.8) < 1e-6
         # the same events are in the notification history
