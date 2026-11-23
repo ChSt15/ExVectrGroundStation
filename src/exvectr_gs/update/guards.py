@@ -43,10 +43,4 @@ def update_guards(app: Any, now_ns: int | None = None) -> list[str]:
     rq = getattr(app, "requests", None)
     if rq is not None and rq.status().get("inflight"):
         why.append("a request is in flight")
-    tc = getattr(app, "telecommands", None)
-    if tc is not None:
-        now = app.clock.now() if now_ns is None else now_ns
-        recent = tc.status().get("recent") or []
-        if recent and now - recent[0]["t"] < 3_000_000_000:  # one frame, no ACK: 'in flight' for 3 s
-            why.append("a telecommand was sent less than 3 s ago")
     return why

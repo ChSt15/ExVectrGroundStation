@@ -1,15 +1,14 @@
-// Pure logic of the 'Sim wind' panel (docs/telecommands.md, owner approval 2026-11-21). TEMPORARY like the whole
-// telecommand path. SAFETY-RELEVANT UI rules, enforced here and in simwind_panel.js:
-//  - Sending needs a deliberate hold of 1 s (one hold per group: Apply = 5 frames, Clear = 2 frames), never automatic.
-//  - Every frame is sent exactly ONCE through `telecommand.send`: no retry, no repeat. The sequence stops at the first
-//    refusal. The frames are spaced 150 ms (the vehicle handles one command per 100 ms tick).
+// Pure logic of the wind section of the 'Simulation testing' page (docs/requests.md). SAFETY-RELEVANT UI rules,
+// enforced here and in simwind_panel.js:
+//  - Sending needs a deliberate hold of 1 s (one hold per group: Apply = 5 requests, Clear = 2), never automatic.
+//  - The requests go one after the other through `request.send`: each waits for the vehicle's ACK (the vehicle's inbox
+//    holds 8) before the next; the sequence STOPS at the first refusal, error or timeout.
 //  - Enabled only while the VEHICLE reports simulation mode (display gating; the vehicle refuses otherwise anyway).
-//  - Nothing is shown about the outcome except what the vehicle reports (simulation state).
-import { HoldTimer, TELECOMMAND_HOLD_MS, describeSent, lastSent, reportedSimulation } from "./telecommand_logic.js";
+//  - The outcome shown is the vehicle's ACK in plain words, never an assumed one.
+import { HoldTimer, REQUEST_HOLD_MS, reportedSimulation, runRequestSequence } from "../requests/requests_logic.js";
 
-export { HoldTimer, TELECOMMAND_HOLD_MS, describeSent, lastSent, reportedSimulation };
-export const SEQUENCE_SPACING_MS = 150;
-export const WIND_NAMES = ["SimWindSpeed", "SimWindDirection", "SimGustStrength", "SimGustPeriod", "SimGustSeed"];
+export { HoldTimer, REQUEST_HOLD_MS, reportedSimulation, runRequestSequence };
+export const WIND_ACTIONS = ["SIM_WIND_SPEED", "SIM_WIND_DIRECTION", "SIM_GUST_STRENGTH", "SIM_GUST_PERIOD", "SIM_GUST_SEED"];
 export const DIRECTION_MODES = {
   from: "Wind from (compass, clockwise: 0 = N, 90 = E)",
   toward: "Air moves toward (counterclockwise from N: 90 = W)",
@@ -52,38 +51,19 @@ export function parseNumber(text, lo, hi) {
   return Number.isFinite(v) && v >= lo && v <= hi ? v : null;
 }
 
-/** The five frames of Apply, in order: [{name, value}], or null when a field is invalid (see `fields`). */
+/** The five requests of Apply, in order: [{action, label, arg_f | arg_i}], or null when a field is invalid. */
 export function applySequence({ speed, directionRad, gust, period, seed }) {
   const vals = [speed, directionRad, gust, period, seed];
   if (vals.some((v) => v === null || v === undefined || !Number.isFinite(v))) return null;
-  return WIND_NAMES.map((name, i) => ({ name, value: vals[i] }));
+  return WIND_ACTIONS.map((action, i) => (action === "SIM_GUST_SEED" ? { action, arg_i: vals[i] } : { action, arg_f: vals[i] }));
 }
 
-/** The two frames of Clear wind: wind speed 0 and gust strength 0. */
+/** The two requests of Clear wind: wind speed 0 and gust strength 0. */
 export function clearSequence() {
   return [
-    { name: "SimWindSpeed", value: 0 },
-    { name: "SimGustStrength", value: 0 },
+    { action: "SIM_WIND_SPEED", arg_f: 0 },
+    { action: "SIM_GUST_STRENGTH", arg_f: 0 },
   ];
-}
-
-/**
- * Send the steps one after the other, `spacingMs` apart, exactly once each. `send(step)` returns a promise and throws
- * on refusal; the sequence STOPS at the first refusal (nothing is retried). `sleep(ms)` is injectable for tests.
- * Returns {sent: n, error: null | {step, message}}.
- */
-export async function runSequence(steps, send, sleep, spacingMs = SEQUENCE_SPACING_MS) {
-  let sent = 0;
-  for (let i = 0; i < steps.length; i++) {
-    if (i > 0) await sleep(spacingMs);
-    try {
-      await send(steps[i]);
-    } catch (e) {
-      return { sent, error: { step: steps[i], message: e && e.message ? e.message : String(e) } };
-    }
-    sent++;
-  }
-  return { sent, error: null };
 }
 
 /** Whether Apply/Clear can be used. `simulation` is VehicleStatus.simulation as the vehicle reports it. */

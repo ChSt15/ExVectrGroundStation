@@ -1,12 +1,12 @@
-// 'Simulation testing' page (docs/telecommands.md): hosts the registered sections (wind, servo faults, later more).
-// TEMPORARY, SAFETY-RELEVANT UI like the telecommand path. Everything is greyed out and labelled 'simulation mode
+// 'Simulation testing' page (docs/requests.md): hosts the registered sections (wind, servo faults, later more).
+// SAFETY-RELEVANT UI. Everything is greyed out and labelled 'simulation mode
 // only' unless the VEHICLE reports simulation mode (display gating; the vehicle refuses outside it anyway).
 import { h } from "../ui.js";
 import { simSections } from "./simtests_registry.js";
 import { SIM_ONLY_LABEL, simTestState } from "./simtests_logic.js";
 import { commandPathRows } from "../status/command_path.js";
 import { renderCommandPath } from "../status/command_path_view.js";
-import { reportedSimulation } from "./telecommand_logic.js";
+import { reportedSimulation } from "../requests/requests_logic.js";
 import "./simwind_section.js";
 import "./simfaults_section.js";
 
@@ -16,7 +16,7 @@ export function createSimTestsPanel(el, ctx) {
   const root = h("div", { class: "st-root" });
   const pathBox = h("div", { class: "cp-box", "data-testid": "st-path" });
   el.append(h("div", { class: "tc-warn", text: `Simulation tests are ${SIM_ONLY_LABEL}. They are enabled only while the vehicle itself reports simulation mode, in the live view, on a control host with a route.` }),
-    h("div", { class: "tc-warn", "data-testid": "st-sc-note", text: "Simulation is entered with the virtual radio's SC switch (Virtual radio panel, hold master): the vehicle boots REAL, and only an observed SC change 0 -> 1 -> 0 (or 1 -> 0) while on the ground and not committed changes the mode. There is no simulation command any more. The vehicle reports the result below." }),
+    h("div", { class: "tc-warn", "data-testid": "st-sc-note", text: "Simulation is entered with the virtual radio's SC switch (Virtual radio panel, hold master): the vehicle boots REAL, and only an observed SC change 0 -> 1 -> 0 (or 1 -> 0) while on the ground and not committed changes the mode. There is no simulation request: only the switch. The vehicle reports the result below." }),
     banner, pathBox, why, root);
   const mounted = simSections().map((def) => {
     const box = h("section", { class: "st-section", "data-section": def.id });
@@ -31,7 +31,7 @@ export function createSimTestsPanel(el, ctx) {
     const st = ctx.status();
     const entry = ctx.store.get(ctx.view(), "VehicleStatus");
     const s = simTestState({
-      apiState: ctx.api.state, view: ctx.view(), canControl, route: st ? st.telecommand_route || null : null,
+      apiState: ctx.api.state, view: ctx.view(), canControl, route: st?.request_routes?.["1"] || null,
       simulation: entry && entry.f ? entry.f.simulation : null,
     });
     const rep = reportedSimulation(entry);
@@ -45,7 +45,7 @@ export function createSimTestsPanel(el, ctx) {
 
   return {
     onReady() { each((i) => i.onReady?.()); render(); },
-    onTelecommands(m) { each((i) => i.onTelecommands?.(m)); },
+    onRequests(m) { each((i) => i.onRequests?.(m)); },
     onStatus(x) { each((i) => i.onStatus?.(x)); render(); },
     onTick() { each((i) => i.onTick?.()); render(); },
     onViewChange() { each((i) => i.onViewChange?.()); render(); },

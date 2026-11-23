@@ -104,6 +104,9 @@ def parse_faults(raw: list[dict[str, Any]]) -> list[Fault]:
     return faults
 
 
+_RULED_ACTIONS = (7, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23)
+
+
 class FakeSource(Source):
     kind = SourceKind.FAKE
 
@@ -147,15 +150,18 @@ class FakeSource(Source):
         self.received_requests: deque[Packet] = deque(maxlen=1000)  # every attempt that reached this source
         self.executed_requests: list[tuple[int, int, int]] = []  # (req_id, action, target), once per req_id
         self._attempts: dict[int, int] = {}
-        # TEMPORARY legacy telecommand test double: `answer_telecommands = true` accepts GS Telecommand packets
-        # (recorded in `received_telecommands`, nothing else happens, no vehicle logic).
-        self.answer_telecommands = bool(opts.get("answer_telecommands", False))
-        self.received_telecommands: list[Packet] = []
+        # request_rules also covers the actions 7, 14..23: SIM_* (15..22) need `request_simulation` (else REJECTED_STATE
+        # detail 5), CALIB_APPLY and CALIB_CONTROL (7, 14) are refused with detail 6 when `request_calib_refuse`,
+        # GET_HOME_POSITION (23) is REJECTED_STATE detail 4 when `request_no_home` (else DONE; the scenario sends
+        # HOME_POSITION anyway). Argument ranges of the SIM_* actions are checked (REJECTED_INVALID detail 1).
+        self.request_simulation = bool(opts.get("request_simulation", False))
+        self.request_calib_refuse = bool(opts.get("request_calib_refuse", False))
+        self.request_no_home = bool(opts.get("request_no_home", False))
         self._sink: PacketSink | None = None
         self.caps = SourceCaps(
             rc_role=cfg.rc_role,  # type: ignore[arg-type]
-            can_send=cfg.rc_role == "control" or self.answer_requests or self.answer_telecommands,
-            request_targets=targets if (self.answer_requests or self.answer_telecommands) else (),
+            can_send=cfg.rc_role == "control" or self.answer_requests,
+            request_targets=targets if self.answer_requests else (),
         )
         # Test-only command round trip (design 6.5). With `echo_rc = true`, the `echo_field` (default `profile`:
         # 0, 1, 2) of the last received GS CmdState is echoed as `MissionState.mission_index`. It implements no
@@ -332,11 +338,6 @@ class FakeSource(Source):
         loop and request tests."""
         if getattr(pkt, "TYPE", None) == "Request":
             return self._on_request(pkt)
-        if getattr(pkt, "TYPE", None) == "Telecommand":
-            if not self.answer_telecommands or self._state != "connected":
-                return False
-            self.received_telecommands.append(pkt)
-            return True
         if getattr(pkt, "TYPE", None) != "CmdState" or self.caps.rc_role != "control" or self._state != "connected":
             return False
         self.received_cmd.append(pkt)  # type: ignore[arg-type]
@@ -355,7 +356,7 @@ class FakeSource(Source):
         if n <= self.request_drop_first or self._sink is None:
             return True  # accepted onto the link, the "vehicle" does not answer
         status, detail = self.request_status, self.request_detail
-        if self.request_rules and int(pkt.action) in (12, 13):  # type: ignore[attr-defined]
+        if self.request_rules and int(pkt.action) in _RULED_ACTIONS:  # type: ignore[attr-defined]
             status, detail = self._rules_answer(pkt)
             if status == 0 and int(pkt.action) == 13 and n == 1:  # type: ignore[attr-defined]
                 self.stop_altitude = float(pkt.arg_f)  # type: ignore[attr-defined]
@@ -372,8 +373,28 @@ class FakeSource(Source):
             return 2, 3
         if not self.request_on_ground:
             return 2, 1
-        if int(pkt.action) == 13 and not (math.isfinite(pkt.arg_f) and pkt.arg_f >= 1.0):  # type: ignore[attr-defined]
+        a, ai, af = int(pkt.action), int(pkt.arg_i), float(pkt.arg_f)  # type: ignore[attr-defined]
+        if a == 13 and not (math.isfinite(af) and af >= 1.0):
             return 3, 1
+        if 15 <= a <= 22:
+            if not self.request_simulation:
+                return 2, 5
+            ok = {
+                15: 0 <= af <= 20,
+                16: -math.pi <= af <= math.pi,
+                17: 0 <= af <= 10,
+                18: 0.5 <= af <= 30,
+                19: 0 <= ai <= 16777215,
+                20: 0 <= ai <= 3 and (af == -1.0 or 0 <= af <= math.pi / 2),
+                21: 0 <= ai <= 3 and 0.05 <= af <= 1,
+                22: True,
+            }[a]
+            if not (ok and math.isfinite(af)):
+                return 3, 1
+        if a in (7, 14) and self.request_calib_refuse:
+            return 2, 6
+        if a == 23 and self.request_no_home:
+            return 2, 4
         return 0, 0
 
     def status(self) -> SourceStatus:

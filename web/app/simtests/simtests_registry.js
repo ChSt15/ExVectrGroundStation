@@ -1,6 +1,6 @@
 // Registry of 'Simulation testing' sections. A section is one file that calls registerSimSection(); the page
 // (panels/simtests.js) mounts every registered section in order. Add a simulation test = add a section here.
-// def: {id, title, order?, create(el, ctx) -> {onReady, onTelecommands, onStatus, onTick, onViewChange, destroy}}
+// def: {id, title, order?, create(el, ctx) -> {onReady, onRequests, onStatus, onTick, onViewChange, destroy}}
 const sections = new Map();
 
 export function registerSimSection(def) {

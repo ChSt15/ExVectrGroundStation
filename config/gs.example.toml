@@ -60,7 +60,6 @@ seed = 1
 speed = 1.0                                    # simulated seconds per wall second
 rc_role = "none"                              # "control" lets the command engine send CMD_STATE to it (test double: keeps it in received_cmd)
 answer_requests = true                         # test double: answers REQUESTs with REQUEST_ACK (docs/requests.md)
-answer_telecommands = true                     # test double: accepts the TEMPORARY legacy telecommands (docs/telecommands.md)
 # request_status = 2                           # ACK status to answer with (0 DONE ... 4 FAILED); request_drop_first = 2 to test retries
 # echo_rc = true                               # test only: echo the SA channel value as MissionState.mission_index (docs/testing.md)
 # faults = [ { kind = "dropout", at = 10, duration = 2, types = ["Attitude"] } ]
@@ -77,47 +76,112 @@ answer_telecommands = true                     # test double: accepts the TEMPOR
 # sources, then fake sources, each in config order. No suitable connected source: the send is refused, never queued.
 source_preference = ["usb", "link", "fake"]
 
+# Calibration (vehicle: disarmed, on the ground, not in simulation; refusals say 'see the console'). CALIB_CONTROL: arg_i = subsystem * 10 + code.
+# Several rows share an action: the fixed arg_i is part of a row's identity.
 [[requests.action]]
-action = "CALIB_GYRO_START"
-label = "Gyro calibration start"
+action = "CALIB_CONTROL"
+label = "Gyro: start calibration"
 group = "Calibration"
 target = 1
+arg_i = 1
 
 [[requests.action]]
-action = "CALIB_GYRO_STOP"
-label = "Gyro calibration stop"
+action = "CALIB_CONTROL"
+label = "Gyro: stop and fit"
 group = "Calibration"
 target = 1
+arg_i = 0
 
 [[requests.action]]
-action = "CALIB_ACCEL_START"
-label = "Accelerometer calibration start"
+action = "CALIB_CONTROL"
+label = "Gyro: verify active calibration"
 group = "Calibration"
 target = 1
+arg_i = 2
 
 [[requests.action]]
-action = "CALIB_ACCEL_STOP"
-label = "Accelerometer calibration stop"
+action = "CALIB_CONTROL"
+label = "Gyro: discard candidate"
 group = "Calibration"
 target = 1
-
-[[requests.action]]
-action = "CALIB_MAG_START"
-label = "Magnetometer calibration start"
-group = "Calibration"
-target = 1
-
-[[requests.action]]
-action = "CALIB_MAG_STOP"
-label = "Magnetometer calibration stop"
-group = "Calibration"
-target = 1
+arg_i = 9
 
 [[requests.action]]
 action = "CALIB_APPLY"
-label = "Apply calibration"
+label = "Gyro: apply candidate (RAM only until Save)"
 group = "Calibration"
 target = 1
+arg_i = 0
+
+[[requests.action]]
+action = "CALIB_CONTROL"
+label = "Accelerometer: start calibration"
+group = "Calibration"
+target = 1
+arg_i = 11
+
+[[requests.action]]
+action = "CALIB_CONTROL"
+label = "Accelerometer: stop and fit"
+group = "Calibration"
+target = 1
+arg_i = 10
+
+[[requests.action]]
+action = "CALIB_CONTROL"
+label = "Accelerometer: verify active calibration"
+group = "Calibration"
+target = 1
+arg_i = 12
+
+[[requests.action]]
+action = "CALIB_CONTROL"
+label = "Accelerometer: discard candidate"
+group = "Calibration"
+target = 1
+arg_i = 19
+
+[[requests.action]]
+action = "CALIB_APPLY"
+label = "Accelerometer: apply candidate (RAM only until Save)"
+group = "Calibration"
+target = 1
+arg_i = 1
+
+[[requests.action]]
+action = "CALIB_CONTROL"
+label = "Magnetometer: start calibration"
+group = "Calibration"
+target = 1
+arg_i = 21
+
+[[requests.action]]
+action = "CALIB_CONTROL"
+label = "Magnetometer: stop and fit"
+group = "Calibration"
+target = 1
+arg_i = 20
+
+[[requests.action]]
+action = "CALIB_CONTROL"
+label = "Magnetometer: verify active calibration"
+group = "Calibration"
+target = 1
+arg_i = 22
+
+[[requests.action]]
+action = "CALIB_CONTROL"
+label = "Magnetometer: discard candidate"
+group = "Calibration"
+target = 1
+arg_i = 29
+
+[[requests.action]]
+action = "CALIB_APPLY"
+label = "Magnetometer: apply candidate (RAM only until Save)"
+group = "Calibration"
+target = 1
+arg_i = 2
 
 [[requests.action]]
 action = "SAVE_CONFIG"
@@ -143,12 +207,98 @@ target = 1
 arg_f_min = 1.0                 # metres, at least 1; no real maximum (the whitelist needs a finite bound)
 arg_f_max = 1000000.0
 arg_f_default = 20.0
-arg_f_name = "altitude, m"      # sent by the Vehicle settings control of the Commands panel (plain click); not shown in the Requests panel
+arg_f_name = "altitude, m"      # sent by the Vehicle settings control of the Vehicle panel (plain click); not shown in the Requests panel
 
 [[requests.action]]
-action = "SYSTEM_RESET"
-label = "System reset"
+action = "GET_HOME_POSITION"
+label = "Request home position"
 group = "Vehicle"
+target = 1
+
+# Simulation tests (vehicle: simulation mode only, else REJECTED_STATE 'not in simulation'). Shown on the Simulation testing page,
+# not in the Requests panel (group "Simulation"); the page sends several in sequence, each after the previous ACK.
+[[requests.action]]
+action = "SIM_WIND_SPEED"
+label = "Wind speed"
+group = "Simulation"
+target = 1
+arg_f_min = 0.0
+arg_f_max = 20.0
+arg_f_default = 0.0
+arg_f_name = "m/s"
+
+[[requests.action]]
+action = "SIM_WIND_DIRECTION"
+label = "Wind direction"
+group = "Simulation"
+target = 1
+arg_f_min = -3.141592653589793
+arg_f_max = 3.141592653589793
+arg_f_default = 0.0
+arg_f_name = "rad, air moves toward, CCW from N toward W"
+
+[[requests.action]]
+action = "SIM_GUST_STRENGTH"
+label = "Gust strength"
+group = "Simulation"
+target = 1
+arg_f_min = 0.0
+arg_f_max = 10.0
+arg_f_default = 0.0
+arg_f_name = "m/s"
+
+[[requests.action]]
+action = "SIM_GUST_PERIOD"
+label = "Gust period"
+group = "Simulation"
+target = 1
+arg_f_min = 0.5
+arg_f_max = 30.0
+arg_f_default = 5.0
+arg_f_name = "s"
+
+[[requests.action]]
+action = "SIM_GUST_SEED"
+label = "Gust seed"
+group = "Simulation"
+target = 1
+arg_i = 1
+arg_i_min = 0
+arg_i_max = 16777215
+arg_i_name = "seed"
+
+[[requests.action]]
+action = "SIM_FLAP_STUCK"
+label = "Force flap"
+group = "Simulation"
+target = 1
+arg_i = 0
+arg_i_min = 0
+arg_i_max = 3
+arg_i_name = "flap 0..3 = TL TR BL BR"
+arg_f_min = -1.0
+arg_f_max = 1.5707963267948966
+arg_f_default = 0.7
+arg_f_name = "rad, -1 = hold the current angle"
+
+[[requests.action]]
+action = "SIM_FLAP_SLOW"
+label = "Slow servo"
+group = "Simulation"
+target = 1
+arg_i = 0
+arg_i_min = 0
+arg_i_max = 3
+arg_i_name = "flap 0..3 = TL TR BL BR"
+arg_f_min = 0.05
+arg_f_max = 1.0
+arg_f_default = 0.3
+arg_f_name = "rate factor"
+
+[[requests.action]]
+action = "SIM_FAULT_CLEAR"
+label = "Release all faults"
+group = "Simulation"
 target = 1
 
 # Link modules. The module ALWAYS obeys this, in flight too (workspace docs/safety.md 2.5 exception): it stops the radio
@@ -184,342 +334,6 @@ group = "Link modules"
 target = 3
 confirm = "danger"
 warning = "Reboots the ship radio node: RC to the vehicle is interrupted for seconds, in flight too. The module always obeys."
-
-# TEMPORARY legacy TELECOMMANDS (docs/telecommands.md). A THIRD uplink, besides the command state and REQUESTs, approved by the
-# user on 2026-11-20 and kept ONLY until the flight software's T9b replaces it by RC_STATE mapping and REQUESTs.
-# TODO(T9b): delete this whole section, the `telecommand/` package, `exgs tc` and the GUI panel then.
-# The vehicle takes the old 8-byte Telecommand on ExVectrNetwork port 0x7F (src node 0, dst node 1). Each command is
-# sent EXACTLY ONCE per deliberate confirmation (GUI hold 1 s, CLI `exgs tc send NAME --confirm NAME`): no retry, no
-# ACK, and the vehicle de-duplicates nothing. The GUI never shows an assumed simulation state:
-# only VehicleStatus.simulation as reported. Control hosts only, never in replay, never to a source that is not
-# connected, at most one per 500 ms per client. name = whitelist key, type = flight software TelecommandType,
-# subsystem = flight software Subsystem (2 = magnetometer), param_int = int16 parameter (magic values are the
-# vehicle's). T9b-4: the vehicle IGNORES the telecommands Arm, SimulationMode, MissionBegin, MissionSelect,
-# MissionAbort and SystemReset (it counts and logs them), so they are NOT in this whitelist: safety commands are
-# given with the virtual radio switches (config/radio.pocket.toml). Only the non-safety entries below remain.
-[telecommands]
-source_preference = ["usb", "link", "fake"]    # vehicle USB first, else the Router link
-
-# ZeroEstimators and SetStopAltitude are REMOVED on the vehicle (it ignores and counts them): they are the
-# ZERO_ESTIMATORS and SET_STOP_ALTITUDE requests now ([[requests.action]] above).
-
-[[telecommands.command]]
-name = "CalibGyroStart"
-type = "CalibStart"
-label = "Gyro: start calibration"
-group = "Calibration"
-subsystem = 0
-param_int = 1
-note = "vehicle must be disarmed, on the ground, not in simulation"
-
-[[telecommands.command]]
-name = "CalibGyroStop"
-type = "CalibStart"
-label = "Gyro: stop and fit"
-group = "Calibration"
-subsystem = 0
-param_int = 0
-
-[[telecommands.command]]
-name = "CalibGyroVerify"
-type = "CalibStart"
-label = "Gyro: verify active calibration"
-group = "Calibration"
-subsystem = 0
-param_int = 2
-
-[[telecommands.command]]
-name = "CalibGyroDiscard"
-type = "CalibStart"
-label = "Gyro: discard candidate"
-group = "Calibration"
-subsystem = 0
-param_int = -1
-
-[[telecommands.command]]
-name = "CalibGyroApply"
-type = "CalibApply"
-label = "Gyro: apply candidate (RAM only until Save)"
-group = "Calibration"
-subsystem = 0
-note = "the vehicle applies only a passing candidate"
-
-[[telecommands.command]]
-name = "CalibAccelStart"
-type = "CalibStart"
-label = "Accelerometer: start calibration"
-group = "Calibration"
-subsystem = 1
-param_int = 1
-note = "vehicle must be disarmed, on the ground, not in simulation"
-
-[[telecommands.command]]
-name = "CalibAccelStop"
-type = "CalibStart"
-label = "Accelerometer: stop and fit"
-group = "Calibration"
-subsystem = 1
-param_int = 0
-
-[[telecommands.command]]
-name = "CalibAccelVerify"
-type = "CalibStart"
-label = "Accelerometer: verify active calibration"
-group = "Calibration"
-subsystem = 1
-param_int = 2
-
-[[telecommands.command]]
-name = "CalibAccelDiscard"
-type = "CalibStart"
-label = "Accelerometer: discard candidate"
-group = "Calibration"
-subsystem = 1
-param_int = -1
-
-[[telecommands.command]]
-name = "CalibAccelApply"
-type = "CalibApply"
-label = "Accelerometer: apply candidate (RAM only until Save)"
-group = "Calibration"
-subsystem = 1
-note = "the vehicle applies only a passing candidate"
-
-[[telecommands.command]]
-name = "CalibMagStart"
-type = "CalibStart"
-label = "Magnetometer: start calibration"
-group = "Calibration"
-subsystem = 2
-param_int = 1
-note = "vehicle must be disarmed, on the ground, not in simulation"
-
-[[telecommands.command]]
-name = "CalibMagStop"
-type = "CalibStart"
-label = "Magnetometer: stop and fit"
-group = "Calibration"
-subsystem = 2
-param_int = 0
-
-[[telecommands.command]]
-name = "CalibMagVerify"
-type = "CalibStart"
-label = "Magnetometer: verify active calibration"
-group = "Calibration"
-subsystem = 2
-param_int = 2
-
-[[telecommands.command]]
-name = "CalibMagDiscard"
-type = "CalibStart"
-label = "Magnetometer: discard candidate"
-group = "Calibration"
-subsystem = 2
-param_int = -1
-
-[[telecommands.command]]
-name = "CalibMagApply"
-type = "CalibApply"
-label = "Magnetometer: apply candidate (RAM only until Save)"
-group = "Calibration"
-subsystem = 2
-note = "the vehicle applies only a passing candidate"
-
-[[telecommands.command]]
-name = "CalibSave"
-type = "Save"
-label = "Save calibration to EEPROM"
-group = "Calibration"
-subsystem = 0
-note = "writes the whole image; any subsystem saves all"
-
-
-# Simulation wind (owner approval 2026-11-21, docs/telecommands.md): simulation-only, five types 11..15.
-# Applied as a group by the GUI 'Sim wind' panel, 150 ms apart, one frame each, no retry.
-[[telecommands.command]]
-name = "SimWindSpeed"
-type = "SimWindSpeed"
-label = "Wind speed (m/s)"
-group = "Simulation wind"
-rate_group = "simwind"                         # may follow another simwind command after 100 ms (GUI sends 150 ms apart)
-param_int = 0x57                               # the vehicle's magic value, fixed
-param_float = 0.0
-param_float_min = 0.0
-param_float_max = 20.0
-param_float_name = "speed_mps"
-note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode"
-
-[[telecommands.command]]
-name = "SimWindDirection"
-type = "SimWindDirection"
-label = "Wind direction, air moves toward (rad)"
-group = "Simulation wind"
-rate_group = "simwind"                         # may follow another simwind command after 100 ms (GUI sends 150 ms apart)
-param_int = 0x57                               # the vehicle's magic value, fixed
-param_float = 0.0
-param_float_min = -3.1416
-param_float_max = 3.1416
-param_float_name = "direction_rad"
-note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode"
-
-[[telecommands.command]]
-name = "SimGustStrength"
-type = "SimGustStrength"
-label = "Gust strength (m/s)"
-group = "Simulation wind"
-rate_group = "simwind"                         # may follow another simwind command after 100 ms (GUI sends 150 ms apart)
-param_int = 0x57                               # the vehicle's magic value, fixed
-param_float = 0.0
-param_float_min = 0.0
-param_float_max = 10.0
-param_float_name = "gust_mps"
-note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode"
-
-[[telecommands.command]]
-name = "SimGustPeriod"
-type = "SimGustPeriod"
-label = "Gust period (s)"
-group = "Simulation wind"
-rate_group = "simwind"                         # may follow another simwind command after 100 ms (GUI sends 150 ms apart)
-param_int = 0x57                               # the vehicle's magic value, fixed
-param_float = 4.0
-param_float_min = 0.5
-param_float_max = 30.0
-param_float_name = "period_s"
-note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode"
-
-[[telecommands.command]]
-name = "SimGustSeed"
-type = "SimGustSeed"
-label = "Gust seed"
-group = "Simulation wind"
-rate_group = "simwind"                         # may follow another simwind command after 100 ms (GUI sends 150 ms apart)
-param_int = 0x57                               # the vehicle's magic value, fixed
-param_float = 0.0
-param_float_min = 0.0
-param_float_max = 16777215.0
-param_float_name = "seed"
-note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode"
-
-# Simulation tests (owner approval 2026-11-21, docs/telecommands.md): simulation-only servo faults, types 16..18.
-# One frame each, no retry, hold 1 s, 500 ms per client (NO rate_group). The subsystem byte is fixed per entry:
-# flap index 0..3 (TL, TR, BL, BR). The GUI page 'Simulation testing' picks the entry.
-
-[[telecommands.command]]
-name = "SimFlapStuckTL"
-type = "SimFlapStuck"
-label = "Force flap TL to an angle (rad)"
-group = "Simulation tests"
-subsystem = 0
-param_int = 0x57                               # the vehicle's magic value, fixed
-param_float = 0.733
-param_float_min = -1.0
-param_float_max = 1.5708
-param_float_name = "angle_rad"
-note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs a line when it sets a fault; angle 0..pi/2 rad, -1.0 = stick at the current angle"
-
-[[telecommands.command]]
-name = "SimFlapStuckTR"
-type = "SimFlapStuck"
-label = "Force flap TR to an angle (rad)"
-group = "Simulation tests"
-subsystem = 1
-param_int = 0x57                               # the vehicle's magic value, fixed
-param_float = 0.733
-param_float_min = -1.0
-param_float_max = 1.5708
-param_float_name = "angle_rad"
-note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs a line when it sets a fault; angle 0..pi/2 rad, -1.0 = stick at the current angle"
-
-[[telecommands.command]]
-name = "SimFlapStuckBL"
-type = "SimFlapStuck"
-label = "Force flap BL to an angle (rad)"
-group = "Simulation tests"
-subsystem = 2
-param_int = 0x57                               # the vehicle's magic value, fixed
-param_float = 0.733
-param_float_min = -1.0
-param_float_max = 1.5708
-param_float_name = "angle_rad"
-note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs a line when it sets a fault; angle 0..pi/2 rad, -1.0 = stick at the current angle"
-
-[[telecommands.command]]
-name = "SimFlapStuckBR"
-type = "SimFlapStuck"
-label = "Force flap BR to an angle (rad)"
-group = "Simulation tests"
-subsystem = 3
-param_int = 0x57                               # the vehicle's magic value, fixed
-param_float = 0.733
-param_float_min = -1.0
-param_float_max = 1.5708
-param_float_name = "angle_rad"
-note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs a line when it sets a fault; angle 0..pi/2 rad, -1.0 = stick at the current angle"
-
-[[telecommands.command]]
-name = "SimFlapSlowTL"
-type = "SimFlapSlow"
-label = "Flap TL slow servo (rate factor)"
-group = "Simulation tests"
-subsystem = 0
-param_int = 0x57                               # the vehicle's magic value, fixed
-param_float = 0.3
-param_float_min = 0.05
-param_float_max = 1.0
-param_float_name = "rate_factor"
-note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs a line when it sets a fault"
-
-[[telecommands.command]]
-name = "SimFlapSlowTR"
-type = "SimFlapSlow"
-label = "Flap TR slow servo (rate factor)"
-group = "Simulation tests"
-subsystem = 1
-param_int = 0x57                               # the vehicle's magic value, fixed
-param_float = 0.3
-param_float_min = 0.05
-param_float_max = 1.0
-param_float_name = "rate_factor"
-note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs a line when it sets a fault"
-
-[[telecommands.command]]
-name = "SimFlapSlowBL"
-type = "SimFlapSlow"
-label = "Flap BL slow servo (rate factor)"
-group = "Simulation tests"
-subsystem = 2
-param_int = 0x57                               # the vehicle's magic value, fixed
-param_float = 0.3
-param_float_min = 0.05
-param_float_max = 1.0
-param_float_name = "rate_factor"
-note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs a line when it sets a fault"
-
-[[telecommands.command]]
-name = "SimFlapSlowBR"
-type = "SimFlapSlow"
-label = "Flap BR slow servo (rate factor)"
-group = "Simulation tests"
-subsystem = 3
-param_int = 0x57                               # the vehicle's magic value, fixed
-param_float = 0.3
-param_float_min = 0.05
-param_float_max = 1.0
-param_float_name = "rate_factor"
-note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs a line when it sets a fault"
-
-[[telecommands.command]]
-name = "SimFaultClear"
-type = "SimFaultClear"
-label = "Clear all simulated faults and armed faults"
-group = "Simulation tests"
-subsystem = 0
-param_int = 0x57                               # the vehicle's magic value, fixed
-param_float = 0.0
-note = "SIMULATION ONLY: the vehicle refuses it outside simulation mode and logs a line when it sets a fault"
-
 
 [radio]
 config = "config/radio.pocket.toml"

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  DANGER_ENABLE_MS, DANGER_TEXT, DangerGate, dangerText, HoldTimer, REQUEST_HOLD_MS, actionKey, describeRequest, groupActions, parseArgF, refusalText, requestFor,
+  DANGER_ENABLE_MS, DANGER_TEXT, DangerGate, dangerText, HoldTimer, REQUEST_HOLD_MS, actionKey, describeRequest, groupActions, homeText, parseArgF, parseArgI, refusalText, requestFor,
   sendState,
 } from "../app/requests/requests_logic.js";
 
@@ -163,4 +163,30 @@ test("parseArgF: a number within the row's range, else null; sendState blocks an
   const ok = { apiState: "open", view: "live", canControl: true, inflight: false, route: "usb" };
   assert.equal(sendState({ ...ok, argOk: false }).enabled, false);
   assert.equal(sendState({ ...ok, argOk: true }).enabled, true);
+});
+
+test("new refusal details 4, 5 and 6 are worded", () => {
+  assert.match(refusalText("REJECTED_STATE", 4), /no home position/);
+  assert.match(refusalText("REJECTED_STATE", 5), /not in simulation mode/);
+  assert.match(refusalText("REJECTED_STATE", 6), /calibration refused, see the console/);
+  assert.match(refusalText("REJECTED_STATE", 9), /detail 9/);
+});
+
+test("rows sharing an action are told apart by their fixed arg_i", () => {
+  const g0 = { action: "CALIB_CONTROL", target: 1, arg_i: 1, arg_i_range: null };
+  const g1 = { action: "CALIB_CONTROL", target: 1, arg_i: 11, arg_i_range: null };
+  assert.notEqual(actionKey(g0), actionKey(g1));
+  const reqs = { inflight: [{ req_id: 5, action: "CALIB_CONTROL", target: 1, arg_i: 11, state: "sending" }], recent: [] };
+  assert.equal(requestFor(reqs, g1).req_id, 5);
+  assert.equal(requestFor(reqs, g0), null);
+  assert.equal(parseArgI("3", { min: 0, max: 3 }), 3);
+  assert.equal(parseArgI("4", { min: 0, max: 3 }), null);
+  assert.equal(parseArgI("1.5", { min: 0, max: 3 }), null);
+});
+
+test("home text: lat/lon in degrees, altitude, epoch; nothing received", () => {
+  assert.match(homeText(null).text, /no home position/);
+  const d = homeText({ f: { latlon_valid: true, alt_valid: true, lat: 0.8, lon: 0.1, alt: 123.45, epoch: 2, simulation: false } });
+  assert.match(d.text, /45\.836624, 5\.729578, 123\.5 m, epoch 2/);
+  assert.match(homeText({ f: { latlon_valid: false, alt_valid: false, epoch: 1, simulation: true } }).text, /no lat\/lon, no altitude \(simulation\), epoch 1/);
 });

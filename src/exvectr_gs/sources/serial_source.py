@@ -189,7 +189,7 @@ class SerialSource(Source):
     async def send(self, pkt: Packet) -> bool:
         """Queue one uplink packet. False if not connected, not allowed or not encodable.
 
-        Only UP packet types go out (CmdState, Request and the TEMPORARY Telecommand), CmdState only through the
+        Only UP packet types go out (CmdState and Request; the wire profile encodes nothing else), CmdState only
         source with rc_role = "control" (a command link): a mirror or none source never carries the GS command
         state, whatever the caller asks. A Request goes out whatever the rc_role, but only to a target this source
         can reach.
@@ -204,8 +204,6 @@ class SerialSource(Source):
             return False
         if pkt.TYPE == "CmdState" and (self.caps.rc_role != "control" or 1 not in self.caps.request_targets):
             return False
-        if pkt.TYPE == "Telecommand" and 1 not in self.caps.request_targets:
-            return False  # TEMPORARY legacy telecommand: only to the vehicle (node 1), which this source must reach
         if pkt.TYPE == "Request" and getattr(pkt, "target", None) not in self.caps.request_targets:
             return False  # the request controller routes by reach; a source never carries what it cannot reach
         frame = self._profile.encode(pkt)

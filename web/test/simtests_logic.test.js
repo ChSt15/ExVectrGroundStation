@@ -2,15 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   AT_CURRENT_ANGLE, clearCommand, degToRad, describeFaultSent, forcedFlaps, radToDeg, simTestState, slowCommand,
-  stuckCommand, stuckSubsystem,
-} from "../app/telecommand/simtests_logic.js";
+  stuckCommand, flapIndex,
+} from "../app/simtests/simtests_logic.js";
 
 const FL = ["TL", "TR", "BL", "BR"];
-const cmds = [
-  ...FL.map((f, i) => ({ name: `Stuck${f}`, type: "SimFlapStuck", subsystem: i })),
-  ...FL.map((f, i) => ({ name: `Slow${f}`, type: "SimFlapSlow", subsystem: i, param_float_min: 0.05, param_float_max: 1 })),
-  { name: "Clear", type: "SimFaultClear", subsystem: 0 },
-];
+const cmds = { SIM_FLAP_SLOW: { arg_f: { min: 0.05, max: 1 } } };
 const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} vs ${b}`);
 
 test("degrees to radians and back", () => {
@@ -19,26 +15,25 @@ test("degrees to radians and back", () => {
   near(radToDeg(degToRad(42)), 42);
 });
 
-test("subsystem byte: the flap index only, no arm bit", () => {
-  assert.deepEqual(FL.map((f) => stuckSubsystem(f)), [0, 1, 2, 3]);
-  assert.throws(() => stuckSubsystem("XX"));
+test("arg_i is the flap index 0..3 (TL TR BL BR)", () => {
+  assert.deepEqual(FL.map((f) => flapIndex(f)), [0, 1, 2, 3]);
+  assert.throws(() => flapIndex("XX"));
 });
 
-test("force-flap command picks the entry, converts degrees, supports hold-current", () => {
-  const c = stuckCommand(cmds, { flap: "TL", atCurrent: false, deg: "42" });
-  assert.equal(c.name, "StuckTL");
-  near(c.value, 0.7330382858376184);
-  assert.equal(stuckCommand(cmds, { flap: "BR", atCurrent: false, deg: "90" }).name, "StuckBR");
-  assert.equal(stuckCommand(cmds, { flap: "BR", atCurrent: true, deg: "junk" }).value, AT_CURRENT_ANGLE);
-  for (const bad of ["", "91", "-1", "abc", "NaN"]) assert.equal(stuckCommand(cmds, { flap: "TL", atCurrent: false, deg: bad }), null);
-  assert.equal(stuckCommand([], { flap: "TL", atCurrent: false, deg: "42" }), null);
+test("force-flap request converts degrees, supports hold-current", () => {
+  const c = stuckCommand({ flap: "TL", atCurrent: false, deg: "42" });
+  assert.equal(c.action, "SIM_FLAP_STUCK");
+  assert.equal(c.arg_i, 0);
+  near(c.arg_f, 0.7330382858376184);
+  assert.equal(stuckCommand({ flap: "BR", atCurrent: false, deg: "90" }).arg_i, 3);
+  assert.equal(stuckCommand({ flap: "BR", atCurrent: true, deg: "junk" }).arg_f, AT_CURRENT_ANGLE);
+  for (const bad of ["", "91", "-1", "abc", "NaN"]) assert.equal(stuckCommand({ flap: "TL", atCurrent: false, deg: bad }), null);
 });
 
-test("slow and clear commands", () => {
-  assert.deepEqual(slowCommand(cmds, { flap: "BL", factor: "0.3" }), { name: "SlowBL", value: 0.3 });
+test("slow and clear requests", () => {
+  assert.deepEqual(slowCommand(cmds, { flap: "BL", factor: "0.3" }), { action: "SIM_FLAP_SLOW", arg_i: 2, arg_f: 0.3 });
   for (const bad of ["0.04", "1.01", "", "x"]) assert.equal(slowCommand(cmds, { flap: "TL", factor: bad }), null);
-  assert.equal(clearCommand(cmds).name, "Clear");
-  assert.equal(clearCommand([]), null);
+  assert.deepEqual(clearCommand(), { action: "SIM_FAULT_CLEAR" });
 });
 
 test("forced? hint: commanded vs true angle > 2 deg for > 1 s, display only", () => {
@@ -60,9 +55,13 @@ test("gating: every simulation test needs the vehicle's own simulation flag, liv
   }
 });
 
-test("sent text comes from the core record only and says no ACK exists", () => {
-  assert.match(describeFaultSent(null, 10).text, /no fault command/);
-  const push = { recent: [{ n: 3, name: "Clear", label: "Clear all", type: "SimFaultClear", t: 8, source: "usb", param_int: 87, param_float: 0 }, { n: 2, name: "Arm", type: "Arm", t: 9, source: "usb", param_int: 1 }] };
-  const d = describeFaultSent(push, 10);
-  assert.match(d.text, /#3 sent .* ago once via usb.*no ACK exists/);
+test("fault result text is the vehicle's ACK in plain words", () => {
+  assert.match(describeFaultSent(null).text, /no fault request/);
+  const reqs = { inflight: [], recent: [{ req_id: 3, action: "SIM_FAULT_CLEAR", label: "Release all faults", state: "acked", status_name: "DONE", detail: 0 }, { req_id: 2, action: "SIM_WIND_SPEED", state: "acked", status_name: "DONE", detail: 0 }] };
+  const d = describeFaultSent(reqs);
+  assert.match(d.text, /Release all faults: ACK DONE/);
+  assert.equal(d.tone, "ok");
+  const r = describeFaultSent({ recent: [{ req_id: 4, action: "SIM_FLAP_STUCK", state: "acked", status_name: "REJECTED_STATE", detail: 5 }] });
+  assert.match(r.text, /not in simulation mode/);
+  assert.equal(r.tone, "bad");
 });

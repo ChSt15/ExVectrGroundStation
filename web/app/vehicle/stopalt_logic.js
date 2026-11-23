@@ -1,4 +1,4 @@
-// Pure logic of the 'Stop altitude' setting (docs/telecommands.md, docs/requests.md). Display and command only,
+// Pure logic of the 'Stop altitude' setting (docs/requests.md). Display and command only,
 // nothing sends it automatically. It is the whitelisted REQUEST SET_STOP_ALTITUDE (action 13, arg_f = metres >= 1,
 // no maximum): the vehicle answers with a REQUEST_ACK, and the request layer of the core retries (same req_id) and
 // ends as timeout. 'set' needs BOTH the ACK DONE and the echoed MissionState.stop_altitude matching (cross-check).

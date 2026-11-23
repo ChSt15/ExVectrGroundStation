@@ -17,7 +17,8 @@ export const DANGER_TEXT =
 /** Warning text of a `danger` whitelist row: its own `warning` from the config, else the generic text. */
 export const dangerText = (a) => (a && a.warning) || DANGER_TEXT;
 
-export const actionKey = (a) => `${a.action}@${a.target}`;
+/** Row key: action and target, plus the fixed arg_i for rows that share an action (CALIB_CONTROL codes, CALIB_APPLY subsystems). */
+export const actionKey = (a) => `${a.action}@${a.target}${!a.arg_i_range && a.arg_i ? `#${a.arg_i}` : ""}`;
 
 /** Whitelist rows grouped by their `group`, in the order the core lists them. */
 export function groupActions(actions) {
@@ -33,7 +34,7 @@ export function groupActions(actions) {
 /** The request of the latest `requests` push that belongs to this whitelist row: in flight first, else newest finished. */
 export function requestFor(reqs, a) {
   if (!reqs) return null;
-  const same = (r) => r.action === a.action && r.target === a.target;
+  const same = (r) => r.action === a.action && r.target === a.target && (a.arg_i_range || (r.arg_i ?? 0) === (a.arg_i ?? 0));
   return (reqs.inflight || []).find(same) || (reqs.recent || []).find(same) || null;
 }
 
@@ -48,6 +49,9 @@ export function refusalText(statusName, detail) {
     if (d === 1) return "refused: motors armed or in flight";
     if (d === 2) return "refused: the estimators cannot be zeroed in the vehicle's current state";
     if (d === 3) return "refused: session mismatch, restart the GS or wait 1 s";
+    if (d === 4) return "refused: the vehicle has no home position yet";
+    if (d === 5) return "refused: the vehicle is not in simulation mode";
+    if (d === 6) return "refused: calibration refused, see the console";
     return `refused: vehicle state does not allow it (detail ${d})`;
   }
   if (statusName === "REJECTED_INVALID") {
@@ -58,6 +62,66 @@ export function refusalText(statusName, detail) {
   }
   if (statusName === "FAILED") return "failed on the vehicle";
   return `unknown answer ${statusName}`;
+}
+
+/** An integer argument field as an integer within [min, max] of the row's `arg_i_range`, else null. */
+export function parseArgI(text, range) {
+  if (!range) return null;
+  const t = String(text).trim();
+  if (!/^-?\d+$/.test(t)) return null;
+  const v = Number(t);
+  return v >= range.min && v <= range.max ? v : null;
+}
+
+/** Newest request (in flight first) of any of these actions in a `requests` push, or null. */
+export function latestOf(reqs, actions) {
+  if (!reqs) return null;
+  const same = (r) => actions.includes(r.action);
+  return (reqs.inflight || []).find(same) || (reqs.recent || []).find(same) || null;
+}
+
+/** The home position as the vehicle reported it (HomePosition entry of the store), in plain words. */
+export function homeText(entry) {
+  const f = entry && entry.f;
+  if (!f) return { tone: "dim", text: "no home position received (press 'Request home position')" };
+  const deg = (r) => ((r * 180) / Math.PI).toFixed(6);
+  const ll = f.latlon_valid && Number.isFinite(f.lat) && Number.isFinite(f.lon) ? `${deg(f.lat)}, ${deg(f.lon)}` : "no lat/lon";
+  const alt = f.alt_valid && Number.isFinite(f.alt) ? `${f.alt.toFixed(1)} m` : "no altitude";
+  return { tone: "info", text: `home: ${ll}, ${alt}${f.simulation ? " (simulation)" : ""}, epoch ${f.epoch}` };
+}
+
+/**
+ * Send a sequence of requests one after the other, waiting for each ACK (the vehicle's inbox holds 8). Each step
+ * `{action, label, arg_i?, arg_f?}` is sent with `send(step)` (returns the core's request state), then `status()`
+ * (the core's request.status) is polled every `pollMs` until it is no longer `sending` or `timeoutMs` pass; the next
+ * step follows `spacingMs` later (the core allows one new request per 500 ms per client). The sequence stops at the
+ * first refusal, error or timeout. Returns {done, error: null | {step, text}}; `sleep(ms)` is injectable for tests.
+ */
+export async function runRequestSequence(steps, { send, status, sleep, spacingMs = 550, pollMs = 200, timeoutMs = 7000 }) {
+  let done = 0;
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    if (i > 0) await sleep(spacingMs);
+    let st;
+    try {
+      st = await send(step);
+    } catch (e) {
+      return { done, error: { step, text: `${step.label || step.action} not sent: ${e && e.message ? e.message : e}` } };
+    }
+    let waited = 0;
+    let fin = null;
+    while (waited <= timeoutMs) {
+      const s = await status();
+      const r = [...(s.inflight || []), ...(s.recent || [])].find((x) => x.req_id === st.req_id && x.action === step.action);
+      if (r && r.state !== "sending") { fin = r; break; }
+      await sleep(pollMs);
+      waited += pollMs;
+    }
+    const d = describeRequest(fin || { state: "timeout", attempts: st.attempts, req_id: st.req_id });
+    if (!fin || d.tone !== "ok") return { done, error: { step, text: `${step.label || step.action}: ${d.text}` } };
+    done++;
+  }
+  return { done, error: null };
 }
 
 /** Text and tone of one request, from the core's report only. */
@@ -122,4 +186,12 @@ export class DangerGate {
   ready() {
     return this.openedAt !== null && this.remainingMs() === 0;
   }
+}
+
+/** The simulation state as the VEHICLE reports it (never an assumed one). entry: VehicleStatus store entry. */
+export function reportedSimulation(entry) {
+  if (!entry || !entry.f) return { text: "no VehicleStatus received", tone: "dim" };
+  if (entry.f.simulation === true) return { text: "vehicle reports: SIMULATION", tone: "sim" };
+  if (entry.f.simulation === false) return { text: "vehicle reports: REAL SENSORS", tone: "real" };
+  return { text: "vehicle does not report the simulation state", tone: "dim" };
 }

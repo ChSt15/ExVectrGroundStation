@@ -81,6 +81,18 @@ class RequestAction(IntEnum):
     LINK_REBOOT = 11
     ZERO_ESTIMATORS = 12  # arg_f = window in s (NaN or 0 = 10 s, vehicle clamps 1..60)
     SET_STOP_ALTITUDE = 13  # arg_f = metres, finite and >= 1.0 (REJECTED_INVALID detail 1 otherwise)
+    # 1..6 CALIB_*_START/STOP and 9 SYSTEM_RESET are retired on the vehicle (REJECTED_INVALID 3): never sent.
+    # arg_i = subsystem * 10 + code (1 start, 2 verify, 0 stop and fit, 9 discard); CALIB_APPLY (7) arg_i = subsystem
+    CALIB_CONTROL = 14
+    SIM_WIND_SPEED = 15  # arg_f m/s 0..20, simulation mode only
+    SIM_WIND_DIRECTION = 16  # arg_f rad, direction the air moves toward (CCW from North toward West), -pi..pi
+    SIM_GUST_STRENGTH = 17  # arg_f 0..10
+    SIM_GUST_PERIOD = 18  # arg_f s 0.5..30
+    SIM_GUST_SEED = 19  # arg_i 0..16777215
+    SIM_FLAP_STUCK = 20  # arg_i flap 0..3 (TL TR BL BR), arg_f rad 0..pi/2, -1 = hold the current angle
+    SIM_FLAP_SLOW = 21  # arg_i flap 0..3, arg_f rate factor 0.05..1
+    SIM_FAULT_CLEAR = 22
+    GET_HOME_POSITION = 23  # the vehicle acks DONE, then sends the plain HOME_POSITION packet (0x50)
 
 
 class RequestStatus(IntEnum):
@@ -130,8 +142,8 @@ class LinkConfig(Packet):
 
 
 class TelecommandType(IntEnum):
-    """The legacy `TelecommandType` of the flight software (src/telecommand.hpp). TEMPORARY, see
-    docs/telecommands.md."""
+    """RETIRED. The legacy `TelecommandType` ids of the flight software. The vehicle has no telecommand port any
+    more and the ground station never sends one; the ids stay only so old logs decode (docs/telecommands.md)."""
 
     CalibStart = 0
     CalibApply = 1
@@ -165,8 +177,8 @@ class TelecommandType(IntEnum):
     version=1,
     direction=Direction.UP,
     history=False,
-    desc="TEMPORARY legacy 8-byte telecommand (port 0x7F), sent once per deliberate confirmation by the "
-    "telecommand controller, never by hand and never repeated. Delete with the flight software's T9b.",
+    desc="RETIRED legacy 8-byte telecommand (port 0x7F). Never sent any more (use REQUEST); the type stays so "
+    "old logs decode.",
 )
 class Telecommand(Packet):
     tc_type: TelecommandType = f(desc="legacy command code")

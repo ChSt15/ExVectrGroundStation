@@ -356,7 +356,7 @@ tr.incomplete td { color: var(--dim); }
 .dock .rq-row { grid-template-columns: minmax(9em, 1fr) auto; }
 .dock .rq-row .rq-state { grid-column: 1 / -1; }
 
-/* Commands (temporary) panel (docs/telecommands.md) */
+/* Vehicle panel and request controls (docs/requests.md) */
 .tc-warn { background: var(--warn-bg); border: 1px solid var(--warn); color: var(--fg); font-weight: 600; font-size: var(--fs-s); padding: 5px 9px; border-radius: 5px; margin-bottom: 6px; }
 .tc-sim { font-weight: 700; margin-bottom: 4px; }
 .tc-sim[data-tone="sim"] { color: var(--sim); } .tc-sim[data-tone="real"] { color: var(--ok); } .tc-sim[data-tone="dim"] { color: var(--dim); }

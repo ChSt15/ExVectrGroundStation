@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { describeSetting, echoText, findRequest, parseStopAltitude, ACTION } from "../app/telecommand/stopalt_logic.js";
+import { describeSetting, echoText, findRequest, parseStopAltitude, ACTION } from "../app/vehicle/stopalt_logic.js";
 
 test("parse: finite metres >= 1, no maximum", () => {
   assert.equal(parseStopAltitude("20"), 20);

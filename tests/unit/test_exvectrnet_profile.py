@@ -499,11 +499,11 @@ def test_the_gs_never_encodes_rc_state_any_more():
     assert p.encode(rc()) is None and p.encode(rc(origin=L.RcOrigin.handset)) is None
 
 
-def test_encode_refuses_everything_but_cmd_state_request_and_telecommand():
+def test_encode_refuses_everything_but_cmd_state_and_request():
     p = load_profile("exvectrnet-1")
     assert p.encode(cmd(session=None)) is None
     for t in REGISTRY.all():
-        if t.name not in ("CmdState", "Request", "Telecommand"):
+        if t.name not in ("CmdState", "Request"):
             assert p.encode(t.cls()) is None, t.name
     assert p.encode(V.Attitude()) is None and p.encode(L.RequestAck()) is None
 
@@ -712,7 +712,7 @@ def decode_vector(name, port, via="usb"):
 
 
 def test_schema_hash_is_the_pinned_one():
-    assert xp.SCHEMA_HASH == 0x2361516F
+    assert xp.SCHEMA_HASH == 0x036F9C45
 
 
 def test_calib_state_decodes_into_booleans():

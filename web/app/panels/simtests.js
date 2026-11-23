@@ -1,8 +1,7 @@
 import { registerPanel } from "./registry.js";
-import { createSimTestsPanel } from "../telecommand/simtests_panel.js";
+import { createSimTestsPanel } from "../simtests/simtests_panel.js";
 
-// TEMPORARY simulation-only telecommands (docs/telecommands.md), deleted with the flight software's T9b.
-// SAFETY-RELEVANT: see telecommand/simtests_panel.js. Replaces the former 'simwind' panel (now the Wind section).
+// Simulation-only requests (docs/requests.md). SAFETY-RELEVANT: see simtests/simtests_panel.js.
 registerPanel({
   id: "simtests",
   title: "Simulation testing",

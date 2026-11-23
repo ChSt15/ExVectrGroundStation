@@ -16,8 +16,8 @@
         "label": "Requests"
       },
       {
-        "panel": "telecommands",
-        "label": "Commands (temp)"
+        "panel": "vehicle",
+        "label": "Vehicle"
       },
       {
         "panel": "simtests",

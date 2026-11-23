@@ -1,7 +1,7 @@
 """Run-time source enable/disable (docs/api.md `sources.enable`): a disabled source is a true disconnect.
 
 Against the pty fake vehicles (exvectrnet-1): while disabled not one frame goes either way (no telemetry in, no RC
-state, requests, telecommands or heartbeats out), the request routes drop it, a GsEvent records it, in-flight
+state, requests or heartbeats out), the request routes drop it, a GsEvent records it, in-flight
 requests are aborted, and after a re-enable the RC controller sends the safe defaults first (no stale state).
 """
 

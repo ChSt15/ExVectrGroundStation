@@ -13,4 +13,4 @@ User decision 2026-11-20. These are the names the GUI, the CLI, the config label
 | **vehicle USB** | A `vehicle_usb` source: the Teensy's own USB serial port (peer node 1, the full debug set). | | |
 | **Router link** | The `link_module` source, i.e. the Router's USB serial port; reaches nodes 1 (over the air), 2 and 3. | | |
 
-Other terms: **REQUEST** is the whitelisted one-shot request with an ACK ([requests.md](requests.md)). **Telecommand** is the TEMPORARY legacy 8-byte command on port 0x7F ([telecommands.md](telecommands.md)). **Master** and **slave** are the RC modes of the ground station ([radio.md](radio.md)).
+Other terms: **REQUEST** is the whitelisted one-shot request with an ACK ([requests.md](requests.md)). **Telecommand** is the RETIRED legacy 8-byte command on port 0x7F, replaced by requests ([telecommands.md](telecommands.md)). **Master** and **slave** are the RC modes of the ground station ([radio.md](radio.md)).

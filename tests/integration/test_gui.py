@@ -233,7 +233,7 @@ async def test_browser_replay_banner_names_the_log_and_locks_inputs():
             assert src["lockReason"] == "replay: inputs locked"
             assert src["details"][0] == log.name and src["recorded"] == "SIMULATION", src
             assert await b.eval("document.querySelector('[data-panel=transport]').hidden") is False
-            for tab in ("radio", "requests", "telecommands"):
+            for tab in ("radio", "requests", "vehicle"):
                 await b.eval(f"window.exgs.dock.open('{tab}')")
                 await b.sleep(0.3)
                 assert await b.eval("document.querySelector('[data-testid=dock-lock]').hidden") is False, tab

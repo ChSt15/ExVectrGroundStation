@@ -1,4 +1,4 @@
-// 'Wind' section of the Simulation testing page: the former 'Sim wind (temporary)' panel, behaviour unchanged.
+// 'Wind' section of the Simulation testing page: the former 'Sim wind (temporary)' panel.
 import { registerSimSection } from "./simtests_registry.js";
 import { createSimWindPanel } from "./simwind_panel.js";
 
