@@ -95,7 +95,6 @@ registerPanel({
     altInput.addEventListener("change", () => set((s) => (s.altitude.levels = altInput.value.split(/[\s,;]+/).filter(Boolean).map(Number))));
     const ffInput = h("input", { type: "text", class: "co-list", "data-testid": "co-freefall", "aria-label": "freefall levels in metres above the flip start" });
     ffInput.addEventListener("change", () => set((s) => (s.freefall.levels = ffInput.value.split(/[\s,;]+/).filter(Boolean).map(Number))));
-    const flipAlt = num("co-flip-alt", "0.5", "0", "10000", (v) => set((s) => (s.freefall.flip_altitude_m = v)));
     const hyst = num("co-hyst", "0.5", "0", "50", (v) => set((s) => (s.altitude.hysteresis_m = v)));
     const devLimit = num("co-dev-limit", "0.5", "0.1", "10000", (v) => set((s) => (s.deviation.limit_m = v)));
     const altLimit = num("co-alt-limit", "0.5", "0.1", "10000", (v) => set((s) => (s.altcheck.limit_m = v)));
@@ -106,7 +105,6 @@ registerPanel({
     t.append(
       h("div", { class: "co-row" }, h("span", { text: "Altitudes (m)" }), altInput),
       h("div", { class: "co-row" }, h("span", { text: "Freefall levels (m above flip)" }), ffInput),
-      h("div", { class: "co-row" }, h("span", { text: "Flip start altitude (m)" }), flipAlt, h("span", { class: "dim", text: "vehicle stop altitude, not in telemetry (default 20 = stopAlt; the real trigger rises with speed)" })),
       h("div", { class: "co-row" }, h("span", { text: "Hysteresis (m)" }), hyst, h("span", { class: "dim", text: "no repeat near a threshold" })),
       h("div", { class: "co-row" }, h("span", { text: "Deviation limit (m)" }), devLimit),
       h("div", { class: "co-row" }, h("span", { text: "GNSS altitude check limit (m)" }), altLimit, h("span", { text: "for (s)" }), altHold, h("span", { class: "dim", text: "also the GNSS panel's warning" })),
@@ -187,7 +185,6 @@ registerPanel({
       }
       put(altInput, s.altitude.levels.join(", "));
       put(ffInput, s.freefall.levels.join(", "));
-      put(flipAlt, s.freefall.flip_altitude_m);
       put(hyst, s.altitude.hysteresis_m);
       put(devLimit, s.deviation.limit_m);
       put(altLimit, s.altcheck.limit_m);

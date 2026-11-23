@@ -710,7 +710,7 @@ def decode_vector(name, port, via="usb"):
 
 
 def test_schema_hash_is_the_pinned_one():
-    assert xp.SCHEMA_HASH == 0xF1941A87
+    assert xp.SCHEMA_HASH == 0x0E1E8CAB
 
 
 def test_calib_state_decodes_into_booleans():

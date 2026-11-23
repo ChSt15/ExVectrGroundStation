@@ -6,7 +6,7 @@ import { createTelecommandPanel } from "../telecommand/telecommand_panel.js";
 registerPanel({
   id: "telecommands",
   title: "Commands (temporary)",
-  consumes: ["VehicleStatus"],
+  consumes: ["VehicleStatus", "MissionState"],
   inputs: true, // locked in the replay view: the panel disables every button and says why (nothing is ever sent)
   create(el, ctx) {
     const inst = createTelecommandPanel(el, ctx);

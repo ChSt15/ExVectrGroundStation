@@ -184,6 +184,8 @@ def _air_mission(p: xp.AirMission, t: int, src: str, meta: dict) -> list[Packet]
             t_mission=t_mission,
             mission_index=p.index,
             waypoint=None if p.waypoint == 255 else p.waypoint,
+            flip_start_altitude=_nn(float(p.flip_start_altitude)),
+            stop_altitude=_nn(float(p.stop_altitude)),
         )
     ]
 
@@ -202,6 +204,8 @@ def _mission(p: xp.Mission, t: int, src: str, meta: dict) -> list[Packet]:
             t_mission=t_mission,
             mission_index=p.index,
             waypoint=None if p.waypoint == 255 else p.waypoint,
+            flip_start_altitude=_nn(float(p.flip_start_altitude)),
+            stop_altitude=_nn(float(p.stop_altitude)),
         )
     ]
 

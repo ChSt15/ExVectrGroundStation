@@ -118,7 +118,7 @@ export class CalloutEngine {
     const alt = [];
     this._altitude(c, airborne ? position : null, alt);
     if (phase !== "Descent") out.push(...alt);
-    this._freefall(c, airborne ? position : null, phase, out);
+    this._freefall(c, airborne ? position : null, phase, mission && finite(mission.f.flip_start_altitude) ? mission.f.flip_start_altitude : null, out);
     this._deviation(c, airborne ? position : null, mission, now, out);
     this._altcheck(inp, now, out, clears);
 
@@ -301,13 +301,14 @@ export class CalloutEngine {
   }
 
   /**
-   * Freefall callouts: distance above the flip start (the vehicle's freefall stop trigger altitude, setting
-   * `freefall.flip_altitude_m`; not in the telemetry). Active while the phase is `Descent` (bellyflop and freefall).
+   * Freefall callouts: distance above the flip start = altitude minus MissionState.flip_start_altitude (the vehicle's
+   * getStopAltitude(), sent only during the bellyflop freefall, NaN otherwise). Without a flip start nothing is
+   * announced (silent, no fallback value). Active while the phase is `Descent` (bellyflop and freefall).
    * Each level once per descent, downward only; levels already passed at the first sample are skipped silently.
    * "Begin" once: the distance reaches 0 or the phase leaves Descent for Deceleration (the vehicle's stop trigger fired).
    * A new descent (phase back to Descent from another phase, or data lost) re-arms everything.
    */
-  _freefall(c, position, phase, out) {
+  _freefall(c, position, phase, flip, out) {
     const st = this.s;
     const z = position && vec3(position.f.pos) ? position.f.pos[2] : null;
     const ff = st.ff;
@@ -323,7 +324,8 @@ export class CalloutEngine {
       if (ff) ff.armed = false; // stale: re-baseline silently when data returns
       return;
     }
-    const d = z - c.freefall.flip_altitude_m;
+    if (flip === null) return; // no flip start reported: silent, state kept (Begin still follows the phase change)
+    const d = z - flip;
     const half = c.altitude.hysteresis_m / 2;
     if (!st.ff || !st.ff.armed || st.ff.begun) {
       // first sample of a descent: levels below the current distance are armed, the others are passed silently

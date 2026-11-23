@@ -2,6 +2,7 @@
 // core send a legacy telecommand. See telecommand_logic.js for the rules; the core enforces the whitelist, control
 // hosts, rate limit and confirmation again.
 import { h } from "../ui.js";
+import { StopAltitudeSetter, ACCEPT_NOTE, COMMAND as STOP_CMD, DEFAULT_M, MAX_M, MIN_M, echoText, parseStopAltitude } from "./stopalt_logic.js";
 import { HoldTimer, NO_ACK_TEXT, TELECOMMAND_HOLD_MS, describeSent, groupCommands, hasFloat, lastSent, parseFloatParam, parseParam, reportedSimulation, sendState } from "./telecommand_logic.js";
 
 export function createTelecommandPanel(el, ctx) {
@@ -18,10 +19,62 @@ export function createTelecommandPanel(el, ctx) {
     sim, body, msg,
   );
 
+  // ---- Vehicle settings: stop altitude (the confirmation is the echoed MissionState.stop_altitude; docs/telecommands.md)
+  const setter = new StopAltitudeSetter();
+  const saInput = h("input", { type: "number", class: "tc-param tc-float", value: String(DEFAULT_M), min: String(MIN_M), max: String(MAX_M), step: "0.5", "data-testid": "stopalt-input", "aria-label": "stop altitude in metres" });
+  const saBtn = h("button", { class: "rq-btn", "data-testid": "stopalt-set" }, "Set");
+  const saEcho = h("span", { class: "mono", "data-testid": "stopalt-echo" });
+  const saState = h("span", { class: "rq-state", "data-testid": "stopalt-state" });
+  const nowS = () => performance.now() / 1000;
+  const sendStop = async () => {
+    try {
+      await ctx.api.request("telecommand.send", { name: STOP_CMD, confirm: STOP_CMD, param_float: setter.target }, 5000);
+      msg.textContent = "";
+    } catch (e) {
+      msg.textContent = `${STOP_CMD}: ${e.message}`;
+    }
+  };
+  saBtn.addEventListener("click", () => {
+    const v = parseStopAltitude(saInput.value);
+    if (v === null || saBtn.disabled) return;
+    setter.request(v, nowS());
+    sendStop();
+    render();
+  });
+  saInput.addEventListener("input", render);
+  el.append(h("section", { class: "rq-group", "data-testid": "stopalt" },
+    h("h4", { text: "Vehicle settings" }),
+    h("div", { class: "rq-row tc-row" }, h("span", { text: "Stop altitude (m, 5 to 60)" }), saInput, saBtn, saEcho, saState),
+    h("div", { class: "hint", text: `Altitude where the vehicle ends up stopped (default 20 m). Sent at once, repeated every 2 s up to 5 times until the vehicle echoes the value. ${ACCEPT_NOTE}` }),
+  ));
+
+  function renderStop(canControl, route) {
+    const entry = ctx.store.get(ctx.view(), "MissionState");
+    const echo = entry && entry.f ? entry.f.stop_altitude : null;
+    if (ctx.view() !== "live") setter.cancel();
+    const t = setter.tick(echo, nowS());
+    if (t.send) sendStop();
+    if (t.notify) {
+      msg.textContent = t.notify;
+      try {
+        ctx.notifier().show({ id: "gs.stopalt", category: "state", text: t.notify, label: t.notify, severity: "warning", key: "gs.stopalt" });
+      } catch (e) {
+        /* the message line above still shows it */
+      }
+    }
+    const s = sendState({ apiState: ctx.api.state, view: ctx.view(), canControl, route, paramOk: parseStopAltitude(saInput.value) !== null });
+    saBtn.disabled = !s.enabled;
+    saBtn.dataset.why = s.reason;
+    saEcho.textContent = echoText(echo);
+    const st = setter.status();
+    saState.textContent = st.text;
+    saState.dataset.tone = st.tone;
+  }
+
   async function load() {
     try {
       // simulation entries (rate_group wind, group 'Simulation tests') live on the 'Simulation testing' page
-      commands = (await ctx.api.request("telecommand.list", {}, 5000)).commands.filter((c) => !c.rate_group && c.group !== "Simulation tests");
+      commands = (await ctx.api.request("telecommand.list", {}, 5000)).commands.filter((c) => !c.rate_group && c.group !== "Simulation tests" && c.name !== STOP_CMD);
       listError = "";
     } catch (e) {
       listError = `telecommand.list: ${e.message}`;
@@ -114,6 +167,7 @@ export function createTelecommandPanel(el, ctx) {
     const rep = reportedSimulation(ctx.store.get(ctx.view(), "VehicleStatus"));
     sim.textContent = rep.text;
     sim.dataset.tone = rep.tone;
+    renderStop(canControl, route);
     el.title = NO_ACK_TEXT;
   }
 

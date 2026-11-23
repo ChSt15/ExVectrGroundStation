@@ -29,9 +29,8 @@ export const DEFAULTS = {
   voice: "", // browser voiceURI, "" = browser default
   categories: { countdown: true, phase: true, altitude: true, failure: true, link: true, state: true, deviation: false, altcheck: false },
   altitude: { levels: [25, 50, 100, 150, 200], hysteresis_m: 3 },
-  // Freefall callouts: distance above the flip start. flip_altitude_m = the vehicle's freefall stop altitude stopAlt (20 m,
-  // flight-software main.cpp); the real trigger is 20 m + 0.171 Vz^2 and is not in the telemetry (a later improvement).
-  freefall: { levels: [5, 10, 15, 25, 50], flip_altitude_m: 20 },
+  // Freefall callouts: levels = metres above the flip start, which the vehicle reports (MissionState.flip_start_altitude).
+  freefall: { levels: [5, 10, 15, 25, 50] },
   deviation: { limit_m: 5, hold_s: 2, hysteresis_m: 1 },
   altcheck: { limit_m: 5, hold_s: 1, hysteresis_m: 1 }, // GNSS vs estimated altitude (the GNSS panel uses the same limit)
   failure: { repeat_s: 5, repeats: 0 },
@@ -94,7 +93,6 @@ export function mergeSettings(base, over) {
   }
   if (isObj(over.freefall)) {
     out.freefall.levels = cleanLevels(over.freefall.levels, out.freefall.levels);
-    out.freefall.flip_altitude_m = num(over.freefall.flip_altitude_m, 0, 10000, out.freefall.flip_altitude_m);
   }
   if (isObj(over.deviation)) {
     out.deviation.limit_m = num(over.deviation.limit_m, 0.1, 10000, out.deviation.limit_m);

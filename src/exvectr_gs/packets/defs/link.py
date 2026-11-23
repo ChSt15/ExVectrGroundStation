@@ -156,6 +156,7 @@ class TelecommandType(IntEnum):
     SimFlapStuck = 16
     SimFlapSlow = 17
     SimFaultClear = 18
+    SetStopAltitude = 19  # float = metres 5..60, paramInt ignored; no ACK, the echo MissionState.stop_altitude confirms
 
 
 @packet(
