@@ -9,7 +9,7 @@ import { toneOf } from "../callouts/notify.js";
 const STYLE_HELP = {
   normal: "mission, altitude, countdown",
   warning: "deviation, telemetry and link",
-  failure: "failures, failsafe, motors live (with a beep)",
+  failure: "failures, failsafe (with a beep)",
 };
 const NO_VOICES = "no speech voices available: install speech-dispatcher / a voice, text notifications still shown";
 const hhmmss = (ms) => new Date(ms).toTimeString().slice(0, 8);
