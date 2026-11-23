@@ -251,6 +251,29 @@ def test_failsafe_level_goes_into_the_next_frame():
     assert r.engine.status()["failsafe_latched"] is True
 
 
+def test_abort_button_goes_out_at_once_notifies_and_failsafe_notifies_both_ways():
+    notes = []
+
+    async def go():
+        r = Rig()
+        r.engine.notify = lambda lvl, text, key: notes.append(key)
+        r.pocket(sa=2000)
+        await r.run_for(0.1)
+        r.engine.abort()
+        await r.run_for(0.02)
+        sent = [p.go for p in r.usb.sent]
+        r.pocket(sa=2000)  # SA still up
+        await r.run_for(0.1)
+        r.engine.set_failsafe(True)
+        r.engine.set_failsafe(False)
+        return r, sent
+
+    r, sent = run(go())
+    assert sent[-1] == 0 and r.usb.sent[-1].go == 0
+    assert r.engine.status()["abort_count"] == 1
+    assert notes == ["gs_abort", "gs_failsafe", "gs_failsafe_clear"]
+
+
 def test_vehicle_session_comparison_and_ctrl_flags_are_display_only():
     async def go():
         r = Rig(session=0xABCD1234)

@@ -319,6 +319,13 @@ class CommandCore:
             self.failsafe_latched = False
             self._set(replace(self.out, failsafe=0), now)
 
+    def abort(self, now: int) -> None:
+        """GS ABORT button: go NOT_GO at once, whatever the input. Only moves toward safe: the go pickup is cleared,
+        so the next mission begin needs SA seen down, then up again (an SA left up stays ignored). Motors, failsafe
+        and the other fields are untouched."""
+        self.picked["sa"] = False
+        self._set(replace(self.out, go=0), now)
+
     # ------------------------------------------------------------ time
 
     def tick(self, now: int) -> Frame | None:

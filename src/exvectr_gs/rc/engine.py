@@ -63,6 +63,7 @@ class CommandEngine:
         # (level, text, key): the Pocket-loss warning for clients (the API turns it into an event with a toast); the
         # GsEvent is always published as well
         self.notify = notify
+        self.abort_count = 0
         self.sent_count = 0  # frames handed to at least one link
         self.unsent_count = 0  # frames due while no command link was connected
         self.last_sent_t: int | None = None
@@ -88,10 +89,23 @@ class CommandEngine:
         self._started = True
 
     def set_failsafe(self, on: bool) -> None:
-        """GS FAILSAFE level in the command state (the GUI button comes in a later step). True latches
+        """GS FAILSAFE level in the command state (the GUI button, `engine.failsafe`). True latches
         failsafe = 1 with motors DISABLED and go NOT_GO until False clears it."""
         now = self._clock.now()
+        was = self.core.failsafe_latched
         self.core.set_failsafe(on, now)
+        if on and not was:
+            self._event("FAILSAFE requested by the ground station", "warn", "gs_failsafe")
+        elif not on and was:
+            self._event("GS failsafe request cleared", "info", "gs_failsafe_clear")
+        self._pump(now)
+
+    def abort(self) -> None:
+        """GS ABORT button: go off at once (any input), the next go needs SA seen down then up again."""
+        now = self._clock.now()
+        self.abort_count += 1
+        self.core.abort(now)
+        self._event("ABORT sent by the ground station", "warn", "gs_abort")
         self._pump(now)
 
     def _panel_acquired(self) -> None:
@@ -265,6 +279,7 @@ class CommandEngine:
             "last_sent_t": None if self.last_sent_t is None else self.last_sent_t / 1e9,
             "max_interval_ms": self.max_interval_ns / 1e6,
             "failsafe_latched": core.failsafe_latched,
+            "abort_count": self.abort_count,
             "out": {
                 "go": o.go, "profile": o.profile, "vehicle_mode": o.vehicle_mode, "motors": o.motors,
                 "reset_button": o.reset_button, "failsafe": o.failsafe,

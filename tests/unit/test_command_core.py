@@ -507,7 +507,7 @@ def test_no_start_loss_or_return_ever_produces_an_unsafe_edge_without_a_cycle(st
         prev = r.out
         steps = [("live", sw(sa=sa, sd=sd, sc=sc))]
         for _ in range(60):
-            kind = rnd.choice(["frame"] * 8 + ["loss", "failsafe", "clear"])
+            kind = rnd.choice(["frame"] * 8 + ["loss", "failsafe", "clear", "abort"])
             steps.append((kind, sw(**{k: rnd.choice(v) for k, v in POS.items()})))
         for kind, s in steps:
             if kind == "live":
@@ -529,6 +529,9 @@ def test_no_start_loss_or_return_ever_produces_an_unsafe_edge_without_a_cycle(st
             elif kind == "failsafe":
                 r.core.set_failsafe(True, r.t)
                 seen_down = {"sa": False, "sd": False}
+            elif kind == "abort":
+                r.core.abort(r.t)
+                seen_down["sa"] = False  # abort forgets only the go pickup; motors are untouched
             else:
                 r.core.set_failsafe(False, r.t)
             cur = r.out
@@ -559,3 +562,56 @@ def test_se_reset_after_a_failsafe_clears_the_request_in_an_earlier_frame():
     assert first_press > 0 and sent[first_press - 1] == (0, 0)  # an earlier frame carried failsafe = 0, reset released
     assert all(not (f == 1 and b == 1) for f, b in sent)  # never failsafe = 1 together with the reset press
     assert r.core.failsafe_latched is False and r.out.go == 0 and r.out.motors == 0
+
+
+# ---------------------------------------------------------------- GS ABORT override (go off, re-pickup needed)
+
+
+def test_abort_with_the_pocket_live_forces_go_off_even_with_sa_up_and_needs_a_cycle():
+    r = Rig()
+    r.live(sw())
+    r.pocket(sw(sa=1, sd=1))
+    assert (r.out.go, r.out.motors) == (1, 1)
+    r.core.abort(r.t)
+    f = r.tick(10)
+    assert f is not None and f.out.go == 0 and f.out.motors == 1  # motors untouched
+    r.pocket(sw(sa=1, sd=1), n=20)  # SA stays up: ignored
+    assert r.out.go == 0 and r.core.hints().sa
+    r.pocket(sw(sa=0, sd=1))
+    r.pocket(sw(sa=1, sd=1))  # seen down, then up: the next begin
+    assert r.out.go == 1
+
+
+def test_abort_with_the_virtual_input_and_with_none():
+    r = Rig()
+    r.live(sw())
+    r.tick(400)  # Pocket lost
+    r.virtual(sw())
+    r.core.preset_request = None
+    r.virtual(sw(sa=1))
+    assert r.out.go == 1
+    r.core.abort(r.t)
+    r.virtual(sw(sa=1))
+    assert r.out.go == 0
+    r.virtual(sw(sa=0))
+    r.virtual(sw(sa=1))
+    assert r.out.go == 1
+    r.virtual(None)  # no input at all
+    r.core.abort(r.t)
+    assert r.out.go == 0 and r.core.input == "none"
+    r.core.abort(r.t)  # idempotent
+    assert r.out.go == 0
+
+
+def test_abort_goes_out_at_once_and_failsafe_clear_sequence_is_unchanged_after_it():
+    r = Rig()
+    r.live(sw())
+    r.pocket(sw(sa=1))
+    r.tick(40)
+    r.core.abort(r.t)
+    f = r.tick(10)
+    assert f is not None and f.out.go == 0
+    r.core.set_failsafe(True, r.t)
+    assert (r.out.failsafe, r.out.go, r.out.motors) == (1, 0, 0)
+    r.core.set_failsafe(False, r.t)
+    assert r.out.failsafe == 0 and r.out.go == 0

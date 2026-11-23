@@ -106,6 +106,8 @@ class ApiServer:
             "rc.release": self._op_rc_release,
             "rc.heartbeat": self._op_rc_heartbeat,
             "rc.set": self._op_rc_set,
+            "engine.abort": self._op_engine_abort,
+            "engine.failsafe": self._op_engine_failsafe,
             "rc.unlock": self._op_rc_unlock,
             "rc.lock": self._op_rc_lock,
             "request.send": self._op_request_send,
@@ -705,6 +707,28 @@ class ApiServer:
         st = await self._call(rc.set, *args)
         self._push_rc()
         return self._rc_body(st)
+
+    def _engine_for_button(self, client: Client) -> Any:
+        eng = self._mod("engine")
+        if eng is None:
+            raise ProtocolError("not_implemented", "no command engine in this core (replay or observer)")
+        if not client.can_control:
+            raise ProtocolError("control_denied", "this client is not on a control host (view only)")
+        return eng
+
+    async def _op_engine_abort(self, client: Client, msg: dict) -> dict:
+        """GS ABORT: engine-level override, no lease needed (works with the Pocket live, the panel or no input)."""
+        eng = self._engine_for_button(client)
+        eng.abort()
+        self._push_rc()
+        return self._rc_body(self._mod("rc").status()) if self._mod("rc") else {"command": eng.status()}
+
+    async def _op_engine_failsafe(self, client: Client, msg: dict) -> dict:
+        """GS FAILSAFE request: `on` true latches it, false clears it (the engine's safe sequence)."""
+        eng = self._engine_for_button(client)
+        eng.set_failsafe(P._req(msg, "on", bool, "a boolean"))
+        self._push_rc()
+        return self._rc_body(self._mod("rc").status()) if self._mod("rc") else {"command": eng.status()}
 
     async def _op_rc_unlock(self, client: Client, msg: dict) -> dict:
         rc = self._need("rc", "RC control")
