@@ -29,6 +29,10 @@ def test_shipped_fault_entries(cfg):
     assert int(TelecommandType.SimFlapStuck) == 16
     assert int(TelecommandType.SimFlapSlow) == 17
     assert int(TelecommandType.SimFaultClear) == 18
+    assert int(TelecommandType.SetStopAltitude) == 19
+    s = names["SetStopAltitude"]
+    got = (s.type, s.group, s.param_float, s.param_float_min, s.param_float_max)
+    assert got == ("SetStopAltitude", "Vehicle settings", 20.0, 5.0, 60.0)
     assert not [n for n in names if n.endswith("Descent")]  # the arm-for-descent bit is gone (the vehicle refuses it)
     for i, f in enumerate(FLAPS):
         e = names[f"SimFlapStuck{f}"]
@@ -53,6 +57,7 @@ def test_shipped_fault_entries(cfg):
         ("SimFlapStuck", 0, -1.0, "10 00 57 00 00 00 80 BF"),  # stick at the current angle
         ("SimFlapSlow", 0, 0.3, "11 00 57 00 9A 99 99 3E"),
         ("SimFaultClear", 0, 0.0, "12 00 57 00 00 00 00 00"),
+        ("SetStopAltitude", 0, 25.0, "13 00 57 00 00 00 C8 41"),
     ],
 )
 def test_exact_wire_bytes(typ, sub, value, hexbytes):

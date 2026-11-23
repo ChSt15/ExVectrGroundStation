@@ -16,7 +16,7 @@ The vehicle accepts the old 8-byte `Telecommand` on ExVectrNetwork **port 0x7F**
 
 | Byte | Field | Notes |
 |---|---|---|
-| 0 | `type` | `TelecommandType`: 0 CalibStart, 1 CalibApply, 2 Load (not handled by the vehicle), 3 Save, 4 SystemReset, 5 Arm, 6 SimulationMode, 7 MissionBegin, 8 MissionSelect, 9 MissionAbort, 10 ZeroEstimators |
+| 0 | `type` | `TelecommandType`: 0 CalibStart, 1 CalibApply, 2 Load (not handled by the vehicle), 3 Save, 4 SystemReset, 5 Arm, 6 SimulationMode, 7 MissionBegin, 8 MissionSelect, 9 MissionAbort, 10 ZeroEstimators, 19 SetStopAltitude |
 | 1 | `subsystem` | `Subsystem`: 0 Gyro, 1 Accel, 2 Magneto, 3 Baro, 4 GNSS, 5 AttFilter, 6 PosFilter |
 | 2-3 | `paramInt` | int16, little-endian |
 | 4-7 | `paramFloat` | float32, little-endian; 0 for every command except `ZeroEstimators` (duration in s) |
@@ -69,6 +69,7 @@ Shipped in `config/gs.example.toml` and `config/gs.pocket.toml` (the values are 
 | `Calib*Verify` | CalibStart, 0/1/2, 2 | verify the active calibration, no candidate |
 | `Calib*Discard` | CalibStart, 0/1/2, -1 | discard a candidate or end a collection |
 | `Calib*Apply` | CalibApply, 0/1/2 | the vehicle applies only a PASS or WARN candidate, RAM only until saved; invalidates the estimator zero |
+| `SetStopAltitude` | SetStopAltitude (id 19), 0, `paramInt` ignored, float `altitude_m` default 20, range 5..60 | sets the vehicle's stop altitude (where it ends up stopped; the flip starts at stopDist(Vz) + stop altitude). Accepted only on the ground with the motors disarmed. No ACK: the echoed `MissionState.stop_altitude` confirms. The GUI (group "Vehicle settings") repeats the frame every 2 s until the echo matches, 1 initial send plus up to 5 retries, then shows "not confirmed" |
 | `CalibSave` | Save, 0 | writes the whole EEPROM image (any subsystem saves all), read back and compared |
 
 The 16 calibration entries (user approval 2026-11-21, widening the whitelist for exactly these) follow the flight software's [calibration.md](../../flight-software/docs/project/calibration.md) (`feature/calibration-service`); the vehicle interprets them and logs progress as `LOG_TEXT` (Console panel). The GUI groups them as Calibration in the Telecommands panel with the same 1 s hold, one frame, no retry, control hosts only and never in replay rules. The ground station gates nothing on vehicle state. The `CALIBRATION` packet carries no session state; the raw sensor panel shows the per-sensor source bits (EEPROM, RAM only, ...). The older `CalibMag*` and `MagSave` names are replaced by these.

@@ -20,6 +20,8 @@ VOICE_DIR = ROOT / "web" / "audio" / gen.VOICE_ID
 
 # T9b-4 phrases added to phrases.json without regenerating the clips (the callout falls back to the browser voice)
 PENDING_IDS = {
+    "begin",
+    "till-upright",
     "control-source-lost",
     "gnss-lost",
     "magnetometer-lost",
@@ -63,7 +65,9 @@ def engine_texts() -> set[str]:
     cfg = json.loads((ROOT / "config" / "callouts.default.json").read_text(encoding="utf-8"))
     texts.update(cfg.get("phaseNames", {}).values())
     texts.update(re.findall(r'text: "([A-Za-z][^"]*)"', controller))  # SAMPLES and the volume test
-    return {re.sub(r"\s+\d+$", "", re.sub(r"\s*\$\{.*", "", t)).strip() for t in texts if t}
+    out = {re.sub(r"\s+\d+$", "", re.sub(r"\s*\$\{.*", "", t)).strip() for t in texts if t}
+    out.discard("")  # a bare number template (`${l}`): numbers are composed from the num-N clips
+    return out
 
 
 def test_clip_table_is_consistent():
@@ -80,7 +84,7 @@ def test_clip_table_is_consistent():
 def test_every_engine_phrase_has_a_clip():
     spoken = {t.lower() for t in gen.clip_table().values()}
     texts = engine_texts()
-    known = {"Motors armed", "Altitude", "Failure bit", "Sensor failure", "Belly flop", "Volume test"}
+    known = {"Motors armed", "Begin", "Failure bit", "Sensor failure", "Belly flop", "Volume test"}
     assert known <= texts, "extraction broke"
     # no recorded clip yet (piper was not available when the GNSS cross-check was added): the callout falls back to
     # the browser voice or beeps until the phrase is added to phrases.json and the clips are regenerated

@@ -29,6 +29,8 @@ export const DEFAULTS = {
   voice: "", // browser voiceURI, "" = browser default
   categories: { countdown: true, phase: true, altitude: true, failure: true, link: true, state: true, deviation: false, altcheck: false },
   altitude: { levels: [25, 50, 100, 150, 200], hysteresis_m: 3 },
+  // Freefall callouts: levels = metres above the flip start, which the vehicle reports (MissionState.flip_start_altitude).
+  freefall: { levels: [5, 10, 15, 25, 50] },
   deviation: { limit_m: 5, hold_s: 2, hysteresis_m: 1 },
   altcheck: { limit_m: 5, hold_s: 1, hysteresis_m: 1 }, // GNSS vs estimated altitude (the GNSS panel uses the same limit)
   failure: { repeat_s: 5, repeats: 0 },
@@ -88,6 +90,9 @@ export function mergeSettings(base, over) {
   if (isObj(over.altitude)) {
     out.altitude.levels = cleanLevels(over.altitude.levels, out.altitude.levels);
     out.altitude.hysteresis_m = num(over.altitude.hysteresis_m, 0, 50, out.altitude.hysteresis_m);
+  }
+  if (isObj(over.freefall)) {
+    out.freefall.levels = cleanLevels(over.freefall.levels, out.freefall.levels);
   }
   if (isObj(over.deviation)) {
     out.deviation.limit_m = num(over.deviation.limit_m, 0.1, 10000, out.deviation.limit_m);

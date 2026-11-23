@@ -161,6 +161,15 @@ class MissionState(Packet):
     waypoint: int = f(
         desc="current waypoint of the waypoint mission; only AIR_MISSION carries it, None = not that mission"
     )
+    flip_start_altitude: float | None = f(
+        unit="m",
+        desc="altitude (NWU up) at which the vehicle begins the upright flip = its getStopAltitude(); sent only "
+        "during the bellyflop freefall, None = not sent / older sender",
+    )
+    stop_altitude: float | None = f(
+        unit="m",
+        desc="the stop altitude parameter (echo that confirms SetStopAltitude), None = unknown / older sender",
+    )
 
 
 @packet(

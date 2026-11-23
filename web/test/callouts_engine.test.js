@@ -96,14 +96,14 @@ test("altitude: both directions, once per crossing, hysteresis stops repeats nea
   run();
   const alt = (z) => texts(step(0.1, { pos: { pos: [0, 0, z] } }));
   assert.deepEqual(alt(24), []);
-  assert.deepEqual(alt(27), ["Altitude 25"]);
+  assert.deepEqual(alt(27), ["25"]);
   // noise around 25 m (hysteresis 3 m: 1.5 m each side) does not repeat
   const noise = [24.9, 25.2, 24.6, 25.4, 24.0, 26.0, 25.0].flatMap(alt);
   assert.deepEqual(noise, []);
-  assert.deepEqual(alt(60), ["Altitude 50"]);
-  assert.deepEqual(alt(210), ["Altitude 200"]); // several levels in one step: only the last reached
-  assert.deepEqual(alt(140), ["Altitude 150"]); // descending
-  assert.deepEqual(alt(20), ["Altitude 25"]); // 100, 50 and 25 passed: the lowest is said
+  assert.deepEqual(alt(60), ["50"]);
+  assert.deepEqual(alt(210), ["200"]); // several levels in one step: only the last reached
+  assert.deepEqual(alt(140), ["150"]); // descending
+  assert.deepEqual(alt(20), ["25"]); // 100, 50 and 25 passed: the lowest is said
 });
 
 test("altitude descending says the lowest level crossed in a step; falling through a single level says it", () => {
@@ -111,8 +111,8 @@ test("altitude descending says the lowest level crossed in a step; falling throu
   w.pos.pos = [0, 0, 120];
   run();
   const alt = (z) => texts(step(0.1, { pos: { pos: [0, 0, z] } }));
-  assert.deepEqual(alt(90), ["Altitude 100"]);
-  assert.deepEqual(alt(40), ["Altitude 50"]);
+  assert.deepEqual(alt(90), ["100"]);
+  assert.deepEqual(alt(40), ["50"]);
 });
 
 test("altitude is ignored on the ground (mission not Running)", () => {
@@ -123,7 +123,7 @@ test("altitude is ignored on the ground (mission not Running)", () => {
   assert.deepEqual(texts(step(0.1, { pos: { pos: [0, 0, 60] } })), []);
   // going Running at 60 m only sets the baseline: nothing is said for levels already passed
   assert.deepEqual(texts(step(0.1, { ms: { mission_mode: "Running" }, vs: { mission_mode: "Running" } })), ["Mission beginning", "Hover"]);
-  assert.deepEqual(texts(step(0.1, { pos: { pos: [0, 0, 110] } })), ["Altitude 100"]);
+  assert.deepEqual(texts(step(0.1, { pos: { pos: [0, 0, 110] } })), ["100"]);
 });
 
 test("failure bits: one callout per bit, unknown bits named, failsafe, cleared, repeats every 5 s up to 3 times", () => {
@@ -313,4 +313,87 @@ test("T9b-4: motors armed watchdog failure, SD toggle needed and a refused go (r
   assert.deepEqual(texts(g), ["Go refused"]);
   assert.equal(g.events[0].label, "Go refused: SC invalid, reserved or different from the vehicle mode");
   assert.deepEqual(texts(step(0.1, { vs: { go_refusal: 4 } })), []);
+});
+
+test("freefall callouts: till upright at 50, numbers below, Begin once, no repeats, altitude callouts muted in the descent", () => {
+  const { run, step, w } = rig();
+  w.vs.mission_phase = w.ms.mission_phase = "Descent";
+  w.ms.sp_pos = null;
+  w.ms.flip_start_altitude = 20; // the vehicle's flip start (telemetry)
+  w.pos.pos = [0, 0, 120];
+  run();
+  const said = [];
+  for (let z = 119; z >= 21; z -= 1) said.push(...texts(step(0.1, { pos: { pos: [0, 0, z] } })));
+  // flip altitude 20: levels are 70, 45, 35, 30, 25 m absolute
+  assert.deepEqual(said, ["50 meters till upright", "25", "15", "10", "5"]);
+  assert.deepEqual(texts(step(0.1, { pos: { pos: [0, 0, 19] } })), ["Begin"]);
+  assert.deepEqual(texts(step(0.1, { pos: { pos: [0, 0, 18] } })), []);
+  // the phase change after Begin does not repeat it
+  assert.deepEqual(texts(step(0.1, { vs: { mission_phase: "Deceleration" }, ms: { mission_phase: "Deceleration" } })).filter((t) => t === "Begin"), []);
+});
+
+test("freefall: Begin from the phase change when the distance never reached 0; new descent re-arms", () => {
+  const { run, step, w } = rig();
+  w.vs.mission_phase = w.ms.mission_phase = "Descent";
+  w.ms.sp_pos = null;
+  w.ms.flip_start_altitude = 20;
+  w.pos.pos = [0, 0, 60];
+  run();
+  assert.deepEqual(texts(step(0.1, { pos: { pos: [0, 0, 41] } })), ["25"]);
+  const r = texts(step(0.1, { vs: { mission_phase: "Deceleration" }, ms: { mission_phase: "Deceleration" } }));
+  assert.ok(r.includes("Begin"));
+  step(0.1, { vs: { mission_phase: "Landing" }, ms: { mission_phase: "Landing" } });
+  step(0.1, { vs: { mission_phase: "Descent" }, ms: { mission_phase: "Descent" }, pos: { pos: [0, 0, 80] } });
+  const again = [];
+  for (let z = 79; z >= 20; z--) again.push(...texts(step(0.1, { pos: { pos: [0, 0, z] } })));
+  assert.deepEqual(again, ["50 meters till upright", "25", "15", "10", "5", "Begin"]);
+});
+
+test("freefall: levels already passed at the start are skipped silently; telemetry flip start; custom levels", () => {
+  const { run, step, w } = rig({ freefall: { levels: [10, 30] } });
+  w.vs.mission_phase = w.ms.mission_phase = "Descent";
+  w.ms.sp_pos = null;
+  w.ms.flip_start_altitude = 40;
+  w.pos.pos = [0, 0, 62]; // 22 m above the flip: 30 passed
+  run();
+  const said = [];
+  for (let z = 61; z >= 40; z--) said.push(...texts(step(0.1, { pos: { pos: [0, 0, z] } })));
+  assert.deepEqual(said, ["10", "Begin"]);
+});
+
+test("freefall: no flip start in the telemetry (NaN, null, missing) is silent; it follows a later value; flip start moving up is caught", () => {
+  for (const none of [NaN, null, undefined]) {
+    const { run, step, w } = rig();
+    w.vs.mission_phase = w.ms.mission_phase = "Descent";
+    w.ms.sp_pos = null;
+    w.ms.flip_start_altitude = none;
+    w.pos.pos = [0, 0, 120];
+    run();
+    const said = [];
+    for (let z = 119; z >= 5; z -= 1) said.push(...texts(step(0.1, { pos: { pos: [0, 0, z] } })));
+    assert.deepEqual(said, []);
+  }
+  const { run, step, w } = rig();
+  w.vs.mission_phase = w.ms.mission_phase = "Descent";
+  w.ms.sp_pos = null;
+  w.ms.flip_start_altitude = NaN;
+  w.pos.pos = [0, 0, 100];
+  run();
+  step(0.1, { pos: { pos: [0, 0, 99] } });
+  // the flip start appears (60 m): distance 39, then the speed raises it to 70 m (distance 20 at z 90)
+  step(0.1, { ms: { flip_start_altitude: 60 }, pos: { pos: [0, 0, 99] } });
+  assert.deepEqual(texts(step(0.1, { ms: { flip_start_altitude: 70 }, pos: { pos: [0, 0, 90] } })), ["25"]);
+  assert.deepEqual(texts(step(0.1, { ms: { flip_start_altitude: 70 }, pos: { pos: [0, 0, 69] } })), ["5", "Begin"]); // levels skipped in one step: the lowest only
+});
+
+test("freefall: Begin from the phase change even when the flip start is already NaN", () => {
+  const { run, step, w } = rig();
+  w.vs.mission_phase = w.ms.mission_phase = "Descent";
+  w.ms.sp_pos = null;
+  w.ms.flip_start_altitude = 20;
+  w.pos.pos = [0, 0, 60];
+  run();
+  step(0.1, { pos: { pos: [0, 0, 50] } });
+  const r = texts(step(0.1, { ms: { mission_phase: "Deceleration", flip_start_altitude: NaN }, vs: { mission_phase: "Deceleration" } }));
+  assert.ok(r.includes("Begin"));
 });

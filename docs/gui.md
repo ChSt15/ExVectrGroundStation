@@ -169,7 +169,7 @@ Panel `radio` (`web/app/radio/`; first tab of the Operations dock). **Safety-rel
 
 ## Callouts
 
-Audio callouts and notifications (display only, `docs/callouts.md`): a rule engine over the vehicle-reported values, pre-recorded voice clips by default (Piper, WebAudio, no system voice needed; setting Voice: Recorded / Browser voice / Beeps only), browser speech with severity styles as an option, and a WebAudio beep for failures, a toast stack top right (clear of the status bar and of the Operations dock) and a history. Settings are the Operations dock tab **Callouts** (master switch, volume slider 0 to 100 % default 80 %, categories with TEST buttons, altitude list, deviation limit, voice styles, voice, speak in replay, history); the header speaker icon shows muted / audio on / audio not enabled and opens the tab. Defaults come from `/config/callouts.json`.
+Audio callouts and notifications (display only, `docs/callouts.md`): a rule engine over the vehicle-reported values, pre-recorded voice clips by default (Piper, WebAudio, no system voice needed; setting Voice: Recorded / Browser voice / Beeps only), browser speech with severity styles as an option, and a WebAudio beep for failures, a toast stack top right (clear of the status bar and of the Operations dock) and a history. Settings are the Operations dock tab **Callouts** (master switch, volume slider 0 to 100 % default 80 %, categories with TEST buttons, altitude list, freefall levels and flip start altitude, deviation limit, voice styles, voice, speak in replay, history); the header speaker icon shows muted / audio on / audio not enabled and opens the tab. Defaults come from `/config/callouts.json`.
 
 ## Display settings (UI scale and 3D resolution)
 
@@ -262,6 +262,10 @@ Block in the `link` panel (`web/app/link/link_logic.js`, `web/test/link_logic.te
 ### Commands (temporary) panel
 
 TEMPORARY, safety-relevant: see [telecommands.md](telecommands.md) (hold 1 s, one frame, no ACK, the simulation state shown is only what the vehicle reports). A bar at the top says that safety commands (arm, simulation, mission, reset) are now given with the virtual radio switches. **Zero estimators** (`ZeroEstimators`) has a number field `duration_s` (default 10 s, allowed 1..60 s, the button is disabled outside it; the vehicle clamps as well). The row shows a one-line explanation (the entry's `note` from the config). The outcome of zeroing is the amber ZEROING cell of the status bar, reported by the vehicle. Logic `web/app/telecommand/telecommand_logic.js`, panel `telecommand_panel.js`.
+
+#### Vehicle settings: stop altitude
+
+Group "Vehicle settings" of the Commands (temporary) panel: a number field (5..60 m, default 20) and a **Set** button for `SetStopAltitude` (telecommand id 19, see [telecommands.md](telecommands.md)). The vehicle gives no ACK; the confirmation is the echoed `MissionState.stop_altitude` (current value shown next to the field). Pressing Set sends the command at once and shows a chip: **pending (n/6)** while the echo differs from the target by more than 0.05 m, **set** when it matches, **not confirmed** after the retries ran out (a toast says so; the vehicle accepts the value only on the ground with the motors disarmed). Retry rule: 1 initial send plus up to 5 retries, one every 2 s. Display and command only, nothing sends it automatically. Logic `web/app/telecommand/stopalt_logic.js`.
 
 ### Requests panel
 
