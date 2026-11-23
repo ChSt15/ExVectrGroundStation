@@ -61,5 +61,5 @@ test("quit: needs a connection and a control host, warns about an RC lease but a
   assert.equal(q({ canControl: false }).enabled, false);
   const w = q({ rc: { lease: { id: "x" } } });
   assert.equal(w.enabled, true);
-  assert.ok(w.notes.some((t) => t.includes("RC control is active")));
+  assert.ok(w.notes.some((t) => t.includes("virtual panel lease is held")));
 });

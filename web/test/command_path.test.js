@@ -8,11 +8,11 @@ test("command path rows: nothing without VehicleStatus", () => {
   assert.deepEqual(commandPathRows(null), []);
 });
 
-test("command path rows: vehicle-reported mode, interlock, flags, refusal, profile and countdown note", () => {
+test("command path rows: vehicle-reported mode, motors armed, flags, refusal, profile and countdown note", () => {
   const r = rowsOf({ simulation: true, armed: true, ctrl_flags: (1 << 0) | (1 << 2) | (1 << 4) | (1 << 5) | (1 << 6), go_refusal: 3, mission_profile: 2 });
   assert.equal(r.mode.text, "SIMULATION");
-  assert.equal(r.interlock.text, "MOTOR INTERLOCK OPEN");
-  assert.equal(r.flags.text, "Toggle SD off, then on, FAILSAFE latched, SC mismatch, SE hold zeroing, SE refused");
+  assert.equal(r.interlock.text, "MOTORS ARMED");
+  assert.equal(r.flags.text, "Toggle SD off, then on (motors armed), FAILSAFE latched, SC mismatch, SE hold zeroing, SE refused");
   assert.equal(r.flags.tone, "bad");
   assert.equal(r.go_refusal.text, "estimator zeroing window or no valid zero");
   assert.equal(r.mission_profile.text, "2");
@@ -22,4 +22,10 @@ test("command path rows: vehicle-reported mode, interlock, flags, refusal, profi
   assert.equal(q.flags.text, "nothing pending");
   assert.equal(q.go_refusal, undefined);
   assert.equal(q.mission_profile, undefined);
+});
+
+test("command path rows: MULTI_MASTER and a GS failsafe request are shown (bad)", () => {
+  const r = rowsOf({ simulation: true, armed: false, ctrl_flags: (1 << 11) | (1 << 12), go_refusal: 0, mission_profile: 255 });
+  assert.equal(r.flags.text, "MULTI_MASTER, GS failsafe request");
+  assert.equal(r.flags.tone, "bad");
 });

@@ -106,13 +106,13 @@ async def test_status_bar_shows_only_reported_values_and_follows_a_simulation_to
         for want in (
             "Mode",
             "Mission",
-            "Motor interlock",
+            "Motors armed",
             "Motors",
             "Failsafe",
             "Failures",
             "Ground station",
-            "Control source",
-            "RC age",
+            "Command source",
+            "Command age",
             "Last request",
             "Sensor state (raw)",
         ):

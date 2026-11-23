@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  HoldTimer, MomentaryHold, POCKET_WARNING, Throttle, controlEnabled, cyclePosition, describeRadio, needsReleasePrompt,
+  HoldTimer, MomentaryHold, POCKET_LIVE_NOTE, POCKET_LOST_WARNING, Throttle, controlEnabled, cyclePosition, describeRadio, needsReleasePrompt,
   nextToggle, positionFromUs, showPadlock, sliderFromPointer, stateFromChannels, switchPosFromFraction, unlockRemaining,
 } from "../app/radio/radio_logic.js";
 
@@ -65,55 +65,62 @@ test("toggle, switch zones, cycle and slider helpers", () => {
   assert.equal(sliderFromPointer(100, 0, 150), 0);
 });
 
-const rc = (over = {}) => ({ mode: "idle", lease: null, holder_is_you: false, target: null, ...over });
+const rc = (over = {}) => ({ mode: "idle", lease: null, holder_is_you: false, target: null, command: { pocket: "absent", sending: true }, ...over });
 const base = { apiState: "open", view: "live", canControl: true, cfg: { send_rate_hz: 25 } };
 
-test("banners follow the mode the core reports", () => {
+test("banners follow the mode the core reports (the engine sends without any client)", () => {
   let b = describeRadio({ ...base, rc: rc() });
   assert.equal(b.tone, "idle");
   assert.equal(b.role, "idle");
+  assert.match(b.text, /NO INPUT · the core holds its last command state/);
   assert.ok(b.canTake && !b.interactive && !b.canRelease);
-  b = describeRadio({ ...base, rc: rc({ mode: "master", target: "usb", lease: { holder: "gui" }, holder_is_you: true }) });
+  b = describeRadio({ ...base, rc: rc({ mode: "virtual", target: "usb", lease: { holder: "gui" }, holder_is_you: true }) });
   assert.equal(b.tone, "controlling");
-  assert.equal(b.roleText, "MASTER");
-  assert.match(b.text, /MASTER · sending to usb · 25 Hz/);
+  assert.equal(b.roleText, "VIRTUAL");
+  assert.match(b.text, /VIRTUAL · input of the command engine · command stream 25 Hz to usb/);
   assert.ok(b.interactive && b.canRelease && !b.canTake && b.warning === null);
-  b = describeRadio({ ...base, rc: rc({ mode: "master", target: "usb", lease: { holder: "exgs" } }) });
-  assert.match(b.text, /MASTER \(exgs\)/);
+  b = describeRadio({ ...base, rc: rc({ mode: "virtual", target: "usb", lease: { holder: "exgs" } }) });
+  assert.match(b.text, /VIRTUAL \(exgs\)/);
   assert.ok(!b.interactive && !b.canRelease && !b.canTake);
-  b = describeRadio({ ...base, rc: rc({ mode: "slave", pocket_active: true }) });
-  assert.ok(b.tone === "mirror" && b.role === "slave" && b.roleText === "SLAVE" && !b.interactive && b.canTake && !b.canRelease);
-  assert.equal(b.warning, null, "no warning in slave");
-  b = describeRadio({ ...base, canControl: false, rc: rc({ mode: "slave" }) });
-  assert.ok(!b.canTake, "a view-only client cannot switch to master");
+  b = describeRadio({ ...base, rc: rc({ mode: "pocket", pocket_active: true, command: { pocket: "live", sending: true }, target: "usb" }) });
+  assert.ok(b.tone === "mirror" && b.role === "pocket" && b.roleText === "POCKET" && !b.interactive && b.canTake && !b.canRelease);
+  assert.match(b.text, /POCKET live · input of the command engine/);
+  assert.equal(b.warning, null, "no warning while the Pocket is live");
+  b = describeRadio({ ...base, canControl: false, rc: rc({ mode: "pocket" }) });
+  assert.ok(!b.canTake, "a view-only client cannot take the virtual panel");
   b = describeRadio({ ...base, rc: rc({ lease: { holder: "gui" }, holder_is_you: true }) });
-  assert.ok(b.tone === "warn" && !b.interactive && b.canRelease, "lease without an RC-capable source: not sending");
+  assert.ok(b.tone === "warn" && !b.interactive && b.canRelease, "lease held but not yet the input");
+  b = describeRadio({ ...base, rc: rc({ command: { pocket: "absent", sending: false } }) });
+  assert.match(b.text, /NO COMMAND LINK CONNECTED/);
 });
 
-test("master with the Pocket also active shows the warning and stays operable", () => {
-  let b = describeRadio({ ...base, rc: rc({ mode: "master", pocket_active: true, target: "usb, link", lease: { holder: "gui" }, holder_is_you: true }) });
-  assert.equal(b.warning, POCKET_WARNING);
-  assert.match(b.warning, /Pocket also active: the radio rejects ground-station controls/);
-  assert.ok(b.interactive && b.canRelease, "master is allowed while the Pocket is active");
-  b = describeRadio({ ...base, rc: rc({ mode: "master", pocket_active: true, lease: { holder: "exgs" } }) });
-  assert.equal(b.warning, POCKET_WARNING, "shown to every client");
-  b = describeRadio({ ...base, rc: rc({ mode: "master", pocket_active: false, lease: { holder: "gui" }, holder_is_you: true }) });
-  assert.equal(b.warning, null);
+test("Pocket loss is a warning, the virtual panel is inactive while the Pocket is live", () => {
+  let b = describeRadio({ ...base, rc: rc({ mode: "pocket", command: { pocket: "lost", sending: true }, target: "usb" }) });
+  assert.equal(b.warning, POCKET_LOST_WARNING);
+  assert.match(b.warning, /WARNING: Pocket stream lost\. The ground station keeps sending its last command state/);
+  b = describeRadio({ ...base, rc: rc({ command: { pocket: "lost", sending: true }, lease: { holder: "exgs" } }) });
+  assert.equal(b.warning, POCKET_LOST_WARNING, "shown to every client, also without any input");
+  b = describeRadio({ ...base, rc: rc({ mode: "virtual", command: { pocket: "live", sending: true }, target: "usb", lease: { holder: "gui" }, holder_is_you: true }) });
+  assert.equal(b.warning, POCKET_LIVE_NOTE);
+  assert.ok(!b.interactive && b.canRelease, "the Pocket wins: the panel cannot be operated while it is live, but can be released");
+  b = describeRadio({ ...base, rc: rc({ mode: "virtual", command: { pocket: "lost", sending: true }, target: "usb", lease: { holder: "gui" }, holder_is_you: true }) });
+  assert.ok(b.interactive && b.warning === POCKET_LOST_WARNING, "after a loss the panel is the input and operable");
 });
 
 test("read-only situations: disconnected, replay, view-only client, no RC", () => {
-  let b = describeRadio({ ...base, apiState: "closed", rc: rc({ mode: "master", holder_is_you: true, lease: {} }) });
+  let b = describeRadio({ ...base, apiState: "closed", rc: rc({ mode: "virtual", holder_is_you: true, lease: {} }) });
   assert.ok(b.tone === "bad" && !b.interactive && !b.canTake && !b.canRelease);
-  b = describeRadio({ ...base, view: "replay", rc: rc({ mode: "master", holder_is_you: true, lease: {} }) });
+  assert.match(b.text, /the core keeps sending its command state without the GUI/);
+  b = describeRadio({ ...base, view: "replay", rc: rc({ mode: "virtual", holder_is_you: true, lease: {} }) });
   assert.ok(b.tone === "replay" && !b.interactive && !b.canTake);
   b = describeRadio({ ...base, canControl: false, rc: rc() });
-  assert.ok(!b.canTake, "a client off the control hosts cannot take control");
+  assert.ok(!b.canTake, "a client off the control hosts cannot take the panel");
   b = describeRadio({ ...base, rc: null });
   assert.ok(!b.interactive && !b.canTake);
 });
 
 test("locked controls: padlock and enablement", () => {
-  const live = describeRadio({ ...base, rc: rc({ mode: "master", holder_is_you: true, lease: {}, target: "usb" }) });
+  const live = describeRadio({ ...base, rc: rc({ mode: "virtual", holder_is_you: true, lease: {}, target: "usb" }) });
   const locked = { locked: true, remaining_s: null };
   const open = { locked: false, remaining_s: 42 };
   assert.ok(showPadlock(live, locked) && !showPadlock(live, open));

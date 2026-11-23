@@ -58,38 +58,43 @@ export function sliderFromPointer(left, width, x) {
 
 // ------------------------------------------------------------------ modes and banners
 
-export const POCKET_WARNING = "Pocket also active: the radio rejects ground-station controls";
+export const POCKET_LOST_WARNING =
+  "WARNING: Pocket stream lost. The ground station keeps sending its last command state (SE released); after the Pocket returns, a switch in an unsafe position must be cycled first";
+export const POCKET_LIVE_NOTE = "The Pocket is the input: the virtual switches are inactive while it is live";
 
 /**
  * Banner and capabilities from what the core reports. `rc` is the last `rc` message (or null).
- * `can_control`: the core said this client may take control (control host). `view`: "live" or "replay".
+ * `can_control`: the core said this client may take the virtual panel (control host). `view`: "live" or "replay".
+ * Since the GS-control cutover the core's command engine is the only sender and runs without any client: this banner
+ * only says who feeds it (the Pocket when live, else the virtual panel held by a client, else nothing: output held).
  */
 export function describeRadio({ apiState, view, rc, canControl, cfg }) {
   const none = { tone: "dim", role: "none", roleText: "", warning: null, text: "", interactive: false, canTake: false, canRelease: false, holder: false };
-  if (apiState !== "open") return { ...none, tone: "bad", text: "DISCONNECTED · nothing is sent (the core stops sending within 1 s)" };
+  if (apiState !== "open") return { ...none, tone: "bad", text: "DISCONNECTED · the core keeps sending its command state without the GUI" };
   if (view === "replay") return { ...none, tone: "replay", text: "REPLAY · recorded RC state, read-only" };
   if (!rc) return { ...none, text: "RC not available in this core" };
   const holder = !!rc.holder_is_you;
   const lease = rc.lease;
-  const rate = cfg && cfg.send_rate_hz ? ` · ${cfg.send_rate_hz} Hz` : "";
+  const cmd = rc.command || {};
+  const warning = cmd.pocket === "lost" ? POCKET_LOST_WARNING : null;
+  const live = cmd.pocket === "live";
+  const rate = cmd.sending ? ` · command stream ${cfg && cfg.send_rate_hz ? cfg.send_rate_hz : 25} Hz to ${rc.target || "?"}` : " · NO COMMAND LINK CONNECTED";
   switch (rc.mode) {
-    case "master": {
-      const warning = rc.pocket_active ? POCKET_WARNING : null;
-      const m = { ...none, role: "master", roleText: "MASTER", warning };
+    case "virtual": {
+      const m = { ...none, role: "virtual", roleText: "VIRTUAL", warning: warning || (live ? POCKET_LIVE_NOTE : null) };
       if (holder) {
-        return { ...m, tone: "controlling", text: `MASTER · sending to ${rc.target || "?"}${rate}`, interactive: true, canRelease: true, holder };
+        return { ...m, tone: live ? "warn" : "controlling", text: `VIRTUAL · input of the command engine${rate}`, interactive: !live, canRelease: true, holder };
       }
-      return { ...m, tone: "dim", text: `MASTER (${lease ? lease.holder : "another client"}) · read-only` };
+      return { ...m, tone: "dim", text: `VIRTUAL (${lease ? lease.holder : "another client"}) · read-only` };
     }
-    case "slave":
-      // The Pocket's positions, read-only; nothing is sent. Switching to master is the user's choice.
-      return { ...none, role: "slave", roleText: "SLAVE", tone: "mirror", text: "SLAVE · showing the Pocket · read-only", canTake: !!canControl && !lease };
+    case "pocket":
+      // The Pocket's positions, read-only. Taking the virtual panel is the operator's choice; it feeds the engine only
+      // while the Pocket is not live.
+      return { ...none, role: "pocket", roleText: "POCKET", tone: "mirror", warning, text: `POCKET live · input of the command engine${rate}`, canTake: !!canControl && !lease };
     default:
-      if (lease && holder) {
-        return { ...none, role: "idle", roleText: "IDLE", tone: "warn", text: "MASTER REQUESTED · no RC-capable source connected · NOT SENDING", canRelease: true, holder };
-      }
-      if (lease) return { ...none, role: "idle", roleText: "IDLE", tone: "dim", text: `NOT SENDING · lease held by ${lease.holder}` };
-      return { ...none, role: "idle", roleText: "IDLE", tone: "idle", text: "NOT SENDING", canTake: !!canControl };
+      if (lease && holder) return { ...none, role: "idle", roleText: "IDLE", tone: "warn", warning, text: "VIRTUAL PANEL HELD · no input yet", canRelease: true, holder };
+      if (lease) return { ...none, role: "idle", roleText: "IDLE", tone: "dim", warning, text: `no input · virtual panel held by ${lease.holder}` };
+      return { ...none, role: "idle", roleText: "IDLE", tone: cmd.pocket === "lost" ? "warn" : "idle", warning, text: `NO INPUT · the core holds its last command state${rate}`, canTake: !!canControl };
   }
 }
 

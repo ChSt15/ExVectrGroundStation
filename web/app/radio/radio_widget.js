@@ -1,8 +1,9 @@
-// Virtual radio widget (design 5.6). SAFETY-RELEVANT UI: this is the only way the GUI makes the core send
-// RC state. Rules kept here:
+// Virtual radio widget (design 5.6). SAFETY-RELEVANT UI: this is the GUI's virtual Pocket. Since the GS-control cutover
+// the core's command engine is the only sender of vehicle commands and runs without any client; the widget only feeds it
+// the virtual switches while this client holds the lease and the Pocket is not live (the Pocket wins). Rules kept here:
 //  - Clicks only send requests. Every control shows the state the core reports in its `rc` push messages
-//    (labelled "sent"), never an optimistic local state.
-//  - Controls are operable only while this client holds the lease and the core reports "master".
+//    (the panel's state), never an optimistic local state; what the VEHICLE applied is in the Command tab.
+//  - Controls are operable only while this client holds the lease and the core reports "virtual" with the Pocket not live.
 //  - Heartbeat every 300 ms while holding; closing the tab ends the lease at once (WebSocket close).
 //  - A momentary control sends 1 every 100 ms while pressed and 0 on release, cancel, blur or hiding.
 //  - A control with `lock` in the radio config is a padlock until held for 1 s, then operable until the
@@ -12,6 +13,7 @@ import { stickConfig, stickState } from "./sticks.js";
 import { createSticks } from "./sticks_widget.js";
 import { commandPathRows } from "../status/command_path.js";
 import { renderCommandPath } from "../status/command_path_view.js";
+import { pickupHints } from "../command/command_logic.js";
 import {
   HEARTBEAT_MS, MomentaryHold, HoldTimer, SLIDER_INTERVAL_MS, Throttle, controlEnabled, cyclePosition, describeRadio,
   needsReleasePrompt, nextToggle, showPadlock, sliderFromPointer, stateFromChannels, switchPosFromFraction, unlockRemaining,
@@ -70,14 +72,15 @@ export function createRadioWidget(el, ctx) {
   const img = h("img", { class: "rc-bg", src: "/static/app/radio/pocket.svg", alt: "", draggable: "false" });
   const screen = h("div", { class: "rc-screen" });
   stage.append(img, screen);
-  const take = h("button", { class: "rc-take danger", text: "Switch to master", onclick: () => act("rc.acquire", { kind: "connection" }) });
-  const release = h("button", { class: "rc-release", text: "Release (back to slave)", onclick: () => act("rc.release") });
+  const take = h("button", { class: "rc-take danger", text: "Use virtual switches", onclick: () => act("rc.acquire", { kind: "connection" }) });
+  const release = h("button", { class: "rc-release", text: "Release virtual switches", onclick: () => act("rc.release") });
   const msg = h("div", { class: "msg rc-msg" });
-  const foot = h("div", { class: "hint", text: "Controls show the state the core reports as sent. Applied state: not reported by the vehicle." });
+  const foot = h("div", { class: "hint", text: "Controls show the virtual panel state the core reports. What the vehicle applied: Command tab. SD = motors armed / disarmed." });
+  const hintBox = h("div", { class: "rc-hints", "data-testid": "radio-hints", role: "status", hidden: "" });
   const lockNote = h("div", { class: "lock-note", "data-testid": "radio-lock", hidden: "" });
   const stickBox = h("div", { class: "rc-sticks" });
   const pathBox = h("div", { class: "cp-box", "data-testid": "radio-path" });
-  el.append(role, banner, warn, lockNote, h("div", { class: "toolbar" }, take, release), msg, stage, pathBox, stickBox, foot);
+  el.append(role, banner, warn, hintBox, lockNote, h("div", { class: "toolbar" }, take, release), msg, stage, pathBox, stickBox, foot);
   // Stick display (read-only): the Pocket's sticks in slave, what the core sends in master (the channel defaults:
   // no stick sending exists), the recorded RcState in replay.
   const sticks = createSticks(stickBox);
@@ -322,12 +325,12 @@ export function createRadioWidget(el, ctx) {
       state = r.controls || {};
       ch = r.channels_us || [];
       locks = r.locks || {};
-      if (r.mode === "slave") {
+      if (r.mode === "pocket") {
         const now = ctx.store.now("live");
         sub = now != null && r.t != null ? ` · ${Math.max(0, now - r.t).toFixed(1)} s ago` : "";
         screenText = "HANDSET";
-      } else if (r.sending) {
-        screenText = `SENT ${cfg.send_rate_hz || ""} Hz`;
+      } else if (r.mode === "virtual") {
+        screenText = r.command && r.command.input === "virtual" ? "VIRTUAL" : "PANEL";
       } else {
         screenText = "IDLE";
       }
@@ -339,6 +342,9 @@ export function createRadioWidget(el, ctx) {
     role.dataset.role = b.role;
     warn.textContent = b.warning || "";
     warn.hidden = !b.warning;
+    const hints = view === "live" && ctx.api.state === "open" && r && r.command ? pickupHints(r.command.hints) : [];
+    hintBox.textContent = hints.length ? `Waiting for the input: ${hints.join("; ")}` : "";
+    hintBox.hidden = !hints.length;
     screen.textContent = screenText;
     shown = { ...state };
     const nowMs = performance.now();
@@ -361,12 +367,12 @@ export function createRadioWidget(el, ctx) {
       return sticks.update(it ? stickState(stickCfg, it.f.ch_us) : null, { caption: it ? `Sticks · recorded (${it.f.origin ?? "?"})` : "Sticks · no RcState in this log" });
     }
     if (!r) return sticks.update(null, { caption: "sticks: RC not available" });
-    if (r.mode === "slave") {
+    if (r.mode === "pocket") {
       const now = ctx.store.now("live");
       const age = now != null && r.t != null ? Math.max(0, now - r.t) : null;
       return sticks.update(stickState(stickCfg, ch), { caption: `Sticks · Pocket (received)${age !== null ? ` · ${age.toFixed(1)} s ago` : ""}`, stale: age !== null && age > 0.5 });
     }
-    return sticks.update(stickState(stickCfg, ch), { caption: r.sending ? "Sticks · sent by the ground station (channel defaults, no stick sending)" : "Sticks · not sending (defaults)" });
+    return sticks.update(stickState(stickCfg, ch), { caption: "Sticks · display only (the ground station sends no stick values)" });
   }
 
   // ------------------------------------------------------------ heartbeat, safety nets
@@ -407,11 +413,12 @@ export function createRadioWidget(el, ctx) {
   disposers.push(removeGuard);
 
   const inst = {
-    /** Dock tab marker: amber while the core reports master (sending), red with the Pocket-also-active warning. */
+    /** Dock tab marker: amber while a Pocket loss is reported, red when the vehicle latched another session. */
     alert() {
       const r = rc();
-      if (ctx.api.state !== "open" || !r || r.mode !== "master") return "";
-      return r.pocket_active ? "bad" : "warn";
+      if (ctx.api.state !== "open" || !r || !r.command) return "";
+      if (r.command.master === "not_master" || r.command.multi_master) return "bad";
+      return r.command.pocket === "lost" ? "warn" : "";
     },
     onRc() {
       rcAt = performance.now();
