@@ -26,6 +26,8 @@ function ev(id, category, text, severity, priority, extra = {}) {
 
 const FF_SMOOTH_S = 0.5; // moving average of the vertical speed for the freefall countdown
 const FF_MIN_SPEED = 0.5; // m/s: slower than this the countdown is not announced
+const APOGEE_MIN_ALT = 5; // m: Apogee is only detected above this altitude
+const APOGEE_SMOOTH_S = 0.3; // moving average of the vertical speed for the apogee detection
 const FF_HYST_S = 0.2; // a level is only armed at the first sample when the time to go is this far above it
 
 export class CalloutEngine {
@@ -118,6 +120,7 @@ export class CalloutEngine {
     this._mode(mode, out);
     this._phase(c, phase, mode, mission || status, out);
     const airborne = mode === "Running" && (mission || status);
+    this._apogee(airborne ? position : null, phase, out);
     // the freefall levels replace the altitude callouts during the descent (baselines keep following)
     const alt = [];
     this._altitude(c, airborne ? position : null, alt);
@@ -187,23 +190,13 @@ export class CalloutEngine {
       if (e) out.push(e);
     };
     edge("armed", f.armed, ev("state.armed", "state", "Motors armed", "warning", PRIORITY.warning), ev("state.disarmed", "state", "Motors disarmed", "info", PRIORITY.state));
-    // Motors ENABLED (control software may drive them) while ARMED (gate open): one red announcement per transition.
-    // Enabled while disarmed, and RUNNING (thrust > 0), are never announced.
-    if (typeof f.armed === "boolean" && typeof f.motors_enabled === "boolean") {
-      edge("motorsEnabledArmed", f.armed && f.motors_enabled, ev("state.motors", "state", "Motors enabled", "failure", PRIORITY.warning), null);
+    // a go refused by the vehicle: the toast names the reason, the voice says only "Go refused"
+    const gr = f.go_refusal;
+    if (finite(gr)) {
+      const prev = st.goRefusal;
+      st.goRefusal = gr;
+      if (prev !== undefined && gr > 0 && gr !== prev) out.push(ev("state.go_refused", "state", "Go refused", "warning", PRIORITY.warning, { key: "go_refused", label: `Go refused: ${goRefusalText(gr)}` }));
     }
-    // T9b-4: SD must be toggled off, then on (ctrl_flags bit 0 INTERLOCK_NEED_TOGGLE)
-    if (finite(f.ctrl_flags)) {
-      edge("needToggle", (f.ctrl_flags & 1) !== 0, ev("state.toggle_sd", "state", "Toggle SD off, then on", "warning", PRIORITY.warning, { key: "toggle_sd" }), null);
-      // a go refused by the vehicle: the toast names the reason, the voice says only "Go refused"
-      const gr = f.go_refusal;
-      if (finite(gr)) {
-        const prev = st.goRefusal;
-        st.goRefusal = gr;
-        if (prev !== undefined && gr > 0 && gr !== prev) out.push(ev("state.go_refused", "state", "Go refused", "warning", PRIORITY.warning, { key: "go_refused", label: `Go refused: ${goRefusalText(gr)}` }));
-      }
-    }
-    edge("zeroing", f.zeroing, ev("state.zeroing", "state", "Zeroing", "info", PRIORITY.state), ev("state.zero_done", "state", "Zero complete", "ok", PRIORITY.state));
     if (typeof f.simulation === "boolean" && st.sim !== f.simulation) {
       const first = st.sim === undefined;
       st.sim = f.simulation;
@@ -242,6 +235,7 @@ export class CalloutEngine {
     st.mode = mode;
     if (prev === "Idle" && (mode === "Initialisation" || mode === "Startup" || mode === "Running")) {
       out.push(ev("mission.begin", "countdown", "Mission beginning", "info", PRIORITY.mission, { maxAge: 4 }));
+      st.apogee = undefined; // a new flight: Apogee can be said again
     }
   }
 
@@ -269,6 +263,31 @@ export class CalloutEngine {
     if ((prev === undefined && !pre) || prev === phase) return;
     const text = c.phaseNames[phase];
     if (text) out.push(ev(`phase.${phase}`, "phase", text, "info", PRIORITY.mission));
+  }
+
+  /**
+   * Apogee, once per flight: while the phase is Ascent and the altitude is above APOGEE_MIN_ALT, the vertical speed
+   * (Position.vel[2], mean over APOGEE_SMOOTH_S) goes from positive to <= 0. Re-armed by the next mission begin.
+   */
+  _apogee(position, phase, out) {
+    const st = this.s;
+    const z = position && vec3(position.f.pos) ? position.f.pos[2] : null;
+    const vz = position && position.f.vel && finite(position.f.vel[2]) ? position.f.vel[2] : null;
+    if (phase !== "Ascent" || z === null || vz === null || z <= APOGEE_MIN_ALT) {
+      if (st.apogee) st.apogee.vs = []; // smoothing restarts; "rising" and "said" are kept for this flight
+      return;
+    }
+    const a = st.apogee || (st.apogee = { vs: [], rising: false, said: false });
+    if (a.said) return;
+    const now = st.lastNow;
+    a.vs.push({ t: now, v: vz });
+    while (a.vs.length && now - a.vs[0].t > APOGEE_SMOOTH_S) a.vs.shift();
+    const mean = a.vs.reduce((x, y) => x + y.v, 0) / a.vs.length;
+    if (mean > 0) a.rising = true;
+    else if (a.rising) {
+      a.said = true;
+      out.push(ev("phase.apogee", "phase", "Apogee", "info", PRIORITY.mission, { maxAge: 3 }));
+    }
   }
 
   _altitude(c, position, out) {
@@ -310,19 +329,16 @@ export class CalloutEngine {
    * The vehicle recomputes the flip start with speed, so the latest telemetry is used each tick. Without a flip start
    * (NaN outside the freefall) or below FF_MIN_SPEED the numbers are silent. Spoken: the levels `freefall.countdown_s`
    * (default 5 4 3 2 1), each once per descent as the time to go falls to or below it; several at once: only the
-   * lowest; levels already passed at the first sample are skipped silently. "Begin" once: the distance reaches 0 or the
-   * phase goes Descent -> Deceleration. Active while the phase is `Descent`; a new descent re-arms everything.
+   * lowest; levels already passed at the first sample are skipped silently. No "Begin" any more: the phase callout
+   * "Deceleration" marks the upright. The countdown ends when the distance reaches 0 or the phase leaves Descent. Active while the phase is `Descent`; a new descent re-arms everything.
    */
   _freefall(c, position, phase, flip, out) {
     const st = this.s;
     const z = position && vec3(position.f.pos) ? position.f.pos[2] : null;
     const ff = st.ff;
     if (phase !== "Descent") {
-      if (ff && !ff.begun && ff.armed && phase === "Deceleration") {
-        ff.begun = true;
-        out.push(ev("freefall.begin", "altitude", "Begin", "info", PRIORITY.altitude, { maxAge: 2 }));
-      }
-      if (ff && phase !== "Deceleration") st.ff = undefined; // kept (begun) through Deceleration so Begin is not repeated
+      if (ff && phase === "Deceleration") ff.begun = true; // the phase callout says "Deceleration"; nothing more here
+      if (ff && phase !== "Deceleration") st.ff = undefined; // kept (begun) through Deceleration
       return;
     }
     if (z === null) {
@@ -333,19 +349,16 @@ export class CalloutEngine {
     // vertical speed samples (one per distinct evaluation time), moving average over FF_SMOOTH_S
     let f = st.ff;
     if (!f) f = st.ff = { armed: false, begun: false, vs: [], left: new Map() };
-    if (f.begun) return; // Begin said (or already past the flip start): nothing more in this descent
+    if (f.begun) return; // past the flip start: nothing more in this descent
     const vz = position.f.vel && finite(position.f.vel[2]) ? position.f.vel[2] : null;
     if (vz !== null) {
       f.vs.push({ t: now, v: vz });
       while (f.vs.length && now - f.vs[0].t > FF_SMOOTH_S) f.vs.shift();
     }
-    if (flip === null) return; // no flip start reported: silent, state kept (Begin still follows the phase change)
+    if (flip === null) return; // no flip start reported: silent
     const d = z - flip;
     if (d <= 0) {
-      if (f.armed) {
-        f.begun = true;
-        out.push(ev("freefall.begin", "altitude", "Begin", "info", PRIORITY.altitude, { maxAge: 2 }));
-      } else f.begun = true; // already past the flip start at the first sample: nothing to count down
+      f.begun = true; // the flip start is reached (or was already past at the first sample): no more numbers
       f.armed = true;
       return;
     }

@@ -5,11 +5,11 @@
 export const CATEGORIES = ["countdown", "phase", "altitude", "failure", "link", "state", "deviation", "altcheck"];
 export const CATEGORY_LABELS = {
   countdown: "Countdown",
-  phase: "Mission phases",
+  phase: "Mission phases (incl. Apogee)",
   altitude: "Altitude",
   failure: "Failures",
   link: "Link / telemetry",
-  state: "State (armed, motors, zeroing, sim)",
+  state: "State (motors armed / disarmed, go refused, sim / real)",
   deviation: "Position deviation",
   altcheck: "GNSS altitude cross-check",
 };
@@ -39,7 +39,7 @@ export const DEFAULTS = {
   stale_s: 3,
   suppress: { normal_s: 2, failure_s: 8 },
   phaseNames: {
-    Hover: "Hover", Ascent: "Ascent", Descent: "Belly flop", Deceleration: "Deceleration", RTH: "Return to home",
+    Hover: "Hover", Ascent: "Ascent", Descent: "Descent", Deceleration: "Deceleration", RTH: "Return to home",
     Landing: "Landing", Completed: "Landed",
   },
   styles: {
@@ -116,6 +116,8 @@ export function mergeSettings(base, over) {
     out.suppress.failure_s = num(over.suppress.failure_s, 0, 600, out.suppress.failure_s);
   }
   if (isObj(over.phaseNames)) for (const [k, v] of Object.entries(over.phaseNames)) if (typeof v === "string" && v.length < 60 && /^\w+$/.test(k)) out.phaseNames[k] = v;
+  // migration: the bellyflop phase was spoken "Belly flop" (saved copies keep it); it is "Descent" now
+  if (/^belly ?flop$/i.test(out.phaseNames.Descent)) out.phaseNames.Descent = "Descent";
   if (isObj(over.styles)) {
     for (const s of STYLE_NAMES) {
       const o = over.styles[s];

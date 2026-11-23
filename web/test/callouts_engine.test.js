@@ -64,7 +64,7 @@ test("phase edges: names from the vehicle phases, first observation silent, Idle
   assert.deepEqual(texts(run()).filter((t) => t !== "Simulation"), []);
   const seq = ["Hover", "Ascent", "Descent", "Deceleration", "RTH", "Landing", "Completed", "Idle"];
   const said = seq.flatMap((p) => texts(step(0.2, { ms: { mission_phase: p } })));
-  assert.deepEqual(said, ["Hover", "Ascent", "Belly flop", "Deceleration", "Return to home", "Landing", "Landed"]);
+  assert.deepEqual(said, ["Hover", "Ascent", "Descent", "Deceleration", "Return to home", "Landing", "Landed"]);
 });
 
 test("mission begin: said when the mode leaves Idle; phase (Hover) only once Running", () => {
@@ -176,27 +176,15 @@ test("failsafe rising says Failsafe", () => {
   assert.deepEqual(texts(step(0.1, { vs: { failsafe: true } })), ["Failsafe"]);
 });
 
-test("state: motors armed, disarmed, motors enabled (said once, red, only while armed; running and enabled-while-disarmed silent), zeroing and zero complete", () => {
+test("state: Motors armed / disarmed once each; Motors enabled, zeroing and zero complete are not announced", () => {
   const { run, step } = rig();
   run();
   assert.deepEqual(texts(step(0.1, { vs: { armed: false } })), ["Motors disarmed"]);
   assert.deepEqual(texts(step(0.1, { vs: { armed: true } })), ["Motors armed"]);
   assert.equal(step(0.1, { vs: { armed: true } }).events[0], undefined);
-  const m = step(0.1, { vs: { motors_enabled: true } });
-  assert.deepEqual(texts(m), ["Motors enabled"]);
-  assert.equal(m.events[0].severity, "failure");
-  assert.ok(m.events[0].priority > 0);
-  const said = [];
-  for (let i = 0; i < 100; i++) said.push(...texts(step(0.1)));
-  assert.deepEqual(said, []); // no repeat
-  assert.deepEqual(texts(step(0.1, { vs: { armed: false } })), ["Motors disarmed"]);
-  assert.deepEqual(texts(step(0.1, { vs: { motors_enabled: false } })), []); // enabled while disarmed: silent
   assert.deepEqual(texts(step(0.1, { vs: { motors_enabled: true } })), []);
-  assert.deepEqual(texts(step(0.1, { vs: { armed: true } })), ["Motors armed", "Motors enabled"]);
-  assert.deepEqual(texts(step(0.1, { vs: { motors_enabled: false } })), []);
-  assert.deepEqual(texts(step(0.1, { vs: { armed: true } })), []);
-  assert.deepEqual(texts(step(0.1, { vs: { zeroing: true } })), ["Zeroing"]);
-  assert.deepEqual(texts(step(0.1, { vs: { zeroing: false } })), ["Zero complete"]);
+  assert.deepEqual(texts(step(0.1, { vs: { motors_enabled: false, zeroing: true } })), []);
+  assert.deepEqual(texts(step(0.1, { vs: { zeroing: false } })), []);
 });
 
 test("stale live data never triggers mission or altitude callouts and re-baselines on return", () => {
@@ -302,13 +290,13 @@ test("position deviation: needs the limit for the hold time, own hysteresis, fir
   assert.equal(w.now > 0, true);
 });
 
-test("T9b-4: motors armed watchdog failure, SD toggle needed and a refused go (reason in the toast label)", () => {
+test("T9b-4: motors armed watchdog failure, no callout for SD toggle needed, and a refused go (reason in the toast label)", () => {
   const { run, step } = rig();
   run();
   assert.deepEqual(texts(step(0.1, { vs: { failure_bits: 1 << 13, ctrl_flags: 0, go_refusal: 0 } })), ["Motors armed watchdog failure"]);
   const t = step(0.1, { vs: { failure_bits: 0, ctrl_flags: 1 } });
-  assert.deepEqual(texts(t), ["Failure cleared", "Toggle SD off, then on"]);
-  assert.deepEqual(texts(step(0.1, { vs: { ctrl_flags: 1 } })), []); // once per rising edge
+  assert.deepEqual(texts(t), ["Failure cleared"]); // INTERLOCK_NEED_TOGGLE (ctrl_flags bit 0): no callout
+  assert.deepEqual(texts(step(0.1, { vs: { ctrl_flags: 1 } })), []);
   const g = step(0.1, { vs: { ctrl_flags: 0, go_refusal: 4 } });
   assert.deepEqual(texts(g), ["Go refused"]);
   assert.equal(g.events[0].label, "Go refused: SC invalid, reserved or different from the vehicle mode");
@@ -338,13 +326,13 @@ function descent(over = {}, v = 7, z0 = 120) {
   return r;
 }
 
-test("freefall countdown: 5 4 3 2 1 Begin once each at 7 m/s, no distance wording, altitude callouts muted", () => {
+test("freefall countdown: 5 4 3 2 1 once each at 7 m/s, no Begin, no distance wording, altitude callouts muted", () => {
   const r = descent();
   // flip start 34 m, so it is reached at z = 34
-  assert.deepEqual(r.fall(30), ["5", "4", "3", "2", "1", "Begin"]);
-  assert.deepEqual(r.fall(10), []); // Begin not repeated
-  // the phase change after Begin does not repeat it
-  assert.deepEqual(texts(r.step(0.1, { vs: { mission_phase: "Deceleration" }, ms: { mission_phase: "Deceleration" } })).filter((t) => t === "Begin"), []);
+  assert.deepEqual(r.fall(30), ["5", "4", "3", "2", "1"]);
+  assert.deepEqual(r.fall(10), []);
+  // the upright is the phase change: "Deceleration" once, never "Begin"
+  assert.deepEqual(texts(r.step(0.1, { vs: { mission_phase: "Deceleration" }, ms: { mission_phase: "Deceleration" } })), ["Deceleration"]);
 });
 
 test("freefall countdown: a flip start that moves with the speed is followed each tick", () => {
@@ -354,14 +342,14 @@ test("freefall countdown: a flip start that moves with the speed is followed eac
   // the speed rises to 10 m/s: flip start 40 m, the countdown follows the new values
   const more = r.fall(40.5, 10);
   assert.deepEqual(more, ["5", "4", "3", "2", "1"]);
-  assert.deepEqual(r.fall(30, 10), ["Begin"]);
+  assert.deepEqual(r.fall(30, 10), []);
 });
 
 test("freefall countdown: levels already passed at the first sample are skipped silently; several at once only the lowest; custom levels", () => {
   const r = descent({}, 7, 34 + 2.9 * 7); // 2.9 s to go: 5, 4, 3 passed
-  assert.deepEqual(r.fall(30), ["2", "1", "Begin"]);
+  assert.deepEqual(r.fall(30), ["2", "1"]);
   const c = descent({ freefall: { countdown_s: [3, 10] } }, 7, 34 + 9 * 7);
-  assert.deepEqual(c.fall(30), ["3", "Begin"]); // 10 passed at the start
+  assert.deepEqual(c.fall(30), ["3"]); // 10 passed at the start
   // a jump over 4, 3 and 2 in one step: only the lowest
   const j = descent({}, 7, 34 + 6 * 7);
   j.fall(34 + 4.5 * 7);
@@ -410,19 +398,19 @@ test("freefall countdown: the speed is smoothed (a single noisy sample does not 
     const noisy = i % 3 === 0 ? -9 : -6; // mean around 7
     said.push(...texts(r.step(0.1, { pos: { pos: [0, 0, z], vel: [0, 0, noisy] } })));
   }
-  assert.deepEqual(said.filter((t) => t !== "Begin"), ["5", "4", "3", "2", "1"].slice(said.length === 0 ? 0 : 5 - said.filter((t) => t !== "Begin").length));
+  assert.deepEqual(said, ["5", "4", "3", "2", "1"].slice(5 - said.length));
   assert.equal(new Set(said).size, said.length);
 });
 
-test("freefall countdown: Begin from the phase change when the distance never reached 0, even when the flip start is NaN; new descent re-arms", () => {
+test("freefall countdown: Deceleration from the phase change (flip start NaN) and no Begin; a new descent re-arms", () => {
   const r = descent({}, 7, 60);
   r.fall(55);
   const t = texts(r.step(0.1, { vs: { mission_phase: "Deceleration" }, ms: { mission_phase: "Deceleration", flip_start_altitude: NaN } }));
-  assert.deepEqual(t.filter((x) => x === "Begin"), ["Begin"]);
+  assert.deepEqual(t, ["Deceleration"]);
   r.step(0.1, { vs: { mission_phase: "Landing" }, ms: { mission_phase: "Landing" } });
   r.step(0.1, { vs: { mission_phase: "Descent" }, ms: { mission_phase: "Descent", flip_start_altitude: 34 }, pos: { pos: [0, 0, 120], vel: [0, 0, -7] } });
   r.setZ(120);
-  assert.deepEqual(r.fall(30), ["5", "4", "3", "2", "1", "Begin"]);
+  assert.deepEqual(r.fall(30), ["5", "4", "3", "2", "1"]);
 });
 
 test("freefall settings: an old saved object with metre levels loads and is ignored", () => {
@@ -435,4 +423,58 @@ test("freefall settings: an old saved object with metre levels loads and is igno
 test("a stored settings object with the removed ground_distance section is ignored", () => {
   const m = mergeSettings(DEFAULTS, { ground_distance: { enabled: true, repeat_s: 1 } });
   assert.equal("ground_distance" in m, false);
+});
+
+test("apogee: said once per flight when the smoothed vertical speed goes to <= 0 in Ascent above 5 m; re-armed by the next mission begin", () => {
+  const { step, run, w } = rig();
+  w.ms.mission_phase = "Ascent";
+  w.vs.mission_phase = "Ascent";
+  w.pos.pos = [0, 0, 40];
+  w.pos.vel = [0, 0, 8];
+  run();
+  const said = [];
+  const go = (z, vz, n = 1) => { for (let i = 0; i < n; i++) said.push(...texts(step(0.1, { pos: { pos: [0, 0, z], vel: [0, 0, vz] } })).filter((t) => t === "Apogee")); };
+  go(50, 8, 10);
+  go(60, 1, 2);
+  assert.deepEqual(said, []); // still rising on the 0.3 s average
+  go(61, -3, 6);
+  assert.deepEqual(said, ["Apogee"]);
+  go(61, 2, 6);
+  go(62, -2, 6);
+  assert.deepEqual(said, ["Apogee"]); // once per flight
+  // next flight: mission ends and begins again
+  step(0.1, { vs: { mission_mode: "Idle" }, ms: { mission_mode: "Idle" } });
+  step(0.1, { vs: { mission_mode: "Running" }, ms: { mission_mode: "Running" } });
+  said.length = 0;
+  go(50, 8, 10);
+  go(60, -2, 6);
+  assert.deepEqual(said, ["Apogee"]);
+});
+
+test("apogee: not below 5 m, not outside Ascent, not without a rising phase first", () => {
+  const { step, run, w } = rig();
+  w.ms.mission_phase = w.vs.mission_phase = "Ascent";
+  w.pos.pos = [0, 0, 3];
+  w.pos.vel = [0, 0, 4];
+  run();
+  const said = [];
+  const go = (z, vz, n = 1, ph) => { for (let i = 0; i < n; i++) said.push(...texts(step(0.1, { pos: { pos: [0, 0, z], vel: [0, 0, vz] }, ...(ph ? { vs: { mission_phase: ph }, ms: { mission_phase: ph } } : {}) }))); };
+  go(3, 4, 5); go(4, -1, 6); // hop below 5 m
+  go(30, -1, 6); // falling from the start of the detection: never rising, silent
+  go(30, 5, 6, "Hover"); go(40, -5, 6); // Hover phase is not Ascent
+  assert.deepEqual(said.filter((t) => t === "Apogee"), []);
+});
+
+test("final callout set: Ascent, Descent, Deceleration, Landing, Landed, Return to home each once; no Belly flop / Begin", () => {
+  const { step, run, w } = rig();
+  w.ms.mission_phase = "Hover";
+  run();
+  const said = [];
+  for (const p of ["Ascent", "Descent", "Deceleration", "RTH", "Landing", "Completed"]) said.push(...texts(step(0.2, { ms: { mission_phase: p }, vs: { mission_phase: p } })));
+  assert.deepEqual(said, ["Ascent", "Descent", "Deceleration", "Return to home", "Landing", "Landed"]);
+});
+
+test("settings migration: a saved 'Belly flop' phase name becomes Descent", () => {
+  assert.equal(mergeSettings(DEFAULTS, { phaseNames: { Descent: "Belly flop" } }).phaseNames.Descent, "Descent");
+  assert.equal(mergeSettings(DEFAULTS, { phaseNames: { Descent: "Dive" } }).phaseNames.Descent, "Dive");
 });
