@@ -2,6 +2,8 @@
 whitelist, and every group's answers against the fake source (DONE and the refusals)."""
 
 import asyncio
+import dataclasses
+import math
 import sys
 from pathlib import Path
 
@@ -10,7 +12,7 @@ import pytest
 from exvectr_gs.core import Bus
 from exvectr_gs.core.clock import FakeClock
 from exvectr_gs.core.config import ConfigError, RequestEntry, RequestsSection, load_config, parse_config
-from exvectr_gs.packets.defs.link import RequestAction
+from exvectr_gs.packets.defs.link import Request, RequestAction
 from exvectr_gs.requests import RequestController, RequestError
 from exvectr_gs.sources.base import SourceConfig
 from exvectr_gs.sources.fake_source import FakeSource
@@ -30,6 +32,7 @@ NEW_IDS = {
     "SIM_FLAP_SLOW": 21,
     "SIM_FAULT_CLEAR": 22,
     "GET_HOME_POSITION": 23,
+    "SET_MISSION_PARAM": 24,
 }
 
 
@@ -41,7 +44,7 @@ def test_mirror_has_the_new_action_ids_and_matches_the_generated_enum():
         assert RequestAction[name] == value == xp.RequestAction[name]
     assert RequestAction.CALIB_APPLY == 7 and RequestAction.SAVE_CONFIG == 8
     assert {m.name: m.value for m in RequestAction} == {m.name: m.value for m in xp.RequestAction}
-    assert xp.SCHEMA_HASH == 0x036F9C45
+    assert xp.SCHEMA_HASH == 0x5E23CDD1
 
 
 # ---------------------------------------------------------------- config
@@ -227,3 +230,86 @@ async def test_state_and_json_carry_arg_i_and_rows_with_one_action_are_in_flight
 def test_request_entry_arg_i_default_is_fixed_zero():
     e = RequestEntry("SAVE_CONFIG", 1, "x", "y")
     assert e.arg_i == 0 and not e.arg_i_ranged
+
+
+# ---------------------------------------------------------------- SET_MISSION_PARAM (24) and MISSION_PARAMS
+
+PARAMS = {  # id -> (MissionParams field, default, min, max)
+    1: ("ascent_speed", 7.0, 0.5, 10.0),
+    2: ("apogee_altitude", 120.0, 2.0, 1000.0),
+    3: ("hover_hold_s", 30.0, 0.0, 600.0),
+    4: ("p1_hold_1_s", 10.0, 0.0, 600.0),
+    5: ("p1_hold_2_s", 15.0, 0.0, 600.0),
+    6: ("p1_hold_3_s", 15.0, 0.0, 600.0),
+}
+
+
+@pytest.mark.parametrize("name", ["gs.pocket.toml", "gs.example.toml"])
+def test_shipped_configs_have_one_row_per_mission_parameter(name):
+    cfg = load_config(ROOT / "config" / name)
+    rows = {e.arg_i: e for e in cfg.requests.actions if e.action == "SET_MISSION_PARAM"}
+    assert set(rows) == set(PARAMS)
+    for i, (_, default, lo, hi) in PARAMS.items():
+        e = rows[i]
+        assert (e.target, e.arg_i_ranged, e.arg_f_min, e.arg_f_max, e.arg_f_default) == (1, False, lo, hi, default)
+
+
+def test_mission_params_packet_mirror_matches_the_generated_module():
+    from exvectr_gs.packets.defs.vehicle import MissionParams
+    from exvectr_gs.wire.exvectrnet_1 import _deps  # noqa: F401
+    from exvectr_gs.wire.exvectrnet_1.mapping import MAPPERS
+
+    xp = sys.modules["exvectr_packets"]
+    assert xp.MissionParams.PORT == 0x26
+    fields = [f.name for f in dataclasses.fields(xp.MissionParams)]
+    assert fields == [v[0] for v in PARAMS.values()]
+    pkt = xp.MissionParams(ascent_speed=6.0, apogee_altitude=math.nan)
+    (out,) = MAPPERS[xp.MissionParams](xp.MissionParams.decode(pkt.encode()), 5, "usb", {})
+    assert isinstance(out, MissionParams) and out.ascent_speed == 6.0 and out.apogee_altitude is None
+
+
+@pytest.mark.parametrize("pid", sorted(PARAMS))
+async def test_each_mission_parameter_is_done_and_read_back_by_the_fake_source(pid):
+    field, default, lo, hi = PARAMS[pid]
+    r = Rig()
+    value = (lo + hi) / 2
+    status, detail, pkt = await r.send("SET_MISSION_PARAM", arg_i=pid, arg_f=value)
+    assert (status, detail) == ("DONE", 0)
+    assert (int(pkt.action), pkt.arg_i, pkt.arg_f, pkt.session) == (24, pid, value, 99)
+    assert r.src.mission_params[field] == value
+    assert getattr(r.src._make("MissionParams", 0), field) == value  # the readback packet
+    for edge in (lo, hi):  # the range limits are inclusive
+        assert (await r.send("SET_MISSION_PARAM", arg_i=pid, arg_f=edge))[:2] == ("DONE", 0)
+
+
+@pytest.mark.parametrize("pid", sorted(PARAMS))
+async def test_out_of_range_mission_parameter_is_refused_locally_and_by_the_vehicle(pid):
+    _, _, lo, hi = PARAMS[pid]
+    r = Rig()
+    n = len(r.src.received_requests)
+    for bad in (lo - 0.1, hi + 0.1, math.nan, math.inf):  # the core's whitelist refuses before anything is sent
+        with pytest.raises(RequestError) as e:
+            await r.send("SET_MISSION_PARAM", arg_i=pid, arg_f=bad)
+        assert e.value.code in ("invalid_value", "not_whitelisted")
+    assert len(r.src.received_requests) == n
+    # the vehicle's own check (a client that bypasses the whitelist): REJECTED_INVALID detail 1, value unchanged
+    src = r.src
+    assert src._rules_answer(
+        Request(t=0, src="x", req_id=1, action=24, target=1, arg_i=pid, arg_f=hi * 2, session=99)
+    ) == (3, 1)
+    assert src._rules_answer(Request(t=0, src="x", req_id=1, action=24, target=1, arg_i=7, arg_f=1.0, session=99)) == (
+        3,
+        1,
+    )
+    assert src._rules_answer(Request(t=0, src="x", req_id=1, action=24, target=1, arg_i=pid, arg_f=lo, session=99)) == (
+        0,
+        0,
+    )
+
+
+async def test_mission_parameter_refusals_not_on_the_ground_and_session():
+    r = Rig(request_on_ground=False)
+    assert (await r.send("SET_MISSION_PARAM", arg_i=1, arg_f=5.0))[:2] == ("REJECTED_STATE", 1)
+    r = Rig(request_latched_session=7)
+    assert (await r.send("SET_MISSION_PARAM", arg_i=1, arg_f=5.0))[:2] == ("REJECTED_STATE", 3)
+    assert r.src.mission_params["ascent_speed"] == 7.0

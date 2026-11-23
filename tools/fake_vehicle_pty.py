@@ -130,6 +130,7 @@ DEFAULT_RATES = {"Attitude": 50.0, "Position": 25.0, "VehicleState": 10.0, "Miss
 # exvectrnet-1, packet name -> Hz. Vehicle on USB sends the full set, the TX module forwards the radio set.
 NET_VEHICLE_RATES = {
     "VEHICLE_STATUS": 20.0, "POSE": 50.0, "ACTUATORS": 10.0, "MISSION": 10.0, "GNSS": 10.0, "HOME_POSITION": 0.5,
+    "MISSION_PARAMS": 1.0,
     "HANDSET_TELEM": 2.0,
     "IMU_RAW": 20.0, "ESTIMATOR": 10.0, "TASK_TIMING": 5.0, "CALIBRATION": 0.5,
     "CMD_APPLIED": 10.0,
@@ -199,6 +200,12 @@ class FakeVehiclePty:
         self.request_calib_refuse = request_calib_refuse
         self.request_no_home = request_no_home
         self.stop_altitude = 20.0
+        # SET_MISSION_PARAM (24) ids 1..6 -> (default, min, max); `mission_params` = current values by id
+        self.mission_param_spec = {
+            1: (7.0, 0.5, 10.0), 2: (120.0, 2.0, 1000.0), 3: (30.0, 0.0, 600.0),
+            4: (10.0, 0.0, 600.0), 5: (15.0, 0.0, 600.0), 6: (15.0, 0.0, 600.0),
+        }  # fmt: skip
+        self.mission_params = {i: v[0] for i, v in self.mission_param_spec.items()}
         self.received_requests: list[dict] = []
         # CMD_STATE test double (port 0x13, no vehicle logic): every frame is parsed strictly like the vehicle
         # (`net.parse_cmd_state`); `received_cmd` lists every frame (dict with src, dst, seq and the fields, or
@@ -406,6 +413,9 @@ class FakeVehiclePty:
             return self._data(src, 0, net.PORT_AIR_GNSS, net.pack_air_gnss(t_us, gps))
         if name == "AIR_GNSS_INFO":
             return self._data(src, 0, net.PORT_AIR_GNSS_INFO, net.pack_air_gnss_info(t_us, gps))
+        if name == "MISSION_PARAMS":
+            vals = [self.mission_params[i] for i in range(1, 7)]
+            return self._data(src, 0, net.PORT_MISSION_PARAMS, net.pack_mission_params(vals))
         if name == "HOME_POSITION":  # the real vehicle answers a request; the fake repeats it for GUI testing
             return self._data(src, 0, net.PORT_HOME_POSITION, net.pack_home_position(sc.fields("HomePosition", t)))
         if name == "HANDSET_TELEM":
@@ -470,7 +480,7 @@ class FakeVehiclePty:
         if n <= self.request_drop_first:
             return
         status, detail = self.request_status, 0
-        if self.request_rules and req["action"] in (7, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23):
+        if self.request_rules and req["action"] in (7, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24):
             if req["target"] != self.node:
                 status, detail = 3, 2
             elif not req["session"] or req["session"] != (self.request_latched_session or self.cmd_session):
@@ -478,6 +488,12 @@ class FakeVehiclePty:
             elif not self.request_on_ground:
                 status, detail = 2, 1
             elif req["action"] == 13 and not (math.isfinite(req["arg_f"]) and req["arg_f"] >= 1.0):
+                status, detail = 3, 1
+            elif req["action"] == 24 and not (
+                req["arg_i"] in self.mission_param_spec
+                and math.isfinite(req["arg_f"])
+                and self.mission_param_spec[req["arg_i"]][1] <= req["arg_f"] <= self.mission_param_spec[req["arg_i"]][2]
+            ):
                 status, detail = 3, 1
             elif 15 <= req["action"] <= 22 and not self.request_simulation:
                 status, detail = 2, 5
@@ -489,6 +505,8 @@ class FakeVehiclePty:
                 status, detail = 0, 0
                 if req["action"] == 13:
                     self.stop_altitude = req["arg_f"]
+                if req["action"] == 24:
+                    self.mission_params[req["arg_i"]] = req["arg_f"]
         self.send_net(self.node, 0, net.PORT_REQUEST_ACK, net.pack_request_ack(req["req_id"], status, detail))
         if self.request_rules and req["action"] == 23 and status == 0 and self.role == "vehicle":
             # DONE, then the plain HOME_POSITION packet (like the vehicle)

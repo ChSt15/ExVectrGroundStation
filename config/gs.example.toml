@@ -209,6 +209,75 @@ arg_f_max = 1000000.0
 arg_f_default = 20.0
 arg_f_name = "altitude, m"      # sent by the Vehicle settings control of the Vehicle panel (plain click); not shown in the Requests panel
 
+# Mission parameters (SET_MISSION_PARAM, arg_i fixed per parameter id). Ground only, motors disarmed; sent by the Mission parameters
+# tab of the Operations dock (plain click), not shown in the Requests panel.
+
+[[requests.action]]
+action = "SET_MISSION_PARAM"
+label = "Ascent speed"
+group = "Mission parameters"
+target = 1
+arg_i = 1
+arg_f_min = 0.5
+arg_f_max = 10.0
+arg_f_default = 7.0
+arg_f_name = "ascent speed, m/s"
+
+[[requests.action]]
+action = "SET_MISSION_PARAM"
+label = "Apogee altitude"
+group = "Mission parameters"
+target = 1
+arg_i = 2
+arg_f_min = 2.0
+arg_f_max = 1000.0
+arg_f_default = 120.0
+arg_f_name = "apogee altitude, m"
+
+[[requests.action]]
+action = "SET_MISSION_PARAM"
+label = "Hover hold"
+group = "Mission parameters"
+target = 1
+arg_i = 3
+arg_f_min = 0.0
+arg_f_max = 600.0
+arg_f_default = 30.0
+arg_f_name = "hover hold, s"
+
+[[requests.action]]
+action = "SET_MISSION_PARAM"
+label = "Waypoint hold 1"
+group = "Mission parameters"
+target = 1
+arg_i = 4
+arg_f_min = 0.0
+arg_f_max = 600.0
+arg_f_default = 10.0
+arg_f_name = "waypoint hold 1, s"
+
+[[requests.action]]
+action = "SET_MISSION_PARAM"
+label = "Waypoint hold 2"
+group = "Mission parameters"
+target = 1
+arg_i = 5
+arg_f_min = 0.0
+arg_f_max = 600.0
+arg_f_default = 15.0
+arg_f_name = "waypoint hold 2, s"
+
+[[requests.action]]
+action = "SET_MISSION_PARAM"
+label = "Waypoint hold 3"
+group = "Mission parameters"
+target = 1
+arg_i = 6
+arg_f_min = 0.0
+arg_f_max = 600.0
+arg_f_default = 15.0
+arg_f_name = "waypoint hold 3, s"
+
 [[requests.action]]
 action = "GET_HOME_POSITION"
 label = "Request home position"

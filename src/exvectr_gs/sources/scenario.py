@@ -149,6 +149,9 @@ class Scenario:
             "vel_acc": 0.1,
         }
 
+    def _f_MissionParams(self, t: float) -> dict[str, Any]:
+        return {}  # the fake source fills in its parameter values
+
     def _f_HomePosition(self, t: float) -> dict[str, Any]:
         return {
             "latlon_valid": True,
