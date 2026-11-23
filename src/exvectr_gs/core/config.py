@@ -77,6 +77,12 @@ class RequestEntry:
     group: str
     confirm: str = "hold"
     warning: str = ""  # shown in the `danger` modal and the CLI refusal (empty: the generic link-stop text)
+    # Optional float argument (`arg_f` on the wire): all of min/max/default set, or none. A send without a value uses
+    # the default; a value outside [min, max] or not finite is refused by the core (`invalid_value`).
+    arg_f_min: float | None = None
+    arg_f_max: float | None = None
+    arg_f_default: float | None = None
+    arg_f_name: str = ""  # shown next to the field (for example "window, s")
 
 
 @dataclass
@@ -208,7 +214,18 @@ def _requests(data: dict) -> RequestsSection:
     seen: set[tuple[str, int]] = set()
     for i, d in enumerate(raw):
         where = f"[[requests.action]] #{i + 1}"
-        unknown = set(d) - {"action", "label", "group", "target", "confirm", "warning"}
+        unknown = set(d) - {
+            "action",
+            "label",
+            "group",
+            "target",
+            "confirm",
+            "warning",
+            "arg_f_min",
+            "arg_f_max",
+            "arg_f_default",
+            "arg_f_name",
+        }
         if unknown:
             raise ConfigError(f"{where}: unknown key(s) {sorted(unknown)}")
         name = d.get("action")
@@ -229,7 +246,17 @@ def _requests(data: dict) -> RequestsSection:
         warning = d.get("warning", "")
         if not isinstance(warning, str):
             raise ConfigError(f"{where} {name}: warning must be a string")
-        sec.actions.append(RequestEntry(name, target, label, group, confirm, warning))
+        af = [d.get(k) for k in ("arg_f_min", "arg_f_max", "arg_f_default")]
+        if any(v is not None for v in af):
+            if any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) for v in af):
+                raise ConfigError(f"{where} {name}: arg_f_min, arg_f_max and arg_f_default must all be finite numbers")
+            if not af[0] <= af[2] <= af[1]:
+                raise ConfigError(f"{where} {name}: need arg_f_min <= arg_f_default <= arg_f_max")
+            af = [float(v) for v in af]
+        arg_name = d.get("arg_f_name", "")
+        if not isinstance(arg_name, str):
+            raise ConfigError(f"{where} {name}: arg_f_name must be a string")
+        sec.actions.append(RequestEntry(name, target, label, group, confirm, warning, *af, arg_name))
     return sec
 
 

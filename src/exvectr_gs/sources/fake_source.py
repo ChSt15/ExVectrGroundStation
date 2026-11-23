@@ -133,6 +133,16 @@ class FakeSource(Source):
         self.request_status = int(opts.get("request_status", 0))
         self.request_detail = int(opts.get("request_detail", 0))
         self.request_drop_first = int(opts.get("request_drop_first", 0))
+        # `request_rules = true` adds the vehicle's executor answers for ZERO_ESTIMATORS (12) and SET_STOP_ALTITUDE (13)
+        # (test double of the documented refusals, no vehicle logic): REJECTED_STATE 1 when `request_on_ground` is
+        # false (checked after the session), 3 when the request's session differs from
+        # `request_latched_session` (None = none latched),
+        # REJECTED_INVALID 2 for a target other than 1, 1 for SET_STOP_ALTITUDE below 1 m or not finite. Else DONE.
+        # DONE of 13 also changes the echoed MissionState.stop_altitude (`stop_altitude`).
+        self.request_rules = bool(opts.get("request_rules", False))
+        self.request_on_ground = bool(opts.get("request_on_ground", True))
+        self.request_latched_session = opts.get("request_latched_session")
+        self.stop_altitude = float(opts.get("stop_altitude", 20.0))
         targets = tuple(int(x) for x in opts.get("request_targets", (1, 2, 3)))
         self.received_requests: deque[Packet] = deque(maxlen=1000)  # every attempt that reached this source
         self.executed_requests: list[tuple[int, int, int]] = []  # (req_id, action, target), once per req_id
@@ -220,6 +230,8 @@ class FakeSource(Source):
                     fields["pos"] = [math.nan, *fields["pos"][1:]]
         if type_name == "MissionState" and self.echo_rc and self._echo_idx is not None:
             fields["mission_index"] = self._echo_idx
+        if type_name == "MissionState" and self.request_rules:
+            fields["stop_altitude"] = self.stop_altitude
         if type_name == "VehicleStatus":
             fields["simulation"] = self.simulation
             if self.last_cmd is not None:
@@ -342,11 +354,27 @@ class FakeSource(Source):
             self.executed_requests.append((rid, int(pkt.action), int(pkt.target)))  # type: ignore[attr-defined]
         if n <= self.request_drop_first or self._sink is None:
             return True  # accepted onto the link, the "vehicle" does not answer
-        ack = RequestAck(
-            t=self._clock.now(), src=self.id, req_id=rid, status=self.request_status, detail=self.request_detail
-        )
+        status, detail = self.request_status, self.request_detail
+        if self.request_rules and int(pkt.action) in (12, 13):  # type: ignore[attr-defined]
+            status, detail = self._rules_answer(pkt)
+            if status == 0 and int(pkt.action) == 13 and n == 1:  # type: ignore[attr-defined]
+                self.stop_altitude = float(pkt.arg_f)  # type: ignore[attr-defined]
+        ack = RequestAck(t=self._clock.now(), src=self.id, req_id=rid, status=status, detail=detail)
         asyncio.get_running_loop().call_soon(self._sink, ack)
         return True
+
+    def _rules_answer(self, pkt: Packet) -> tuple[int, int]:
+        """(status, detail) of the documented executor refusals, in the vehicle's order of checks."""
+        if int(pkt.target) != 1:  # type: ignore[attr-defined]
+            return 3, 2
+        sess = getattr(pkt, "session", None)
+        if not sess or sess != self.request_latched_session:
+            return 2, 3
+        if not self.request_on_ground:
+            return 2, 1
+        if int(pkt.action) == 13 and not (math.isfinite(pkt.arg_f) and pkt.arg_f >= 1.0):  # type: ignore[attr-defined]
+            return 3, 1
+        return 0, 0
 
     def status(self) -> SourceStatus:
         return SourceStatus(

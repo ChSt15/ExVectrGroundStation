@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import secrets
 from collections import deque
 from collections.abc import Callable, Sequence
@@ -45,7 +46,15 @@ MIN_INTERVAL_S = 0.5  # per client
 RECENT_KEPT = 20
 TICK_S = 0.05
 NODE_NAMES = {1: "vehicle", 2: "Router", 3: "ship radio node"}
-CODES = ("control_denied", "not_whitelisted", "confirm_required", "rate_limited", "request_in_flight", "no_route")
+CODES = (
+    "control_denied",
+    "not_whitelisted",
+    "confirm_required",
+    "rate_limited",
+    "request_in_flight",
+    "no_route",
+    "invalid_value",
+)
 
 
 class RequestError(Exception):
@@ -84,6 +93,7 @@ class RequestState:
     status_name: str | None = None
     detail: int | None = None
     abort_reason: str | None = None
+    arg_f: float = 0.0  # the float argument sent (0 for actions without one)
 
 
 class RequestController:
@@ -186,7 +196,7 @@ class RequestController:
             action=RequestAction[st.action],
             target=st.target,
             arg_i=0,
-            arg_f=0.0,
+            arg_f=st.arg_f,
             session=(self.session_fn() if self.session_fn is not None else 0) if st.target == 1 else 0,
         )
 
@@ -216,6 +226,9 @@ class RequestController:
                 "group": e.group,
                 "confirm": e.confirm,
                 "warning": e.warning,
+                "arg_f": None
+                if e.arg_f_min is None
+                else {"min": e.arg_f_min, "max": e.arg_f_max, "default": e.arg_f_default, "name": e.arg_f_name},
                 "route": self.route(e.target),
             }
             for e in self.cfg.actions
@@ -247,6 +260,7 @@ class RequestController:
             "status_name": s.status_name,
             "detail": s.detail,
             "abort_reason": s.abort_reason,
+            "arg_f": s.arg_f,
         }
 
     async def send(
@@ -258,6 +272,7 @@ class RequestController:
         remote_addr: str,
         confirm: str | None,
         understand_link_stops: bool = False,
+        arg_f: float | None = None,
     ) -> RequestState:
         """Send one whitelisted REQUEST (first attempt now, retries by `tick`). Raises RequestError."""
         if self._control_hosts is not None and not is_control_host(remote_addr, self._control_hosts):
@@ -271,6 +286,16 @@ class RequestController:
                 f"{entry.warning or entry.action + ' stops the radio link of the module'}: "
                 "the explicit acknowledgement is required",
             )
+        if entry.arg_f_min is None:
+            if arg_f is not None:
+                raise RequestError("invalid_value", f"{entry.action} takes no float argument")
+            value = 0.0
+        else:
+            value = entry.arg_f_default if arg_f is None else arg_f
+            if not math.isfinite(value) or not entry.arg_f_min <= value <= entry.arg_f_max:
+                raise RequestError(
+                    "invalid_value", f"{entry.action}: argument must be within {entry.arg_f_min:g}..{entry.arg_f_max:g}"
+                )
         now = self._clock.now()
         last = self._last_by_client.get(remote_addr)
         if last is not None and now - last < int(MIN_INTERVAL_S * 1e9):
@@ -299,6 +324,7 @@ class RequestController:
             attempts=1,
             t_first=now,
             next_at=now + int(RETRY_PERIOD_S * 1e9),
+            arg_f=float(value),
         )
         self._inflight[key] = st  # registered before sending: an ACK can never overtake the state
         src = await self._transmit(st)

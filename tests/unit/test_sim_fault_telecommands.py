@@ -30,9 +30,7 @@ def test_shipped_fault_entries(cfg):
     assert int(TelecommandType.SimFlapSlow) == 17
     assert int(TelecommandType.SimFaultClear) == 18
     assert int(TelecommandType.SetStopAltitude) == 19
-    s = names["SetStopAltitude"]
-    got = (s.type, s.group, s.param_float, s.param_float_min, s.param_float_max)
-    assert got == ("SetStopAltitude", "Vehicle settings", 20.0, 1.0, 1000000.0)
+    assert "SetStopAltitude" not in names and "ZeroEstimators" not in names  # removed on the vehicle: requests now
     assert not [n for n in names if n.endswith("Descent")]  # the arm-for-descent bit is gone (the vehicle refuses it)
     for i, f in enumerate(FLAPS):
         e = names[f"SimFlapStuck{f}"]

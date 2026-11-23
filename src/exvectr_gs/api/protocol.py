@@ -441,7 +441,10 @@ def parse_request_send(msg: Mapping) -> dict[str, Any]:
     ack = msg.get("understand_link_stops", False)
     if not isinstance(ack, bool):
         raise ProtocolError("bad_request", "understand_link_stops must be true or false")
-    return {"action": action, "target": target, "confirm": confirm, "understand_link_stops": ack}
+    arg_f = msg.get("arg_f")
+    if arg_f is not None and (isinstance(arg_f, bool) or not isinstance(arg_f, (int, float))):
+        raise ProtocolError("bad_request", "arg_f must be a number")
+    return {"action": action, "target": target, "confirm": confirm, "understand_link_stops": ack, "arg_f": arg_f}
 
 
 def parse_telecommand_send(msg: Mapping) -> dict[str, Any]:
