@@ -263,6 +263,10 @@ Block in the `link` panel (`web/app/link/link_logic.js`, `web/test/link_logic.te
 
 TEMPORARY, safety-relevant: see [telecommands.md](telecommands.md) (hold 1 s, one frame, no ACK, the simulation state shown is only what the vehicle reports). A bar at the top says that safety commands (arm, simulation, mission, reset) are now given with the virtual radio switches. **Zero estimators** (`ZeroEstimators`) has a number field `duration_s` (default 10 s, allowed 1..60 s, the button is disabled outside it; the vehicle clamps as well). The row shows a one-line explanation (the entry's `note` from the config). The outcome of zeroing is the amber ZEROING cell of the status bar, reported by the vehicle. Logic `web/app/telecommand/telecommand_logic.js`, panel `telecommand_panel.js`.
 
+#### Vehicle settings: stop altitude
+
+Group "Vehicle settings" of the Commands (temporary) panel: a number field (5..60 m, default 20) and a **Set** button for `SetStopAltitude` (telecommand id 19, see [telecommands.md](telecommands.md)). The vehicle gives no ACK; the confirmation is the echoed `MissionState.stop_altitude` (current value shown next to the field). Pressing Set sends the command at once and shows a chip: **pending (n/6)** while the echo differs from the target by more than 0.05 m, **set** when it matches, **not confirmed** after the retries ran out (a toast says so; the vehicle accepts the value only on the ground with the motors disarmed). Retry rule: 1 initial send plus up to 5 retries, one every 2 s. Display and command only, nothing sends it automatically. Logic `web/app/telecommand/stopalt_logic.js`.
+
 ### Requests panel
 
 Panel `requests` (`web/app/requests/requests_logic.js`, `requests_panel.js`; a dock tab, `inputs: true`: shown disabled with the lock line in the replay view). **Safety-relevant**: with the radio widget it is the only GUI path that makes the core send anything ([requests.md](requests.md)). Rules, enforced in the logic module and covered by `web/test/requests_logic.test.js` and `tests/integration/test_requests_widget.py`:
