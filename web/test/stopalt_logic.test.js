@@ -2,10 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { StopAltitudeSetter, parseStopAltitude, echoText, MAX_RETRIES } from "../app/telecommand/stopalt_logic.js";
 
-test("parse: 5..60 m only", () => {
+test("parse: finite metres >= 1, no maximum", () => {
   assert.equal(parseStopAltitude("20"), 20);
   assert.equal(parseStopAltitude("5.5"), 5.5);
-  for (const t of ["4.9", "60.1", "", "abc", "-5", "NaN"]) assert.equal(parseStopAltitude(t), null);
+  assert.equal(parseStopAltitude("100000"), 100000);
+  for (const t of ["0.9", "-5", "", "abc", "NaN", "Infinity"]) assert.equal(parseStopAltitude(t), null);
 });
 
 test("echo text", () => {

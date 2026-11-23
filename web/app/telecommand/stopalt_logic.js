@@ -1,10 +1,10 @@
 // Pure logic of the 'Stop altitude' setting (docs/telecommands.md). Display and command only, nothing sends it
-// automatically. SetStopAltitude (telecommand id 19, float = metres 5..60) has NO acknowledgement: the confirmation is
+// automatically. SetStopAltitude (telecommand id 19, float = metres >= 1, no maximum) has NO acknowledgement: the confirmation is
 // the vehicle's echoed MissionState.stop_altitude. A request is sent at once, then repeated every RETRY_S until the
 // echo matches (within TOLERANCE_M), at most MAX_RETRIES repeats; then it is "not confirmed".
 export const COMMAND = "SetStopAltitude";
-export const MIN_M = 5;
-export const MAX_M = 60;
+export const MIN_M = 1;
+export const MAX_M = Infinity; // no maximum, the value only has to be finite
 export const DEFAULT_M = 20;
 export const TOLERANCE_M = 0.05;
 export const RETRY_S = 2;

@@ -199,8 +199,8 @@ label = "Stop altitude"
 group = "Vehicle settings"
 param_int = 0                                  # ignored by the vehicle
 param_float = 20.0                             # metres, the vehicle's default
-param_float_min = 5.0
-param_float_max = 60.0
+param_float_min = 1.0
+param_float_max = 1000000.0                      # no real maximum (the whitelist needs a finite bound); the vehicle limits it
 param_float_name = "altitude_m"
 note = "no acknowledgement: confirmed by the echoed MissionState.stop_altitude; the vehicle accepts it only on the ground with the motors armed gate closed"
 
