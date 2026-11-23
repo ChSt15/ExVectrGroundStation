@@ -62,6 +62,7 @@ EXPECTED = {
     "GNSS": {"Gps"},
     "AIR_GNSS": {"Gps"},
     "HOME_POSITION": {"HomePosition"},
+    "MISSION_PARAMS": {"MissionParams"},
     "HANDSET_TELEM": {"HandsetTelem"},
     "LINK_STATS": {"TxModuleStats", "RadioLinkStats"},
     "LINK_CONFIG": {"LinkConfig"},
@@ -712,7 +713,7 @@ def decode_vector(name, port, via="usb"):
 
 
 def test_schema_hash_is_the_pinned_one():
-    assert xp.SCHEMA_HASH == 0x036F9C45
+    assert xp.SCHEMA_HASH == 0x5E23CDD1
 
 
 def test_calib_state_decodes_into_booleans():

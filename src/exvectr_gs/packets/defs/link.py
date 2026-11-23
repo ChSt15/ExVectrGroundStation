@@ -93,6 +93,9 @@ class RequestAction(IntEnum):
     SIM_FLAP_SLOW = 21  # arg_i flap 0..3, arg_f rate factor 0.05..1
     SIM_FAULT_CLEAR = 22
     GET_HOME_POSITION = 23  # the vehicle acks DONE, then sends the plain HOME_POSITION packet (0x50)
+    # arg_i = parameter id 1..6 (MissionParamId), arg_f = value; ground only with the session (REJECTED_STATE 1 not on
+    # the ground, 3 session; REJECTED_INVALID 1 unknown id or out-of-range / non-finite value)
+    SET_MISSION_PARAM = 24
 
 
 class RequestStatus(IntEnum):
