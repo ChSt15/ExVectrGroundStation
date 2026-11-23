@@ -37,10 +37,10 @@ id = "link"
 kind = "link_module"
 match = { device = "/dev/serial/by-id/usb-Silicon_Labs_CP2102_XXXX-if00-port0" }
 baud = 921600
-rc_role = "control"        # master sends RC here too (the Router rejects it); "mirror" = receive-only
+rc_role = "control"        # a command link: the command engine sends CMD_STATE here too (the Router forwards it); "mirror" = receive-only
 ```
 
-In slave (the Pocket's state arriving) the ground station sends nothing; it sends RC state only after the user switches to master, then to every connected `rc_role = "control"` source ([radio.md](radio.md)).
+The ground station's command engine sends the command state `CMD_STATE` at 25 Hz from the moment the core runs (no client needed) to every connected `rc_role = "control"` source: the Router (over the air) and, on the bench, the vehicle USB, the identical frame on both. Its input is the Pocket (the Router's `RC_STATE` on its USB, never on the air) or, when the Pocket is not connected, the GUI's virtual switches. A switch left in an unsafe position at start or after a Pocket loss must be cycled first ([radio.md](radio.md)). If the PC, the core or the Router link dies the vehicle falls back to its own timeouts (motors off after 1 s, latched failsafe after 2 s while committed): keep the PC on battery, no sleep, no updates.
 
 **Telecommands (TEMPORARY, until the flight software's T9b)** ([telecommands.md](telecommands.md)). The `[telecommands]` section is the whitelist of the legacy commands (non-safety only since T9b-4: zero estimators, calibration, simulation wind and servo faults; arm, simulation, mission and reset are RC switches of the virtual radio) the GUI panel 'Commands (temporary)' and `exgs tc send NAME --confirm NAME` may send, exactly once per confirmation (no retry, no ACK; the vehicle de-duplicates nothing). Read the result in the mission status bar, never from the panel.
 
