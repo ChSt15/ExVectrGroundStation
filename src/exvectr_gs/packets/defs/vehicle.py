@@ -48,9 +48,7 @@ class ControlSource(IntEnum):
     """Active control source as applied by the vehicle (`ControlSource` in ExVectrPackets)."""
 
     NONE = 0
-    RADIO = 1
-    USB = 2
-    UART = 3
+    GS = 1  # the latched CMD_STATE session of the ground station (node 0, USB or UART); the old RADIO/USB/UART retired
 
 
 @packet(
@@ -241,8 +239,8 @@ class VehicleStatus(Packet):
     )
     ctrl_flags: int | None = f(
         desc="T9b command-path bits (schema ctrl_flags: INTERLOCK_NEED_TOGGLE 0, ABORT_LATCHED 1, FAILSAFE_LATCHED 2, "
-        "NOPOS_RTH 3, SC_MISMATCH 4, SE_HOLD_ZEROING 5, SE_REFUSED 6, RADIO_FRESH 7, BENCH_FRESH 8, SOURCE_LATCHED 9, "
-        "REQ_QUEUE_FULL 10); None = older sender (payload too short)"
+        "NOPOS_RTH 3, SC_MISMATCH 4, SE_HOLD_ZEROING 5, SE_REFUSED 6, USB_FRESH 7, UART_FRESH 8, SOURCE_LATCHED 9, "
+        "REQ_QUEUE_FULL 10, MULTI_MASTER 11, GS_FAILSAFE_REQ 12); None = older sender (payload too short)"
     )
     go_refusal: int | None = f(
         desc="reason for the last refused go: 0 none, 1 not Ready, 2 latched abort/failsafe, 3 zeroing, 4 SC mismatch, "
@@ -255,31 +253,38 @@ class VehicleStatus(Packet):
     mission_profile: int | None = f(
         desc="SB position latched at the last go (0, 1, 2), 255 = none; None = older sender"
     )
-    rc_rejected: int | None = f(desc="wrapping count of rejected RC_STATE frames on the vehicle; None = older sender")
+    rc_rejected: int | None = f(desc="wrapping count of rejected CMD_STATE frames on the vehicle; None = older sender")
+    cmd_session: int | None = f(
+        desc="low 16 bits of the CMD_STATE session the vehicle latched, 0 = none; None = older sender"
+    )
 
 
 @packet(
-    "RcApplied",
+    "CmdApplied",
     version=1,
     direction=Direction.DOWN,
     nominal_rate_hz=10,
     history=False,
-    desc="RC_APPLIED (USB only, T9b): the switch positions as the vehicle decodes them, the transition detectors' "
-    "safe-seen bits, the age of both control sources and the reject counters. For bench debugging; display only.",
+    desc="CMD_APPLIED (USB only, 0x84, replaces RC_APPLIED): the CMD_STATE fields as the vehicle applies them (last "
+    "accepted frame of the latched session), the detectors' safe-seen bits, ages and reject counters. For bench "
+    "debugging; display only.",
 )
-class RcApplied(Packet):
-    sa: int = f(desc="SA decoded: 0 not go, 1 go")
-    sb: int = f(desc="SB decoded: 0, 1, 2, 255 = invalid")
-    sc: int = f(desc="SC decoded: 0 simulation, 1 real, 2 reserved, 255 = invalid")
-    sd: int = f(desc="SD decoded: 0 disabled, 1 enabled")
-    se: int = f(desc="SE decoded: 0 released, 1 pressed")
+class CmdApplied(Packet):
+    go: int = f(desc="last accepted go: 0 NOT_GO, 1 GO")
+    profile: int = f(desc="last accepted profile 0, 1, 2")
+    vehicle_mode: int = f(desc="last accepted vehicle_mode field: 0 REAL, 1 SIMULATION (not the applied mode)")
+    motors: int = f(desc="last accepted motors field: 0 DISABLED, 1 ENABLED")
+    reset_button: int = f(desc="last accepted reset_button field: 0 RELEASED, 1 PRESSED")
+    failsafe: int = f(desc="last accepted failsafe field: 0 none, 1 requested")
+    flags: int = f(desc="information flags of the last accepted frame: bit 0 POCKET_LIVE, bit 1 INPUT_VIRTUAL")
     safe_seen: int = f(desc="bits: 0 GO, 1 SC_REAL, 2 SD_ENABLE, 3 SE_PRESS safe value seen")
-    radio_age: float | None = f(unit="s", desc="age of the last accepted RC_STATE from the radio source, None = none")
-    bench_age: float | None = f(
-        unit="s", desc="age of the last accepted RC_STATE from the USB (bench) source, None = none"
-    )
+    session: int = f(desc="full latched session id, 0 = none")
+    age: float | None = f(unit="s", desc="age of the last accepted CMD_STATE (either link), None = none")
+    usb_age: float | None = f(unit="s", desc="age of the last copy of the latched session on the USB link, None = none")
+    uart_age: float | None = f(unit="s", desc="same for the UART link, None = none")
     rejects: list[int] = f(
-        length=4, desc="wrapping reject counters: bad length, source not in table, stale or repeated, SOURCE_OK clear"
+        length=4,
+        desc="wrapping reject counters: bad length or field, source not node 0, foreign session, stale or duplicate",
     )
 
 

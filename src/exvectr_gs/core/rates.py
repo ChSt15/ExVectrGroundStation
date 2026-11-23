@@ -83,13 +83,13 @@ def nominal_for(path: str, info: FrameInfo) -> float:
 
 
 AIR_PACKETS_MAX_HZ = 25.0  # air profile v1: one air packet per 20 ms slot, in each direction
-RC_TYPES = frozenset({"RC_STATE", "RcState"})  # received (router local) or sent by the ground station
+RC_TYPES = frozenset({"CMD_STATE", "CmdState"})  # the GS command state: sent by the GS, the 25 Hz uplink item
 
 
 @dataclass(frozen=True)
 class UplinkItem:
     """A packet type the Router sends to the ship radio node: wire packet name, air rate in Hz, payload bytes.
-    `needs_rc`: counted only while RC state is flowing (Pocket copies received or sent by the ground station)."""
+    `needs_rc`: counted only while the GS command state is flowing (sent by the ground station)."""
 
     type: str
     hz: float
@@ -191,7 +191,7 @@ class RateTracker:
             items.append({"type": it.type, "hz": it.hz, "payload_s": vals, "source": "nominal"})
             payload = [a + b for a, b in zip(payload, vals, strict=True)]
         types = sorted({k[1] for k in self._tx if k[1] not in RC_TYPES})
-        for ptype in types:  # RC_STATE is the 25 Hz item: a GS-sent copy takes the same slot, never adds to it
+        for ptype in types:  # CMD_STATE is the 25 Hz item: the GS-sent copy takes the same slot, never adds to it
             vals = []
             for w in self.windows:
                 span = min(w, max(observed, MIN_SPAN_S))

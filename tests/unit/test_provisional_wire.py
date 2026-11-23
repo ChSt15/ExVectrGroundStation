@@ -242,26 +242,22 @@ def test_decode_never_raises():
 # ---------------------------------------------------------------- RcState uplink
 
 
-def test_rc_state_encode_vector():
+def test_provisional_profile_encodes_nothing_the_gs_sends_no_rc_state_and_no_command_state():
+    ch = [1500] * 16
+    assert P.encode(RcState(t=1, src="gs", origin=RcOrigin.gs, ch_us=ch, seq=1)) is None  # RC_STATE is receive-only
+    assert P.encode(REGISTRY.get("CmdState").cls(session=1)) is None  # CMD_STATE exists on exvectrnet-1 only
+    assert P.encode(REGISTRY.get("Note").cls(text="x")) is None
+    assert P.encode(REGISTRY.get("Attitude").cls()) is None
+
+
+def test_provisional_handset_frame_still_decodes():
+    from exvectr_gs.wire.profile import Frame
+
     ch = [1500] * 16
     ch[2] = 1000
-    pkt = RcState(t=1, src="gs", origin=RcOrigin.gs, ch_us=ch, seq=300)
-    fr = P.encode(pkt)
-    assert fr is not None and fr.channel == 0x10
-    assert fr.payload == bytes([300 & 0xFF]) + struct.pack("<16H", *ch)
+    fr = Frame(channel=0x10, payload=bytes([44]) + struct.pack("<16H", *ch), t=1, meta={})
     back = P.decode(fr, "link")
     assert back.TYPE == "RcState" and back.ch_us == ch and back.seq == 44 and back.origin == RcOrigin.handset
-
-
-def test_rc_state_encode_refusals():
-    ok = [1500] * 16
-    assert P.encode(RcState(origin=RcOrigin.handset, ch_us=ok, seq=1)) is None  # never re-send mirrored state
-    assert P.encode(RcState(origin=RcOrigin.gs, ch_us=ok[:15], seq=1)) is None
-    assert P.encode(RcState(origin=RcOrigin.gs, ch_us=None, seq=1)) is None
-    assert P.encode(REGISTRY.get("Note").cls(text="x")) is None  # not an UP type
-    assert P.encode(REGISTRY.get("Attitude").cls()) is None
-    clamped = P.encode(RcState(origin=RcOrigin.gs, ch_us=[-5] + [70000] + [1500] * 14, seq=1))
-    assert struct.unpack_from("<2H", clamped.payload, 1) == (0, 65535)
 
 
 def test_supported_types_and_profile_identity():

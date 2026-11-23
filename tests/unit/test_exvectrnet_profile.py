@@ -67,7 +67,7 @@ EXPECTED = {
     "LINK_CONFIG": {"LinkConfig"},
     "LOG_TEXT": {"ConsoleText"},
     "RC_STATE": {"RcState"},
-    "RC_APPLIED": {"RcApplied"},
+    "CMD_APPLIED": {"CmdApplied"},
     "REQUEST_ACK": {"RequestAck"},
     "IMU_RAW": {"ImuRaw"},
     "CALIBRATION": {"Calibration"},
@@ -89,8 +89,9 @@ def test_every_vector_maps_to_gs_types_and_round_trips_the_text_codec(case):
 
 
 def test_all_ports_of_the_generated_module_are_mapped():
-    # REQUEST is deliberately a RawFrame; AIR_GNSS_INFO is merged into the next AIR_GNSS (see its test)
-    mapped = {xp.PACKETS_BY_NAME[n].PORT for n in EXPECTED} | {0x11, 0x25}
+    # REQUEST and CMD_STATE are uplink packets, deliberately RawFrames; AIR_GNSS_INFO is merged into the next
+    # AIR_GNSS (see its test)
+    mapped = {xp.PACKETS_BY_NAME[n].PORT for n in EXPECTED} | {0x11, 0x13, 0x25}  # CMD_STATE: uplink only
     assert set(xp.PACKETS_BY_PORT) == mapped
 
 
@@ -430,39 +431,77 @@ def rc(ch_us=None, origin=L.RcOrigin.gs, **kw):
     return L.RcState(t=5, src="gs", origin=origin, ch_us=ch_us if ch_us is not None else [1500] * 16, seq=1, **kw)
 
 
-def test_encode_rc_state_bytes_match_the_independent_encoder():
+def cmd(**kw):
+    d = dict(session=0xCAFE0001, go=0, profile=2, vehicle_mode=0, motors=0, reset_button=0, failsafe=0)
+    return L.CmdState(t=5, src="gs", **{**d, "pocket_live": False, "input_virtual": False, **kw})
+
+
+def test_encode_cmd_state_bytes_match_the_independent_encoder():
     p = load_profile("exvectrnet-1")
     framer = p.make_framer()
-    chs = [1000, 1250, 1500, 1750, 2000, 0] + [1500 + 10 * i for i in range(10)]
-    wire_ch = [-1000, -500, 0, 500, 1000, -32768] + [20 * i for i in range(10)]
-    for seq in range(3):
-        f = p.encode(rc(chs))
-        assert f.channel == 0x10 and f.meta["dst"] == 1 and f.meta["seq"] == seq
-        expect = net.stream_frame(net.net_data(0, 1, 0x10, seq, net.pack_rc_state(xp.RcState.FLAGS_SOURCE_OK, wire_ch)))
-        assert framer.encode(f) == expect
-    # what the vehicle's parser sees
-    (back,) = fr.NetFramer().feed(framer.encode(p.encode(rc())), S)
-    assert back.meta["src"] == 0 and back.meta["dst"] == 1 and back.channel == 0x10
-    rcs = xp.RcState.decode(back.payload)
-    assert rcs.ch == [0] * 16 and rcs.flags == xp.RcState.FLAGS_SOURCE_OK
+    for seq in range(3):  # the profile's own counter when the engine sets no seq
+        f = p.encode(cmd(go=1, profile=1, vehicle_mode=1, motors=1, reset_button=1, pocket_live=True))
+        assert f.channel == 0x13 and f.meta["dst"] == 1 and f.meta["seq"] == seq and f.meta["latest"] is True
+        assert f.meta["qos"] == xp.CmdState.QOS == 0  # control class, latest wins (the Router's single slot)
+        pl = net.pack_cmd_state(0xCAFE0001, go=1, profile=1, vehicle_mode=1, motors=1, reset_button=1, flags=3)
+        assert f.payload == pl and len(pl) == 14
+        assert framer.encode(f) == net.stream_frame(net.net_data(0, 1, 0x13, seq, pl))
+    # what the vehicle's strict parser and the generated decoder both see
+    f = p.encode(cmd(failsafe=1, input_virtual=True))
+    assert net.parse_cmd_state(f.payload) == {
+        "pocket_live": False, "input_virtual": True, "session": 0xCAFE0001, "go": 0, "profile": 2,
+        "vehicle_mode": 0, "motors": 0, "reset_button": 0, "failsafe": 1,
+    }  # fmt: skip
+    d = xp.CmdState.decode(f.payload)
+    assert (d.flags, d.version, d.session, d.failsafe, d.reserved) == (5, 1, 0xCAFE0001, 1, 0)
 
 
-def test_encode_sets_only_generic_flags_and_clamps():
+def test_encode_cmd_state_uses_the_engines_sequence_number_so_two_links_carry_the_same_frame():
+    a, b = load_profile("exvectrnet-1"), load_profile("exvectrnet-1")  # profile instances are shared per core
+    a.encode(cmd())  # a source encoding something else first must not matter
+    fa, fb = a.encode(cmd(seq=77)), b.encode(cmd(seq=77))
+    assert fa.meta["seq"] == fb.meta["seq"] == 77 and fa.payload == fb.payload
+    assert a.encode(cmd(seq=300)).meta["seq"] == 300 & 0xFF
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"go": 2},
+        {"profile": 3},
+        {"vehicle_mode": 2},
+        {"motors": 2},
+        {"reset_button": 2},
+        {"failsafe": 2},
+        {"session": 0},
+    ],
+)
+def test_encode_cmd_state_never_sends_an_out_of_range_field(bad):
+    assert load_profile("exvectrnet-1").encode(cmd(**bad)) is None
+
+
+def test_the_vehicle_side_parser_rejects_every_out_of_range_frame():
+    good = net.pack_cmd_state(5)
+    assert net.parse_cmd_state(good) is not None
+    for bad in (
+        net.pack_cmd_state(5, flags=0), net.pack_cmd_state(5, flags=8), net.pack_cmd_state(5, version=2),
+        net.pack_cmd_state(0), net.pack_cmd_state(5, go=2), net.pack_cmd_state(5, profile=3),
+        net.pack_cmd_state(5, vehicle_mode=2), net.pack_cmd_state(5, motors=2), net.pack_cmd_state(5, reset_button=2),
+        net.pack_cmd_state(5, failsafe=2), net.pack_cmd_state(5, reserved=1), good[:13], good + b"\0",
+    ):  # fmt: skip
+        assert net.parse_cmd_state(bad) is None
+
+
+def test_the_gs_never_encodes_rc_state_any_more():
     p = load_profile("exvectrnet-1")
-    f = p.encode(rc([900, 2100] + [1500] * 14))
-    r = xp.RcState.decode(f.payload)
-    assert r.ch[:2] == [-1000, 1000]
-    assert r.flags == xp.RcState.FLAGS_SOURCE_OK  # no motor-enable or other bit is ever set by the profile
-    assert xp.RcState.decode(p.encode(rc(source_ok=False)).payload).flags == 0
+    assert p.encode(rc()) is None and p.encode(rc(origin=L.RcOrigin.handset)) is None
 
 
-def test_encode_refuses_everything_but_gs_rc_state():
+def test_encode_refuses_everything_but_cmd_state_request_and_telecommand():
     p = load_profile("exvectrnet-1")
-    assert p.encode(rc(origin=L.RcOrigin.handset)) is None
-    assert p.encode(rc([1500] * 3)) is None
-    assert p.encode(L.RcState(origin=L.RcOrigin.gs, seq=1)) is None
+    assert p.encode(cmd(session=None)) is None
     for t in REGISTRY.all():
-        if t.name != "RcState":
+        if t.name not in ("CmdState", "Request", "Telecommand"):
             assert p.encode(t.cls()) is None, t.name
     assert p.encode(V.Attitude()) is None and p.encode(L.RequestAck()) is None
 
@@ -476,11 +515,17 @@ def test_encode_request_addressed_to_its_target_matches_the_independent_decoder(
     p = load_profile("exvectrnet-1")
     fr_ = p.encode(_request())
     assert (fr_.channel, fr_.meta["dst"], fr_.meta["qos"], fr_.meta["latest"]) == (0x11, 2, xp.Request.QOS, False)
-    assert net.parse_request(fr_.payload) == {"req_id": 0x0102, "action": 10, "target": 2, "arg_i": 0, "arg_f": 0.0}
+    assert net.parse_request(fr_.payload) == {
+        "req_id": 0x0102, "action": 10, "target": 2, "arg_i": 0, "arg_f": 0.0, "session": 0,
+    }  # fmt: skip
     wire = p.make_framer().encode(fr_)
     f = net.parse_stream(net.cobs_decode(wire[:-1]))
     assert (f["type"], f["src"], f["dst"], f["port"]) == ("data", 0, 2, 0x11)
     assert p.encode(_request(target=1)).meta["dst"] == 1
+    # a REQUEST to the vehicle carries the command session (gs-control Q5); to a radio node it is 0
+    assert net.parse_request(p.encode(_request(target=1, session=0xCAFE0001)).payload)["session"] == 0xCAFE0001
+    assert net.parse_request(p.encode(_request(target=2, session=0xCAFE0001)).payload)["session"] == 0
+    assert len(p.encode(_request(target=1, session=7)).payload) == 16 == xp.Request.MAX_SIZE
     seqs = [p.encode(_request()).meta["seq"] for _ in range(3)]
     assert seqs[1] == seqs[0] + 1 and seqs[2] == seqs[0] + 2  # its own sequence counter, independent of RC_STATE
 
@@ -494,7 +539,7 @@ def test_encode_request_refuses_bad_ids_and_incomplete_packets():
 
 def test_sequence_counter_wraps_at_256():
     p = load_profile("exvectrnet-1")
-    seqs = [p.encode(rc()).meta["seq"] for _ in range(258)]
+    seqs = [p.encode(cmd()).meta["seq"] for _ in range(258)]
     assert seqs[:3] == [0, 1, 2] and seqs[255:258] == [255, 0, 1]
 
 
@@ -565,7 +610,7 @@ def test_heartbeat_is_not_a_packet_and_does_not_disturb_rc_encoding():
     p = load_profile("exvectrnet-1")
     p.encode_heartbeat(1.0)
     p.encode_heartbeat(2.0)
-    assert p.encode(rc()).meta["seq"] == 0  # heartbeats do not touch the RC sequence counter
+    assert p.encode(cmd()).meta["seq"] == 0  # heartbeats do not touch the command sequence counter
     assert p.encode_heartbeat(3.0).channel not in range(256)  # no DATA port: it can never be a control packet
 
 
@@ -665,7 +710,7 @@ def decode_vector(name, port, via="usb"):
 
 
 def test_schema_hash_is_the_pinned_one():
-    assert xp.SCHEMA_HASH == 0x65E4E6E3
+    assert xp.SCHEMA_HASH == 0xF1941A87
 
 
 def test_calib_state_decodes_into_booleans():
@@ -753,25 +798,33 @@ def test_vehicle_status_t9b_tail_and_older_payloads():
     sc = Scenario(1)
     vs, ms = sc.fields("VehicleState", 30.0), sc.fields("MissionState", 30.0)
     base = (1, vs, ms["mission_mode"], ms["mission_phase"])
-    full = net.pack_vehicle_status(*base, home_epoch=1, calib_state=0, ctrl=(0x180 | 2, 6, 0b101, 2, 9))
-    assert len(full) == 36 == xp.VehicleStatus.MAX_SIZE
+    full = net.pack_vehicle_status(
+        *base, home_epoch=1, calib_state=0, ctrl=(0x180 | 2, 6, 0b101, 2, 9), cmd_session=0xBEEF
+    )
+    assert len(full) == 38 == xp.VehicleStatus.MAX_SIZE
     s = by_type(PROFILE.decode_many(frame(0x20, full), "usb"))["VehicleStatus"]
     assert (s.ctrl_flags, s.go_refusal, s.degraded_bits, s.mission_profile, s.rc_rejected) == (0x182, 6, 5, 2, 9)
+    assert s.cmd_session == 0xBEEF
+    # a sender with the T9b tail but without cmd_session: None, not "no session"
+    t9b = by_type(PROFILE.decode_many(frame(0x20, full[:36]), "usb"))["VehicleStatus"]
+    assert t9b.rc_rejected == 9 and t9b.cmd_session is None
     # an older sender: the generated module decodes the tail as 0, the GS packet says None (unknown)
     old = net.pack_vehicle_status(*base, home_epoch=1, calib_state=0)
     s = by_type(PROFILE.decode_many(frame(0x20, old), "usb"))["VehicleStatus"]
     assert xp.VehicleStatus.decode(old).mission_profile == 0
-    assert (s.ctrl_flags, s.go_refusal, s.degraded_bits, s.mission_profile, s.rc_rejected) == (None,) * 5
+    assert (s.ctrl_flags, s.go_refusal, s.degraded_bits, s.mission_profile, s.rc_rejected, s.cmd_session) == (None,) * 6
     part = full[:34]  # ctrl_flags and go_refusal present, the rest not
     s = by_type(PROFILE.decode_many(frame(0x20, part), "usb"))["VehicleStatus"]
     assert (s.ctrl_flags, s.go_refusal, s.degraded_bits, s.mission_profile) == (0x182, 6, 5, None)
     assert decode_line(encode_line(s)) == s
 
 
-def test_rc_applied_decodes_through_the_generated_module_and_the_fake_packer():
-    pl = net.pack_rc_applied(5, 1, 2, 1, 1, 0, 0b0101, 0.04, float("nan"), (1, 2, 3, 4))
-    assert xp.RcApplied.decode(pl).sb == 2
-    r = by_type(PROFILE.decode_many(frame(0x84, pl), "usb"))["RcApplied"]
-    assert (r.sa, r.sb, r.sc, r.sd, r.se, r.safe_seen) == (1, 2, 1, 1, 0, 5)
-    assert r.radio_age == pytest.approx(0.04) and r.bench_age is None and r.rejects == [1, 2, 3, 4]
+def test_cmd_applied_decodes_through_the_generated_module_and_the_fake_packer():
+    pl = net.pack_cmd_applied(5, 1, 2, 1, 1, 0, 1, 3, 0b0101, 0xCAFE0001, 0.04, 0.05, float("nan"), (1, 2, 3, 4))
+    assert len(pl) == 26 == xp.CmdApplied.MAX_SIZE and xp.CmdApplied.decode(pl).session == 0xCAFE0001
+    r = by_type(PROFILE.decode_many(frame(0x84, pl), "usb"))["CmdApplied"]
+    assert (r.go, r.profile, r.vehicle_mode, r.motors, r.reset_button, r.failsafe) == (1, 2, 1, 1, 0, 1)
+    assert (r.flags, r.safe_seen, r.session) == (3, 5, 0xCAFE0001)
+    assert r.age == pytest.approx(0.04) and r.usb_age == pytest.approx(0.05) and r.uart_age is None
+    assert r.rejects == [1, 2, 3, 4]
     assert decode_line(encode_line(r)) == r

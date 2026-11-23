@@ -16,10 +16,11 @@ class RcOrigin(IntEnum):
 @packet(
     "RcState",
     version=1,
-    direction=Direction.UP,
+    direction=Direction.DOWN,
     nominal_rate_hz=25,
     history=False,
-    desc="RC channel state. Sent by the GS (origin gs) or mirrored from the handset via the Router. "
+    desc="RC channel state of the handset (origin handset), received from the Router on USB; the input of the "
+    "command engine. The GS never sends it any more (it sends CmdState). Old logs may hold origin gs frames. "
     "ch_us 0 = channel not provided (exvectrnet-1).",
 )
 class RcState(Packet):
@@ -30,6 +31,36 @@ class RcState(Packet):
     seq: int = f(desc="wire sequence number (exvectrnet-1) or the sender's counter (provisional-1)")
     flags: int | None = f(desc="generic flag byte of the wire packet (exvectrnet-1), as sent or received")
     source_ok: bool | None = f(desc="SOURCE_OK flag: the input is fresh (exvectrnet-1)")
+    node: int | None = f(desc="network node that sent the frame (exvectrnet-1; the Router is node 2), None = unknown")
+
+
+class CmdVehicleMode(IntEnum):
+    """Mirror of the schema's `CmdVehicleMode` (CMD_STATE.vehicle_mode)."""
+
+    REAL = 0
+    SIMULATION = 1
+
+
+@packet(
+    "CmdState",
+    version=1,
+    direction=Direction.UP,
+    nominal_rate_hz=25,
+    history=False,
+    desc="GS command state (CMD_STATE, port 0x13, node 0 -> vehicle node 1): the one thing the ground station sends "
+    "continuously, produced by the command engine from the Pocket / virtual switches. Recorded as sent.",
+)
+class CmdState(Packet):
+    session: int = f(desc="random per core start, never 0")
+    go: int = f(desc="0 NOT_GO, 1 GO (SA)")
+    profile: int = f(desc="mission profile 0, 1, 2 (SB)")
+    vehicle_mode: CmdVehicleMode = f(desc="0 REAL, 1 SIMULATION (SC: position 0 real, 1 and 2 simulation)")
+    motors: int = f(desc="0 DISABLED (motors disarmed), 1 ENABLED (motors armed) (SD)")
+    reset_button: int = f(desc="0 RELEASED, 1 PRESSED (SE)")
+    failsafe: int = f(desc="0 none, 1 GS failsafe requested")
+    pocket_live: bool = f(desc="flags bit 1 POCKET_LIVE: the handset stream is alive at the ground station")
+    input_virtual: bool = f(desc="flags bit 2 INPUT_VIRTUAL: the virtual panel is the input")
+    seq: int = f(desc="transport sequence number: identical on every link carrying this frame")
 
 
 class RequestAction(IntEnum):
@@ -75,6 +106,10 @@ class Request(Packet):
     target: int = f(desc="destination node id")
     arg_i: int = f()
     arg_f: float = f()
+    session: int | None = f(
+        desc="command session id of this core; the vehicle accepts a vehicle-directed REQUEST (target 1) only from "
+        "its latched session; 0 or None = none"
+    )
 
 
 @packet(

@@ -132,7 +132,7 @@ NET_VEHICLE_RATES = {
     "VEHICLE_STATUS": 20.0, "POSE": 50.0, "ACTUATORS": 10.0, "MISSION": 10.0, "GNSS": 10.0, "HOME_POSITION": 0.5,
     "HANDSET_TELEM": 2.0,
     "IMU_RAW": 20.0, "ESTIMATOR": 10.0, "TASK_TIMING": 5.0, "CALIBRATION": 0.5,
-    "RC_APPLIED": 10.0,
+    "CMD_APPLIED": 10.0,
 }  # fmt: skip
 NET_TX_RATES = {
     "VEHICLE_STATUS": 5.0, "AIR_POSE": 25.0, "AIR_ACTUATORS": 25.0, "AIR_MISSION": 5.0,
@@ -185,6 +185,13 @@ class FakeVehiclePty:
         self.request_status = request_status
         self.request_drop_first = request_drop_first
         self.received_requests: list[dict] = []
+        # CMD_STATE test double (port 0x13, no vehicle logic): every frame is parsed strictly like the vehicle
+        # (`net.parse_cmd_state`); `received_cmd` lists every frame (dict with src, dst, seq and the fields, or
+        # `rejected` = True), `cmd_session` is the first accepted session, `cmd_rejects` counts rejected frames.
+        self.received_cmd: list[dict] = []
+        self.last_cmd: dict | None = None
+        self.cmd_session: int | None = None
+        self.cmd_rejects = 0
         self._req_attempts: dict[int, int] = {}
         # TEMPORARY legacy telecommand test double (port 0x7F, addressed to this node as `vehicle`): every frame is
         # parsed and recorded in `received_telecommands` (with src, dst, seq, qos, ctrl). The few effects below are
@@ -347,7 +354,8 @@ class FakeVehiclePty:
                 flags_extra=128 if zeroing else 0,
                 home_epoch=sc.fields("VehicleStatus", t)["home_epoch"],
                 calib_state=sc.fields("VehicleStatus", t)["calib_state"],
-                ctrl=(0x180, 0, 0, 255, 0),  # RADIO_FRESH | BENCH_FRESH, nothing refused, no profile, no rejects
+                ctrl=(0x180, 0, 0, 255, self.cmd_rejects),  # USB_FRESH | UART_FRESH, nothing refused, no profile
+                cmd_session=0 if self.cmd_session is None else self.cmd_session,
             )
             return self._data(src, 0, net.PORT_VEHICLE_STATUS, pl)
         if name == "POSE":
@@ -394,10 +402,15 @@ class FakeVehiclePty:
             return self._data(src, 0, net.PORT_CALIBRATION, net.pack_calibration(t_us))
         if name == "ESTIMATOR":
             return self._data(src, 0, net.PORT_ESTIMATOR, net.pack_estimator(t_us))
-        if name == "RC_APPLIED":  # all switches in their safe position, both sources fresh
-            return self._data(
-                src, 0, net.PORT_RC_APPLIED, net.pack_rc_applied(t_us, 0, 0, 0, 0, 0, 0b1111, 0.04, 0.04, (0, 0, 0, 0))
-            )
+        if name == "CMD_APPLIED":  # the last accepted CMD_STATE of the latched session (no vehicle logic)
+            c = self.last_cmd or {}
+            flags = (1 if c.get("pocket_live") else 0) | (2 if c.get("input_virtual") else 0)
+            pl = net.pack_cmd_applied(
+                t_us, c.get("go", 0), c.get("profile", 0), c.get("vehicle_mode", 0), c.get("motors", 0),
+                c.get("reset_button", 0), c.get("failsafe", 0), flags, 0b1111, self.cmd_session or 0,
+                0.04, 0.04, math.nan, (self.cmd_rejects, 0, 0, 0),
+            )  # fmt: skip
+            return self._data(src, 0, net.PORT_CMD_APPLIED, pl)
         if name == "TASK_TIMING":
             return self._data(src, 0, net.PORT_TIMING, net.pack_timing(t_us))
         if name in ("LINK_STATS_TX", "LINK_STATS_RX"):
@@ -443,6 +456,22 @@ class FakeVehiclePty:
         if n <= self.request_drop_first:
             return
         self.send_net(self.node, 0, net.PORT_REQUEST_ACK, net.pack_request_ack(req["req_id"], self.request_status))
+
+    def _on_cmd_state(self, f: dict) -> None:
+        """A CMD_STATE frame: parsed strictly, recorded, the first valid session is latched."""
+        cmd = net.parse_cmd_state(f["payload"])
+        meta = {"src": f["src"], "dst": f["dst"], "seq": f["seq"], "t": time.monotonic_ns()}
+        if (
+            cmd is None or f["src"] != 0 or (self.role == "vehicle" and f["dst"] != self.node)
+        ):  # a Router forwards dst 1
+            self.cmd_rejects = (self.cmd_rejects + 1) & 0xFF
+            self.received_cmd.append({**meta, "rejected": True})
+            return
+        self.received_cmd.append({**meta, **cmd, "rejected": False})
+        if self.cmd_session is None:
+            self.cmd_session = cmd["session"]
+        if cmd["session"] == self.cmd_session:
+            self.last_cmd = cmd
 
     def _on_telecommand(self, f: dict) -> None:
         """TEMPORARY legacy telecommand frame (port 0x7F): record it, apply the tiny test-double effects."""
@@ -492,6 +521,8 @@ class FakeVehiclePty:
                 self.forwarded.append(f)
             if f and f["type"] == "data" and f["port"] == net.PORT_REQUEST:
                 self._on_request(f)
+            if f and f["type"] == "data" and f["port"] == net.PORT_CMD_STATE:
+                self._on_cmd_state(f)
             if f and f["type"] == "data" and f["port"] == net.PORT_TELECOMMAND:
                 self._on_telecommand(f)
             if f and f["type"] == "data":

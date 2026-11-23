@@ -18,7 +18,7 @@ from exvectr_gs.core.config import SourceConfig, parse_config
 from exvectr_gs.core.state import StateStore
 from exvectr_gs.packets import REGISTRY
 from exvectr_gs.packets.defs.host import GsEventKind
-from exvectr_gs.packets.defs.link import RcOrigin, RcState
+from exvectr_gs.packets.defs.link import CmdState, RcOrigin, RcState
 from exvectr_gs.sources import SerialSource
 from exvectr_gs.wire import load_profile
 
@@ -180,30 +180,55 @@ async def test_radio_path_air_actuators_and_air_mission_give_two_samples_per_fra
         v.stop()
 
 
-async def test_rc_uplink_bytes_reach_the_vehicle_and_gating_holds(vehicle):
+def _cmd(seq=None, **kw):
+    d = dict(session=0xCAFE0001, go=1, profile=2, vehicle_mode=1, motors=0, reset_button=0, failsafe=0)
+    return CmdState(t=1, src="gs", seq=seq, pocket_live=True, input_virtual=False, **{**d, **kw})
+
+
+async def test_cmd_state_bytes_reach_the_vehicle_and_gating_holds(vehicle):
     ctrl = SerialSource(cfg(vehicle.link, rc_role="control"), profile())
     async with running(ctrl):
         await wait_for(lambda: ctrl.status().state == "connected")
-        chs = [1000 + 50 * i for i in range(16)]
-        for _ in range(3):
-            assert await ctrl.send(RcState(t=1, src="gs", origin=RcOrigin.gs, ch_us=chs, seq=1)) is True
-        await wait_for(lambda: len([f for f in vehicle.received if f.channel == 0x10]) == 3, what="3 rc frames")
-        frames = [f for f in vehicle.received if f.channel == 0x10]
-        wire_ch = [(c - 1500) * 2 for c in chs]
-        assert all(f.payload == net.pack_rc_state(xp.RcState.FLAGS_SOURCE_OK, wire_ch) for f in frames)
-        assert [(f.meta["src"], f.meta["dst"], f.meta["seq"]) for f in frames] == [(0, 1, 0), (0, 1, 1), (0, 1, 2)]
+        for seq in (5, 6, 7):  # the engine owns the sequence number
+            assert await ctrl.send(_cmd(seq=seq)) is True
+        await wait_for(lambda: len([f for f in vehicle.received if f.channel == 0x13]) == 3, what="3 cmd frames")
+        frames = [f for f in vehicle.received if f.channel == 0x13]
+        pl = net.pack_cmd_state(0xCAFE0001, go=1, profile=2, vehicle_mode=1, flags=3)
+        assert all(f.payload == pl for f in frames)
+        assert [(f.meta["src"], f.meta["dst"], f.meta["seq"]) for f in frames] == [(0, 1, 5), (0, 1, 6), (0, 1, 7)]
+        assert [c["rejected"] for c in vehicle.received_cmd] == [False] * 3  # the vehicle's strict parser accepts them
         n = len(vehicle.received)
-        assert await ctrl.send(RcState(origin=RcOrigin.handset, ch_us=chs, seq=1)) is False
+        assert await ctrl.send(RcState(origin=RcOrigin.gs, ch_us=[1500] * 16, seq=1)) is False  # never RC_STATE
         assert await ctrl.send(REGISTRY.get("Attitude").cls()) is False
+        assert await ctrl.send(_cmd(go=2)) is False  # out of range: never sent
         await asyncio.sleep(0.2)
-        assert len(vehicle.received) == n  # nothing but RC_STATE ever goes out (no heartbeat, no request)
+        assert len(vehicle.received) == n  # nothing but the command state ever goes out (no heartbeat, no request)
     mirror = SerialSource(cfg(vehicle.link, "link", "link_module", "mirror"), profile())
     async with running(mirror):
         await wait_for(lambda: mirror.status().state == "connected")
         n = len(vehicle.received)
-        assert await mirror.send(RcState(origin=RcOrigin.gs, ch_us=chs, seq=1)) is False
+        assert await mirror.send(_cmd()) is False
         await asyncio.sleep(0.2)
         assert len(vehicle.received) == n
+
+
+async def test_the_same_frame_goes_to_two_command_links_with_the_same_sequence(tmp_path):
+    v1, v2 = make_vehicle(tmp_path, "usb"), make_vehicle(tmp_path, "radio", role="txmodule")
+    try:
+        usb = SerialSource(cfg(v1.link, "usb"), profile())
+        rtr = SerialSource(cfg(v2.link, "link", "link_module", "control"), profile())
+        async with running(usb), running(rtr):
+            await wait_for(lambda: usb.status().state == rtr.status().state == "connected")
+            for seq in range(10, 14):
+                pkt = _cmd(seq=seq)
+                assert await usb.send(pkt) and await rtr.send(pkt)
+            await wait_for(lambda: len(v1.received_cmd) == 4 and len(v2.received_cmd) == 4, what="both links")
+            a = [(c["seq"], c["session"], c["go"]) for c in v1.received_cmd]
+            b = [(c["seq"], c["session"], c["go"]) for c in v2.received_cmd]
+            assert a == b == [(10 + i, 0xCAFE0001, 1) for i in range(4)]
+    finally:
+        v1.stop()
+        v2.stop()
 
 
 async def test_vehicle_usb_preferred_over_tx_module_for_telemetry(tmp_path):

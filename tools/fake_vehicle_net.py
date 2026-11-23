@@ -13,14 +13,17 @@ import struct
 
 PORT_LINK_STATS, PORT_LOG_TEXT, PORT_HANDSET, PORT_RC_STATE = 0x01, 0x02, 0x03, 0x10
 PORT_LINK_CONFIG, PORT_TELECOMMAND = 0x04, 0x7F  # the latter is the TEMPORARY legacy telecommand port
-PORT_REQUEST, PORT_REQUEST_ACK = 0x11, 0x12
+PORT_REQUEST, PORT_REQUEST_ACK, PORT_CMD_STATE = 0x11, 0x12, 0x13
 PORT_VEHICLE_STATUS, PORT_AIR_POSE, PORT_AIR_ACTUATORS, PORT_AIR_MISSION = 0x20, 0x21, 0x22, 0x23
 PORT_POSE, PORT_ACTUATORS, PORT_MISSION, PORT_GNSS = 0x80, 0x81, 0x82, 0x83
 PORT_AIR_GNSS, PORT_AIR_GNSS_INFO, PORT_HOME_POSITION = 0x24, 0x25, 0x50
-PORT_RC_APPLIED = 0x84
+PORT_CMD_APPLIED = 0x84
 PORT_IMU, PORT_ESTIMATOR, PORT_TIMING, PORT_CALIBRATION = 0x90, 0x91, 0x92, 0x93
-QOS = {PORT_RC_STATE: 0, PORT_VEHICLE_STATUS: 1, PORT_HANDSET: 1, PORT_LINK_STATS: 1, PORT_LOG_TEXT: 2}
-LATEST = {PORT_RC_STATE, PORT_VEHICLE_STATUS, PORT_HANDSET, PORT_LINK_STATS}  # everything else is telemetry state
+QOS = {
+    PORT_RC_STATE: 0, PORT_CMD_STATE: 0, PORT_VEHICLE_STATUS: 1, PORT_HANDSET: 1, PORT_LINK_STATS: 1, PORT_LOG_TEXT: 2,
+}  # fmt: skip
+# everything else is telemetry state
+LATEST = {PORT_RC_STATE, PORT_CMD_STATE, PORT_VEHICLE_STATUS, PORT_HANDSET, PORT_LINK_STATS}
 
 
 def crc16(data: bytes) -> int:
@@ -261,6 +264,7 @@ def pack_vehicle_status(
     home_epoch: int | None = None,
     calib_state: int | None = None,
     ctrl: tuple[int, int, int, int, int] | None = None,
+    cmd_session: int | None = None,
 ) -> bytes:
     flags = (
         (1 if vs["armed"] else 0)
@@ -293,18 +297,47 @@ def pack_vehicle_status(
     if ctrl is None or calib_state is None:
         return pl
     # T9b tail: ctrl_flags u16, go_refusal u8, degraded_bits u8, mission_profile u8 (255 none), rc_rejected u8
-    return pl + struct.pack("<HBBBB", *ctrl)
+    pl += struct.pack("<HBBBB", *ctrl)
+    # GS-control tail: cmd_session u16 (low 16 bits of the latched CMD_STATE session, 0 none); absent = older sender
+    return pl if cmd_session is None else pl + struct.pack("<H", cmd_session & 0xFFFF)
 
 
-def pack_rc_applied(
-    t_us: int, sa: int, sb: int, sc: int, sd: int, se: int, safe_seen: int,
-    radio_age_s: float, bench_age_s: float, rejects: tuple[int, int, int, int],
+def pack_cmd_applied(
+    t_us: int, go: int, profile: int, vehicle_mode: int, motors: int, reset_button: int, failsafe: int, flags: int,
+    safe_seen: int, session: int, age_s: float, usb_age_s: float, uart_age_s: float, rejects: tuple[int, int, int, int],
 ) -> bytes:  # fmt: skip
-    """RC_APPLIED (18 B, port 0x84, USB only), from the packet table of the ExVectrPackets reference."""
+    """CMD_APPLIED (26 B, port 0x84, USB only), from the packet table of the ExVectrPackets reference."""
     return struct.pack(
-        "<IBBBBBBHH4B", t_us, sa, sb, sc, sd, se, safe_seen,
-        _u16_ms(radio_age_s), _u16_ms(bench_age_s), *rejects,
+        "<IBBBBBBBBIHHH4B", t_us, go, profile, vehicle_mode, motors, reset_button, failsafe, flags, safe_seen, session,
+        _u16_ms(age_s), _u16_ms(usb_age_s), _u16_ms(uart_age_s), *rejects,
     )  # fmt: skip
+
+
+def pack_cmd_state(
+    session: int, go: int = 0, profile: int = 2, vehicle_mode: int = 0, motors: int = 0, reset_button: int = 0,
+    failsafe: int = 0, flags: int = 1, version: int = 1, reserved: int = 0,
+) -> bytes:  # fmt: skip
+    """CMD_STATE (14 B, port 0x13). No range checks: tests build bad frames with it."""
+    return struct.pack("<BBIBBBBBBH", flags, version, session, go, profile, vehicle_mode, motors, reset_button,
+                       failsafe, reserved)  # fmt: skip
+
+
+def parse_cmd_state(payload: bytes) -> dict | None:
+    """The vehicle's strict view of CMD_STATE: None (frame rejected) unless exactly 14 bytes and every field in range
+    (flags bit 0 set and only bits 0..2, version 1, session != 0, enums, reserved 0)."""
+    if len(payload) != 14:
+        return None
+    flags, version, session, go, profile, mode, motors, reset, failsafe, reserved = struct.unpack(
+        "<BBIBBBBBBH", payload
+    )
+    if (flags & 1) == 0 or flags > 7 or version != 1 or session == 0 or reserved != 0:
+        return None
+    if go > 1 or profile > 2 or mode > 1 or motors > 1 or reset > 1 or failsafe > 1:
+        return None
+    return {
+        "pocket_live": bool(flags & 2), "input_virtual": bool(flags & 4), "session": session, "go": go,
+        "profile": profile, "vehicle_mode": mode, "motors": motors, "reset_button": reset, "failsafe": failsafe,
+    }  # fmt: skip
 
 
 def pack_handset(vs: dict, g: dict, a: dict, mode_text: str) -> bytes:
@@ -364,7 +397,8 @@ def pack_request_ack(req_id: int, status: int, detail: int = 0) -> bytes:
 
 def parse_request(payload: bytes) -> dict:
     req_id, action, target, arg_i, arg_f = struct.unpack("<HBBif", payload[:12])
-    return {"req_id": req_id, "action": action, "target": target, "arg_i": arg_i, "arg_f": arg_f}
+    session = struct.unpack("<I", payload[12:16])[0] if len(payload) >= 16 else 0  # 0 = field absent (older sender)
+    return {"req_id": req_id, "action": action, "target": target, "arg_i": arg_i, "arg_f": arg_f, "session": session}
 
 
 def pack_calibration(t_us: int, gyro_source=7, accel_source=3, mag_source=3) -> bytes:
