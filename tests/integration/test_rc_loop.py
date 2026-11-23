@@ -486,3 +486,32 @@ async def test_keepalive_lease_renewal_and_idle_expiry_through_the_api():
         c = await Client.connect(rig)
         assert await c.err("rc.heartbeat") == "no_lease"  # a late renewal does not revive it
         await c.close()
+
+
+async def test_abort_and_failsafe_ops_need_no_lease_and_survive_the_client():
+    async with rc_running() as rig:
+        c = await Client.connect(rig)
+        await c.ok("rc.acquire", kind="connection")
+        await c.ok("rc.set", values={"SA": 1})
+        await applied(c, 1)
+        await c.ok("rc.release")
+        r = await c.ok("engine.abort")  # no lease held: still acts
+        assert r["command"]["out"]["go"] == 0 and r["command"]["abort_count"] == 1
+        r = await c.ok("engine.failsafe", on=True)
+        assert r["command"]["out"]["failsafe"] == 1 and r["command"]["failsafe_latched"] is True
+        await c.close()
+        await asyncio.sleep(0.2)
+        assert rig.app.engine.status()["out"]["failsafe"] == 1  # latched after the GUI is gone
+        c = await Client.connect(rig)
+        r = await c.ok("engine.failsafe", on=False)
+        assert r["command"]["out"]["failsafe"] == 0
+        assert await c.err("engine.failsafe", on="x") == "bad_request"
+        await c.close()
+
+
+async def test_abort_and_failsafe_ops_are_refused_for_view_only_clients():
+    async with rc_running(make_rc_app(control_hosts=("10.99.99.99",))) as rig:
+        c = await Client.connect(rig)
+        assert await c.err("engine.abort") == "control_denied"
+        assert await c.err("engine.failsafe", on=True) == "control_denied"
+        await c.close()

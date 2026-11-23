@@ -5,6 +5,8 @@ import { h, makeCell, renderValue } from "./ui.js";
 import { describe } from "./fmt.js";
 import { describeRecorder } from "./status/source_logic.js";
 import { badgeState } from "./update/update_logic.js";
+import { holdControl } from "./command/hold_ctl.js";
+import { HOLD_MS, headerButtons } from "./command/button_logic.js";
 
 export const HEADER_CONSUMES = ["RadioLinkStats"];
 
@@ -65,6 +67,14 @@ export function createHeader(ctx, opts) {
   const spk = h("button", { class: "chip spk", "data-testid": "callouts-icon", "aria-label": "callouts (audio notifications): open settings" });
   spk.addEventListener("click", () => window.exgs?.dock?.open("callouts"));
   const theme = h("button", { class: "theme", title: "switch dark / light (high contrast)", "aria-label": "switch dark or light theme", onclick: () => opts.onTheme() }, "◐");
+  // GS ABORT (yellow) and FAILSAFE (red): held 500 ms, no dialog. They call the core's command engine (`engine.abort`,
+  // `engine.failsafe`), so they act with any input and even if this tab closes right after.
+  let failsafeOn = true;
+  const sendEngine = (op, params) => ctx.api.request(op, params, 3000).catch((e) => { recMsg.textContent = `${op}: ${e.message}`; });
+  const abortB = holdControl({ label: "ABORT", ms: HOLD_MS, cls: "abort-btn", testid: "abort-btn", title: "hold 500 ms: go off at once", onDone: () => sendEngine("engine.abort", {}) });
+  const failB = holdControl({ label: "FAILSAFE", ms: HOLD_MS, cls: "failsafe-btn", testid: "failsafe-btn", title: "hold 500 ms: request failsafe", onDone: () => sendEngine("engine.failsafe", { on: failsafeOn }) });
+  const safetyNote = h("span", { class: "safety-note", "data-testid": "safety-note" });
+  const safety = h("div", { class: "safety-btns", role: "group", "aria-label": "ground station abort and failsafe" }, safetyNote, abortB.btn, failB.btn);
   const el = h(
     "header",
     { class: "top" },
@@ -80,6 +90,7 @@ export function createHeader(ctx, opts) {
     spk,
     conn,
     theme,
+    safety,
   );
 
   function setLayoutView(id) {
@@ -99,6 +110,16 @@ export function createHeader(ctx, opts) {
     rc.textContent = !open ? "CMD —" : !r ? "CMD n/a" : `CMD ${r.sending ? "SENDING" : "NO LINK"} · ${RC_TEXT[r.mode] || r.mode}${r.command && r.command.pocket === "lost" ? " · POCKET LOST" : ""}`;
     rc.dataset.mode = open && r ? r.mode : "";
     rc.dataset.sending = String(!!(open && r && r.sending));
+    const hb = headerButtons({ open, rc: r, canControl: ctx.api.welcome && ctx.api.welcome.can_control });
+    abortB.setDisabled(hb.abort.disabled);
+    failB.setDisabled(hb.failsafe.disabled);
+    abortB.btn.title = hb.abort.title;
+    failB.btn.title = hb.failsafe.title;
+    failB.setLabel(hb.failsafe.label);
+    failB.btn.dataset.state = hb.failsafe.state;
+    failsafeOn = hb.failsafe.on;
+    safetyNote.textContent = hb.failsafe.banner || (hb.abort.disabled ? "ABORT / FAILSAFE unavailable: " + hb.abort.title.replace(/^ABORT unavailable: /, "") : "");
+    safetyNote.dataset.tone = hb.failsafe.banner ? "bad" : hb.abort.disabled ? "warn" : "";
     const ub = badgeState(ctx.update && ctx.update());
     const cc = opts.callouts?.()?.log.chip() || null;
     calChip.hidden = !cc;

@@ -4,12 +4,12 @@
     "title": "Operations",
     "tabs": [
       {
-        "panel": "radio",
-        "label": "Radio"
-      },
-      {
         "panel": "command",
         "label": "Command"
+      },
+      {
+        "panel": "radio",
+        "label": "Radio"
       },
       {
         "panel": "requests",

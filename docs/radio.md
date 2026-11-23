@@ -35,7 +35,7 @@ The Pocket's switches arrive as `RcState` (origin `handset`, from node 2, `SOURC
 | SC | 7 | `vehicle_mode` REAL 0 / SIMULATION 1 | - | Pocket position 0 = REAL, positions 1 and 2 = SIMULATION (1 <-> 2 is no change) |
 | SD | 8 | `motors` DISABLED / ENABLED | DISABLED | **motors armed / disarmed** (up = armed) |
 | SE | 9 | `reset_button` RELEASED / PRESSED | RELEASED | short press = reset system state, hold >= 1 s = zero estimators while held (the vehicle classifies); a press is stretched to at least 160 ms (4 frames) |
-| GS FAILSAFE (later step) | - | `failsafe` 0 / 1 | 0 | `engine.set_failsafe(True)` (see below) |
+| GS FAILSAFE button | - | `failsafe` 0 / 1 | 0 | `engine.set_failsafe(True)` (see below) |
 
 An invalid channel decodes to the safe value (SA NOT_GO, SD DISABLED, SE RELEASED); an invalid SB or SC holds the current output.
 
@@ -54,7 +54,16 @@ Consequence: no start, reconnect or input change can produce a safe to unsafe ch
 
 ### Failsafe level and the reset after it
 
-`engine.set_failsafe(True)` latches `failsafe = 1` with motors DISABLED and go NOT_GO in the same frame and holds it until `set_failsafe(False)`; the switches cannot undo it and each affected switch must be cycled afterwards. (The GS FAILSAFE button comes in a later step: only the API exists now.) The vehicle refuses an SE reset while the failsafe request is still 1 (owner decision Q6), so when an SE press is taken while the failsafe is latched the engine **clears the failsafe field first, sends that frame, and sends the press in a later frame**.
+`engine.set_failsafe(True)` latches `failsafe = 1` with motors DISABLED and go NOT_GO in the same frame and holds it until `set_failsafe(False)`; the switches cannot undo it and each affected switch must be cycled afterwards. (The header FAILSAFE button calls `engine.failsafe`; see "GS ABORT and FAILSAFE buttons".) The vehicle refuses an SE reset while the failsafe request is still 1 (owner decision Q6), so when an SE press is taken while the failsafe is latched the engine **clears the failsafe field first, sends that frame, and sends the press in a later frame**.
+
+### GS ABORT and FAILSAFE buttons, Command panel
+
+**Safety-relevant, GS commands via `CMD_STATE`, no confirmation beyond the hold.**
+
+- **ABORT** (`engine.abort()`, `CommandCore.abort`): go NOT_GO at once and the go pickup is cleared, so the next mission begin needs go (SA) seen down and then up again. An SA left up (Pocket or virtual) stays ignored. It never touches motors, failsafe or any other field and works with the Pocket live, the virtual input or none. It only moves toward safe (checked by the independent oracle test, which includes abort steps). Logs a `GsEvent` and a notification "ABORT sent".
+- **FAILSAFE** (`engine.set_failsafe(True)`): unchanged latch (failsafe 1, motors DISABLED, go NOT_GO in the same frame). Clearing (`set_failsafe(False)`) keeps the safe sequence: failsafe goes to 0 in a frame before any SE reset press; go and motors still need a cycle. Notifications "FAILSAFE requested" / "GS failsafe request cleared".
+- Both are API ops (`engine.abort`, `engine.failsafe {on}`), control hosts only, no lease: the buttons call the core, so the engine acts even if the tab closes right after. The GUI holds each for 500 ms (progress fill, release cancels, no dialog). They are disabled only while the core is offline, there is no engine or the client is view only, and the header says why.
+- **Command panel** (first Operations tab): Mission begin, Abort, Arm (hold 1 s) / Disarm motors, Mode real / simulation, Reset system state, Zero estimators (SE held while pressed, refreshed every 100 ms). They set the VIRTUAL panel (`rc.acquire` if needed, `rc.set`, `rc.unlock SD` for arming) exactly like the virtual switches, so the same pickup rule applies; a button that would be ignored for lack of a pickup is disabled with the reason ("press Abort first"). The panel shows what the engine sends (`rc.command.out`), not the click, next to the vehicle's CMD_APPLIED. While the Pocket is live it says "Pocket in control" and all buttons except Abort are disabled. Known behaviour of the virtual panel: the SD guard times out like the virtual SD switch (back to disarmed).
 
 ## Input selection: the Pocket wins, the virtual panel replaces it
 
