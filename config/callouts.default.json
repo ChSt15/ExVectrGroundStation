@@ -43,7 +43,7 @@
   "phaseNames": {
     "Hover": "Hover",
     "Ascent": "Ascent",
-    "Descent": "Belly flop",
+    "Descent": "Descent",
     "Deceleration": "Deceleration",
     "RTH": "Return to home",
     "Landing": "Landing",

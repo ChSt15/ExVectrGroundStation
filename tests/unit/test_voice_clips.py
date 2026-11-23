@@ -64,7 +64,7 @@ def test_clip_table_is_consistent():
 def test_every_engine_phrase_has_a_clip():
     spoken = {t.lower() for t in gen.clip_table().values()}
     texts = engine_texts()
-    known = {"Motors armed", "Begin", "Failure bit", "Sensor failure", "Belly flop", "Volume test"}
+    known = {"Motors armed", "Apogee", "Failure bit", "Sensor failure", "Descent", "Volume test"}
     assert known <= texts, "extraction broke"
     # no recorded clip yet (piper was not available when the GNSS cross-check was added): the callout falls back to
     # the browser voice or beeps until the phrase is added to phrases.json and the clips are regenerated

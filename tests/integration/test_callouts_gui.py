@@ -62,20 +62,20 @@ async def test_mission_callouts_are_spoken_with_styles_and_shown(tmp_path):
         assert await b.eval("localStorage.getItem('exgs.callouts.audio')") == "1"
         await until(lambda: b.eval(f"{SPOKEN}.includes('Landed')"), timeout=45, what="the whole mission spoken")
         spoken = await b.eval(SPOKEN)
-        for want in ("Ascent", "Belly flop", "Landing", "Landed", "2", "4"):
+        for want in ("Ascent", "Descent", "Landing", "Landed", "2", "4"):
             assert want in spoken, (want, spoken)
-        assert spoken.index("Ascent") < spoken.index("Belly flop") < spoken.index("Landing") < spoken.index("Landed")
+        assert spoken.index("Ascent") < spoken.index("Descent") < spoken.index("Landing") < spoken.index("Landed")
         # ascent altitude callouts say the number only, once each; they are muted during Descent. The fake source sends
-        # no flip_start_altitude (NaN), so the freefall countdown (5..1, Begin) stays silent (engine tests cover it)
+        # no flip_start_altitude (NaN), so the freefall countdown (5..1) stays silent (engine tests cover it)
         assert spoken.count("4") == 1 and spoken.count("2") == 1
         assert "Begin" not in spoken and "Altitude 4" not in spoken
-        assert spoken.index("2") < spoken.index("4") < spoken.index("Belly flop")
+        assert spoken.index("2") < spoken.index("4") < spoken.index("Descent")
         first = await b.eval("window.__spoken.find(s => s.text === 'Ascent')")
         assert first["rate"] == 1.0 and first["pitch"] == 1.0 and abs(first["volume"] - 0.9 * 0.8) < 1e-6
         # the same events are in the notification history
         await until(lambda: b.eval(f"{HISTORY}.includes('Landed')"), what="history updated")
         hist = await b.eval(HISTORY)
-        assert "Landed" in hist and "Belly flop" in hist
+        assert "Landed" in hist and "Descent" in hist
         assert "Simulation" in hist  # announced at connect, before audio was enabled: shown, not spoken
         # master volume slider: percentage shown, applied to the next callout, persisted; Test volume
         await b.eval(
@@ -184,7 +184,7 @@ async def _replay_run(app, b, rig, settings, seek_after):
     if seek_after:
         n = len(spoken)
         app.replayer.pause()
-        app.replayer.seek(T0_NS + 27_000_000_000)  # skips Belly flop (16 s) and Landing (26 s)
+        app.replayer.seek(T0_NS + 27_000_000_000)  # skips Descent (16 s) and Landing (26 s)
         await b.sleep(1.5)
         return spoken, await b.eval(SPOKEN), n
     return spoken, None, None
@@ -205,7 +205,7 @@ async def test_replay_follows_the_timeline_and_a_seek_is_silent(tmp_path):
     async with api_running(app, sources=False) as rig, browser_check.Browser(1366, 768, 9386) as b:
         before, after, n = await _replay_run(app, b, rig, {"speakInReplay": True}, True)
         assert "Ascent" in before  # normal speed: the recorded timeline is followed
-        assert "Belly flop" not in after and "Landing" not in after and "Landed" not in after
+        assert "Descent" not in after and "Landing" not in after and "Landed" not in after
         assert after == before  # nothing at all was said for the seek
 
 
