@@ -114,7 +114,11 @@ export class CalloutEngine {
     this._mode(mode, out);
     this._phase(c, phase, mode, mission || status, out);
     const airborne = mode === "Running" && (mission || status);
-    this._altitude(c, airborne ? position : null, out);
+    // the freefall levels replace the altitude callouts during the descent (baselines keep following)
+    const alt = [];
+    this._altitude(c, airborne ? position : null, alt);
+    if (phase !== "Descent") out.push(...alt);
+    this._freefall(c, airborne ? position : null, phase, out);
     this._deviation(c, airborne ? position : null, mission, now, out);
     this._altcheck(inp, now, out, clears);
 
@@ -292,8 +296,58 @@ export class CalloutEngine {
     }
     for (const l of [...st.above.keys()]) if (!levels.includes(l)) st.above.delete(l);
     // several levels in one step: say only the one reached last
-    if (up.length) out.push(ev(`altitude.up.${Math.max(...up)}`, "altitude", `Altitude ${Math.max(...up)}`, "info", PRIORITY.altitude, { maxAge: 4 }));
-    if (down.length) out.push(ev(`altitude.down.${Math.min(...down)}`, "altitude", `Altitude ${Math.min(...down)}`, "info", PRIORITY.altitude, { maxAge: 4 }));
+    if (up.length) out.push(ev(`altitude.up.${Math.max(...up)}`, "altitude", `${Math.max(...up)}`, "info", PRIORITY.altitude, { maxAge: 4 }));
+    if (down.length) out.push(ev(`altitude.down.${Math.min(...down)}`, "altitude", `${Math.min(...down)}`, "info", PRIORITY.altitude, { maxAge: 4 }));
+  }
+
+  /**
+   * Freefall callouts: distance above the flip start (the vehicle's freefall stop trigger altitude, setting
+   * `freefall.flip_altitude_m`; not in the telemetry). Active while the phase is `Descent` (bellyflop and freefall).
+   * Each level once per descent, downward only; levels already passed at the first sample are skipped silently.
+   * "Begin" once: the distance reaches 0 or the phase leaves Descent for Deceleration (the vehicle's stop trigger fired).
+   * A new descent (phase back to Descent from another phase, or data lost) re-arms everything.
+   */
+  _freefall(c, position, phase, out) {
+    const st = this.s;
+    const z = position && vec3(position.f.pos) ? position.f.pos[2] : null;
+    const ff = st.ff;
+    if (phase !== "Descent") {
+      if (ff && !ff.begun && ff.armed && phase === "Deceleration") {
+        ff.begun = true;
+        out.push(ev("freefall.begin", "altitude", "Begin", "info", PRIORITY.altitude, { maxAge: 4 }));
+      }
+      if (ff && phase !== "Deceleration") st.ff = undefined; // kept (begun) through Deceleration so Begin is not repeated
+      return;
+    }
+    if (z === null) {
+      if (ff) ff.armed = false; // stale: re-baseline silently when data returns
+      return;
+    }
+    const d = z - c.freefall.flip_altitude_m;
+    const half = c.altitude.hysteresis_m / 2;
+    if (!st.ff || !st.ff.armed || st.ff.begun) {
+      // first sample of a descent: levels below the current distance are armed, the others are passed silently
+      st.ff = { armed: true, begun: d <= 0, left: new Map(c.freefall.levels.map((l) => [l, d > l])) };
+      return;
+    }
+    const f = st.ff;
+    const hit = [];
+    for (const l of c.freefall.levels) {
+      if (!f.left.has(l)) f.left.set(l, d > l);
+      else if (f.left.get(l) && d <= l - half) {
+        f.left.set(l, false);
+        hit.push(l);
+      }
+    }
+    // several levels in one step: say only the lowest reached
+    if (hit.length) {
+      const l = Math.min(...hit);
+      out.push(ev(`freefall.${l}`, "altitude", l === Math.max(...c.freefall.levels) ? `${l} meters till upright` : `${l}`, "info", PRIORITY.altitude, { maxAge: 4 }));
+    }
+    if (!f.begun && d <= 0) {
+      f.begun = true;
+      out.push(ev("freefall.begin", "altitude", "Begin", "info", PRIORITY.altitude, { maxAge: 4 }));
+    }
   }
 
   /** Position error against the MissionState setpoint. Shipped disabled (docs/callouts.md). */

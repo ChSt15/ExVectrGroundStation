@@ -12,7 +12,7 @@ export const LS_AUDIO = "exgs.callouts.audio";
 export const SAMPLES = {
   countdown: { id: "test.countdown", text: "3", severity: "info", priority: 5 },
   phase: { id: "test.phase", text: "Ascent", severity: "info", priority: 3 },
-  altitude: { id: "test.altitude", text: "Altitude 50", severity: "info", priority: 4 },
+  altitude: { id: "test.altitude", text: "50", severity: "info", priority: 4 },
   failure: { id: "test.failure", text: "Position failure", severity: "failure", priority: 0 },
   link: { id: "test.link", text: "Telemetry lost", severity: "warning", priority: 1 },
   state: { id: "test.state", text: "Motors armed", severity: "warning", priority: 2 },
