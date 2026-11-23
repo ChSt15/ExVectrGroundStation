@@ -79,7 +79,8 @@ class RequestAction(IntEnum):
     SYSTEM_RESET = 9
     LINK_UPLOAD_MODE = 10
     LINK_REBOOT = 11
-    ZERO_ESTIMATORS = 12  # T9b: known action, deliberately not in the GUI whitelist
+    ZERO_ESTIMATORS = 12  # arg_f = window in s (NaN or 0 = 10 s, vehicle clamps 1..60)
+    SET_STOP_ALTITUDE = 13  # arg_f = metres, finite and >= 1.0 (REJECTED_INVALID detail 1 otherwise)
 
 
 class RequestStatus(IntEnum):
@@ -142,7 +143,7 @@ class TelecommandType(IntEnum):
     MissionBegin = 7
     MissionSelect = 8
     MissionAbort = 9
-    ZeroEstimators = 10
+    ZeroEstimators = 10  # removed on the vehicle (ignored and counted): use the ZERO_ESTIMATORS request
     # Simulation wind (vehicle: simulation mode only; docs/telecommands.md). 11 speed m/s, 12 direction rad, 13 gust
     # strength m/s, 14 gust period s, 15 gust seed. Value in the float, paramInt = magic 0x57.
     SimWindSpeed = 11
@@ -156,7 +157,7 @@ class TelecommandType(IntEnum):
     SimFlapStuck = 16
     SimFlapSlow = 17
     SimFaultClear = 18
-    SetStopAltitude = 19  # float = metres >= 1, no maximum, no ACK (echo MissionState.stop_altitude)
+    SetStopAltitude = 19  # removed on the vehicle (ignored and counted): use the SET_STOP_ALTITUDE request
 
 
 @packet(
