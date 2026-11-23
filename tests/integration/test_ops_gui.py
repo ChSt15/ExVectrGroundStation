@@ -372,3 +372,40 @@ async def test_simulation_testing_page_is_greyed_out_until_the_vehicle_reports_s
         await b.sleep(1.5)
         assert len(rig.v1.received_telecommands) == 1  # once, no repeat
         assert "no ACK exists" in await text(b, "[data-testid=sf-sent]")
+
+
+@needs_browser
+async def test_command_tab_is_first_and_header_abort_failsafe_need_a_500_ms_hold(tmp_path):
+    async with rig_with(tmp_path) as rig, browser_check.Browser(1500, 1300, 9374) as b:
+        await open_page(b, rig, ["command"])
+        first = await b.eval("document.querySelector('#dock [role=tab]').textContent")
+        assert "Command" in first
+        panel = "[data-panel=command]"
+        for k in ("begin", "abort", "motors", "real", "sim", "reset", "zero"):
+            assert await b.eval(f"!!document.querySelector('{panel} [data-btn={k}]')"), k
+        engine = rig.app.engine
+        abort = "[data-testid=abort-btn]"
+        fs = "[data-testid=failsafe-btn]"
+        await until(lambda: b.eval(f"!document.querySelector({abort!r}).disabled"), what="abort enabled")
+        await press(b, abort)  # released before 500 ms: nothing is sent
+        await b.sleep(0.2)
+        await let_go(b, abort)
+        await b.sleep(0.6)
+        assert engine.abort_count == 0
+        await press(b, abort)
+        await until(lambda: engine.abort_count == 1, timeout=3, what="abort after the 500 ms hold")
+        await let_go(b, abort)
+        await press(b, fs)
+        await until(lambda: engine.core.failsafe_latched, timeout=3, what="failsafe latched")
+        await let_go(b, fs)
+        await until(
+            lambda: b.eval(f"document.querySelector({fs!r}).textContent.includes('Clear failsafe')"),
+            what="clear control",
+        )
+        assert "FAILSAFE REQUESTED" in await text(b, "[data-testid=safety-note]")
+        await press(b, fs)
+        await until(lambda: not engine.core.failsafe_latched, timeout=3, what="failsafe cleared by the hold")
+        await let_go(b, fs)
+        # the panel buttons drive the virtual switches: Mission begin takes the lease and shows what the engine sends
+        await b.eval(f"document.querySelector('{panel} [data-btn=begin]').click()")
+        await until(lambda: rig.app.rc.status().lease is not None, what="lease taken by the button")
