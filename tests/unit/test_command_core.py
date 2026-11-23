@@ -7,6 +7,7 @@ import random
 import pytest
 
 from exvectr_gs.rc.command import (
+    MODE_SETTLE_NS,
     POCKET_LOST_NS,
     SE_MIN_PRESS_NS,
     SEND_PERIOD_NS,
@@ -179,17 +180,23 @@ def test_a_long_se_hold_stays_pressed_while_held():
     assert r.out.reset_button == 0
 
 
-def test_sc_difference_at_start_is_shown_and_ignored_until_the_switch_matches():
-    r = Rig(sim=False)  # the vehicle is REAL
-    r.live(sw(sc=1))  # the Pocket shows SIMULATION
-    assert r.out.vehicle_mode == 0 and r.core.hints().sc == 0  # "flip SC to REAL to take over"
-    r.pocket(sw(sc=2), n=10)  # still a simulation position
-    assert r.out.vehicle_mode == 0
-    r.pocket(sw(sc=0))  # matches: picked up
-    assert r.out.vehicle_mode == 0 and r.core.hints().sc is None
-    r.pocket(sw(sc=1))
-    assert r.out.vehicle_mode == 1
-    r.pocket(sw(sc=2))  # 1 <-> 2 is no change
+def _settle(r, s):
+    """Pocket frames showing s until past the mode settle (0.3 s after the first frame)."""
+    r.pocket(s, ms=20, n=MODE_SETTLE_NS // (20 * MS) + 3)
+
+
+@pytest.mark.parametrize("pos", [1, 2])
+def test_sc_in_simulation_at_start_sends_real_for_the_settle_then_simulation(pos):
+    r = Rig(sim=False)
+    r.live(sw(sc=pos))
+    r.tick(40)
+    first = r.frames[0]
+    assert first.out.vehicle_mode == 0 and first.out.go == first.out.motors == first.out.reset_button == 0
+    r.pocket(sw(sc=pos), ms=20, n=10)  # still inside the settle: only REAL on the wire, at least 3 frames
+    assert len(r.frames) >= 3 and all(f.out.vehicle_mode == 0 for f in r.frames)
+    _settle(r, sw(sc=pos))
+    assert r.out.vehicle_mode == 1 and r.frames[-1].out.vehicle_mode == 1
+    r.pocket(sw(sc=3 - pos))  # 1 <-> 2 is no change
     assert r.out.vehicle_mode == 1
     r.pocket(sw(sc=0))
     assert r.out.vehicle_mode == 0
@@ -197,10 +204,41 @@ def test_sc_difference_at_start_is_shown_and_ignored_until_the_switch_matches():
     assert r.out.vehicle_mode == 0
 
 
+def test_sc_real_at_start_stays_real_and_a_simulation_vehicle_follows_sc():
+    r = Rig(sim=False)
+    r.live(sw(sc=0))
+    _settle(r, sw(sc=0))
+    assert r.out.vehicle_mode == 0
+    r = Rig(sim=True)  # the vehicle reports SIMULATION, the Pocket shows REAL: SIMULATION first, then REAL (an edge)
+    r.live(sw(sc=0))
+    r.tick(40)
+    assert r.frames[0].out.vehicle_mode == 1
+    _settle(r, sw(sc=0))
+    assert r.out.vehicle_mode == 0
+
+
+@pytest.mark.parametrize("pos", [0, 1, 2])
+def test_sb_at_start_sets_the_profile_at_once(pos):
+    r = Rig()
+    r.live(sw(sb=pos))  # the first frame may precede the Pocket by 15 ms; the next one carries the profile
+    r.tick(40)
+    assert r.out.profile == pos and r.frames[-1].out.profile == pos
+
+
+def test_go_motors_and_reset_stay_safe_at_start_whatever_sc_and_sb_show():
+    r = Rig(sim=False)
+    r.live(sw(sa=1, sb=1, sc=2, sd=1, se=1))
+    _settle(r, sw(sa=1, sb=1, sc=2, sd=1, se=1))
+    assert (r.out.go, r.out.motors, r.out.reset_button) == (0, 0, 0)
+    assert r.out.profile == 1 and r.out.vehicle_mode == 1
+    assert all((f.out.go, f.out.motors, f.out.reset_button) == (0, 0, 0) for f in r.frames)
+
+
 def test_sc_follows_a_simulation_session_too():
     r = Rig(sim=True)
-    r.live(sw(sc=2))  # equal to the vehicle's mode from the start: picked up at once
-    assert r.out.vehicle_mode == 1 and r.core.hints().sc is None
+    r.live(sw(sc=2))
+    _settle(r, sw(sc=2))
+    assert r.out.vehicle_mode == 1
     r.pocket(sw(sc=0))
     assert r.out.vehicle_mode == 0
 
@@ -236,7 +274,7 @@ def test_pocket_loss_is_a_warning_only_the_output_is_held_and_se_is_released():
     assert r.core.input == "none"
     r.tick(5000)  # a long loss changes nothing more
     assert (r.out.go, r.out.motors, r.out.failsafe) == (1, 1, 0)
-    assert r.core.picked == {"sa": False, "sc": False, "sd": False, "se": False}
+    assert r.core.picked == {"sa": False, "sd": False, "se": False}
 
 
 def test_pocket_back_applies_the_pickup_rule_safe_changes_at_once_unsafe_only_after_a_cycle():
@@ -265,20 +303,28 @@ def test_pocket_back_applies_the_pickup_rule_safe_changes_at_once_unsafe_only_af
     assert (r.out.go, r.out.motors) == (1, 1)
 
 
-def test_sc_differing_after_the_pocket_returns_waits_for_the_switch_to_match():
+def test_sc_and_sb_follow_at_once_after_the_pocket_returns_while_go_and_motors_wait():
     r = Rig(sim=False)
     r.live(sw(sc=0))
-    r.pocket(sw(sc=1))
+    _settle(r, sw(sc=0))
+    r.pocket(sw(sc=1, sb=0))
+    assert r.out.vehicle_mode == 1 and r.out.profile == 0
+    r.tick(400)  # Pocket lost: the output is held
+    assert r.out.vehicle_mode == 1
+    r.live(sw(sc=0, sb=1, sa=1, sd=1))  # back with SC at REAL, SB 1, SA and SD up
+    assert r.out.vehicle_mode == 0 and r.out.profile == 1
+    assert (r.out.go, r.out.motors) == (0, 0)
+
+
+def test_the_mode_is_held_while_the_pocket_is_lost_and_follows_sc_on_return():
+    r = Rig(sim=False)
+    r.live(sw(sc=2))
+    _settle(r, sw(sc=2))
     assert r.out.vehicle_mode == 1
     r.tick(400)
-    r.live(sw(sc=0))  # the output is SIMULATION, the Pocket shows REAL: no change until it matches
-    assert r.out.vehicle_mode == 1 and r.core.hints().sc == 1
-    r.pocket(sw(sc=0), n=10)
+    assert r.out.vehicle_mode == 1 and r.frames[-1].out.vehicle_mode == 1
+    r.live(sw(sc=2))
     assert r.out.vehicle_mode == 1
-    r.pocket(sw(sc=2))  # matches (a simulation position): picked up
-    assert r.out.vehicle_mode == 1 and r.core.hints().sc is None
-    r.pocket(sw(sc=0))
-    assert r.out.vehicle_mode == 0
 
 
 def test_a_press_of_se_during_a_loss_is_not_resumed_on_return():
@@ -449,7 +495,10 @@ POS = {"sa": (0, 1, None), "sd": (0, 1, None), "se": (0, 1, None), "sc": (0, 1, 
 @pytest.mark.parametrize("start", list(itertools.product((0, 1, None), (0, 1, None), (0, 1, 2))))
 def test_no_start_loss_or_return_ever_produces_an_unsafe_edge_without_a_cycle(start):
     """An oracle independent of the core: SA / SD may go 0 -> 1 only on a sample that is unsafe while the previous
-    sample since the last reset event (start, loss, return, failsafe) was safe (the switch was seen down)."""
+    sample since the last reset event (start, loss, return, failsafe) was safe (the switch was seen down). SC (mode)
+    and SB (profile) are deliberately NOT unsafe edges here: since 2026-11-23 they follow the switch at once, also at
+    start and reconnect (the vehicle refuses a mode change while committed and reads SB only at the go edge); they are
+    random inputs only, to show they never leak into go / motors / reset."""
     sa, sd, sc = start
     rnd = random.Random(hash(start) & 0xFFFF)
     for _ in range(25):
