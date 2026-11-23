@@ -34,8 +34,6 @@ export const DEFAULTS = {
   deviation: { limit_m: 5, hold_s: 2, hysteresis_m: 1 },
   altcheck: { limit_m: 5, hold_s: 1, hysteresis_m: 1 }, // GNSS vs estimated altitude (the GNSS panel uses the same limit)
   failure: { repeat_s: 5, repeats: 0 },
-  // Ground distance (lidar, valid below 1 m) spoken while the mission is Running: first at once, then every repeat_s.
-  ground_distance: { enabled: true, repeat_s: 1.0 },
   telemetry: { timeout_s: 3 },
   stale_s: 3,
   suppress: { normal_s: 2, failure_s: 8 },
@@ -109,10 +107,6 @@ export function mergeSettings(base, over) {
   if (isObj(over.failure)) {
     out.failure.repeat_s = num(over.failure.repeat_s, 1, 600, out.failure.repeat_s);
     out.failure.repeats = Math.round(num(over.failure.repeats, 0, 20, out.failure.repeats));
-  }
-  if (isObj(over.ground_distance)) {
-    if (typeof over.ground_distance.enabled === "boolean") out.ground_distance.enabled = over.ground_distance.enabled;
-    out.ground_distance.repeat_s = num(over.ground_distance.repeat_s, 0.3, 5, out.ground_distance.repeat_s);
   }
   if (isObj(over.telemetry)) out.telemetry.timeout_s = num(over.telemetry.timeout_s, 0.5, 60, out.telemetry.timeout_s);
   if (isObj(over.suppress)) {

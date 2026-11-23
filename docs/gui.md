@@ -335,4 +335,3 @@ The status bar cell **Command source** (key `ctrl_source`, replaces "Control sou
 
 **Mission profile names.** Wherever a mission profile number is shown it is followed by its name (pure `command/profile.js`, `web/test/profile.test.js`): 0 `hover test`, 1 `waypoint test`, 2 `flight`; 255 (none) shows nothing. Used by the status bar Profile cell, the Command panel (SB profile, Sent state) and the command path list; the SB meaning text in `config/radio.pocket.toml` (radio widget and virtual Pocket) lists the three names. The vehicle logs `GO: mission begin, profile N (name)`.
 
-**Ground distance callout.** Spoken while valid and Running, see [callouts.md](callouts.md); the Callouts settings page, Thresholds section, has the on/off box and the repeat interval.

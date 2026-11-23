@@ -134,7 +134,6 @@ export function createCallouts({ store, getView, getCoreStatus, ls, speaker, not
       position: latest(view, "Position"),
       gps: latest(view, "Gps"),
       home: latest(view, "HomePosition"),
-      actuators: latest(view, "Actuators"),
       sources: view === "live" && cs ? cs.sources : [],
     });
     if (r.resynced) queue.cancelAll();
