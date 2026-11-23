@@ -124,6 +124,26 @@ group = "Vehicle"
 target = 1
 
 [[requests.action]]
+action = "ZERO_ESTIMATORS"
+label = "Zero estimators"
+group = "Vehicle"
+target = 1
+arg_f_min = 1.0                 # window in s; the vehicle clamps to 1..60 as well
+arg_f_max = 60.0
+arg_f_default = 10.0
+arg_f_name = "window, s"
+
+[[requests.action]]
+action = "SET_STOP_ALTITUDE"
+label = "Stop altitude"
+group = "Vehicle settings"
+target = 1
+arg_f_min = 1.0                 # metres, at least 1; no real maximum (the whitelist needs a finite bound)
+arg_f_max = 1000000.0
+arg_f_default = 20.0
+arg_f_name = "altitude, m"      # sent by the Vehicle settings control of the Commands panel (plain click); not shown in the Requests panel
+
+[[requests.action]]
 action = "SYSTEM_RESET"
 label = "System reset"
 group = "Vehicle"
@@ -178,29 +198,8 @@ warning = "Reboots the ship radio node: RC to the vehicle is interrupted for sec
 [telecommands]
 source_preference = ["usb", "link", "fake"]    # vehicle USB first, else the Router link
 
-[[telecommands.command]]
-name = "ZeroEstimators"
-type = "ZeroEstimators"
-label = "Zero estimators"
-group = "Vehicle"
-param_int = 0x2E                               # validation value, fixed
-param_float = 10.0                             # duration in s (0 = the vehicle's own default, 10 s)
-param_float_min = 1.0                          # the vehicle clamps to 1..60 s as well
-param_float_max = 60.0
-param_float_name = "duration_s"
-note = "zeroes the estimators for the duration; the vehicle reports ZEROING in its status"
-
-[[telecommands.command]]
-name = "SetStopAltitude"
-type = "SetStopAltitude"
-label = "Stop altitude"
-group = "Vehicle settings"
-param_int = 0                                  # ignored by the vehicle
-param_float = 20.0                             # metres, the vehicle's default
-param_float_min = 1.0
-param_float_max = 1000000.0                      # no real maximum (the whitelist needs a finite bound); the vehicle limits it
-param_float_name = "altitude_m"
-note = "no acknowledgement: confirmed by the echoed MissionState.stop_altitude; the vehicle accepts it only on the ground with the motors armed gate closed"
+# ZeroEstimators and SetStopAltitude are REMOVED on the vehicle (it ignores and counts them): they are the
+# ZERO_ESTIMATORS and SET_STOP_ALTITUDE requests now ([[requests.action]] above).
 
 [[telecommands.command]]
 name = "CalibGyroStart"

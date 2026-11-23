@@ -95,6 +95,8 @@ Version 1, direction `down`, nominal rate 2 Hz, history: no.
 | `t_mission` | time_ns | ns | mission time, negative during countdown |
 | `mission_index` | int | - |  |
 | `waypoint` | int | - | current waypoint of the waypoint mission; only AIR_MISSION carries it, None = not that mission |
+| `flip_start_altitude` | float | m | altitude (NWU up) at which the vehicle begins the upright flip = its getStopAltitude(); sent only during the bellyflop freefall, None = not sent / older sender |
+| `stop_altitude` | float | m | the stop altitude parameter (echo that cross-checks the SET_STOP_ALTITUDE request), None = unknown / older sender |
 
 ## FlapState
 
@@ -342,7 +344,7 @@ Version 1, direction `up`, nominal rate n/a, history: no.
 | Field | Kind | Unit | Description |
 |---|---|---|---|
 | `req_id` | int | - | non-zero, new per action, reused on every retry |
-| `action` | enum (RequestAction: NONE=0, CALIB_GYRO_START=1, CALIB_GYRO_STOP=2, CALIB_ACCEL_START=3, CALIB_ACCEL_STOP=4, CALIB_MAG_START=5, CALIB_MAG_STOP=6, CALIB_APPLY=7, SAVE_CONFIG=8, SYSTEM_RESET=9, LINK_UPLOAD_MODE=10, LINK_REBOOT=11, ZERO_ESTIMATORS=12) | - |  |
+| `action` | enum (RequestAction: NONE=0, CALIB_GYRO_START=1, CALIB_GYRO_STOP=2, CALIB_ACCEL_START=3, CALIB_ACCEL_STOP=4, CALIB_MAG_START=5, CALIB_MAG_STOP=6, CALIB_APPLY=7, SAVE_CONFIG=8, SYSTEM_RESET=9, LINK_UPLOAD_MODE=10, LINK_REBOOT=11, ZERO_ESTIMATORS=12, SET_STOP_ALTITUDE=13) | - |  |
 | `target` | int | - | destination node id |
 | `arg_i` | int | - |  |
 | `arg_f` | float | - |  |
@@ -368,7 +370,7 @@ Version 1, direction `up`, nominal rate n/a, history: no.
 
 | Field | Kind | Unit | Description |
 |---|---|---|---|
-| `tc_type` | enum (TelecommandType: CalibStart=0, CalibApply=1, Load=2, Save=3, SystemReset=4, Arm=5, SimulationMode=6, MissionBegin=7, MissionSelect=8, MissionAbort=9, ZeroEstimators=10, SimWindSpeed=11, SimWindDirection=12, SimGustStrength=13, SimGustPeriod=14, SimGustSeed=15, SimFlapStuck=16, SimFlapSlow=17, SimFaultClear=18) | - | legacy command code |
+| `tc_type` | enum (TelecommandType: CalibStart=0, CalibApply=1, Load=2, Save=3, SystemReset=4, Arm=5, SimulationMode=6, MissionBegin=7, MissionSelect=8, MissionAbort=9, ZeroEstimators=10, SimWindSpeed=11, SimWindDirection=12, SimGustStrength=13, SimGustPeriod=14, SimGustSeed=15, SimFlapStuck=16, SimFlapSlow=17, SimFaultClear=18, SetStopAltitude=19) | - | legacy command code |
 | `subsystem` | int | - | legacy Subsystem (0 gyro, 1 accel, 2 magneto, ...) |
 | `param_int` | int | - | int16 parameter (magic value or mission time) |
 | `param_float` | float | - | float32 parameter: 0 for every command except ZeroEstimators (duration in s) |

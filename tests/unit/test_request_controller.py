@@ -388,3 +388,61 @@ async def test_requests_to_the_vehicle_carry_the_command_session_and_the_radio_n
     r2 = Rig()  # no engine: session 0 = none
     await r2.send("CALIB_APPLY")
     assert r2.usb.sent[0].session == 0
+
+
+# ---- T9b-5: ZERO_ESTIMATORS / SET_STOP_ALTITUDE with a float argument
+
+ARG_WL = [
+    RequestEntry("ZERO_ESTIMATORS", 1, "Zero", "Vehicle", arg_f_min=1.0, arg_f_max=60.0, arg_f_default=10.0),
+    RequestEntry("SET_STOP_ALTITUDE", 1, "Stop", "Vehicle settings", arg_f_min=1.0, arg_f_max=1e6, arg_f_default=20.0),
+]
+
+
+def test_new_actions_are_mirrored():
+    assert int(RequestAction.ZERO_ESTIMATORS) == 12 and int(RequestAction.SET_STOP_ALTITUDE) == 13
+
+
+async def test_arg_f_is_sent_defaulted_and_validated():
+    r = Rig(whitelist=ARG_WL)
+    r.rc.session_fn = lambda: 77
+    await r.send("SET_STOP_ALTITUDE", arg_f=35.5)
+    p = r.usb.sent[-1]
+    assert (int(p.action), p.arg_f, p.session) == (13, 35.5, 77)
+    r.clock.advance(2.0)
+    await r.send("ZERO_ESTIMATORS")  # no value: the default
+    assert r.usb.sent[-1].arg_f == 10.0
+    assert r.rc.whitelist()[0]["arg_f"] == {"min": 1.0, "max": 60.0, "default": 10.0, "name": ""}
+    r.clock.advance(2.0)
+    for bad in (0.5, 61.0, float("nan"), float("inf")):
+        with pytest.raises(RequestError) as e:
+            await r.send("ZERO_ESTIMATORS", arg_f=bad)
+        assert e.value.code == "invalid_value"
+    with pytest.raises(RequestError):
+        await Rig().send("CALIB_APPLY", arg_f=1.0)  # an action without an argument takes none
+
+
+async def test_every_new_action_gets_a_new_req_id_also_after_a_refusal_but_retries_keep_theirs():
+    r = Rig(whitelist=ARG_WL)
+    a = await r.send("SET_STOP_ALTITUDE", arg_f=30.0)
+    r.clock.advance(1.0)
+    await r.rc.tick()  # retransmission of the SAME unacknowledged request
+    assert {p.req_id for p in r.usb.sent} == {a.req_id}
+    r.ack(a.req_id, status=2, detail=1)  # REJECTED_STATE, motors armed
+    assert a.state == "acked" and a.status_name == "REJECTED_STATE"
+    r.clock.advance(1.0)
+    b = await r.send("SET_STOP_ALTITUDE", arg_f=30.0)  # the user clicks again
+    assert b.req_id != a.req_id and r.usb.sent[-1].req_id == b.req_id
+    r.ack(b.req_id)
+    r.clock.advance(1.0)
+    c = await r.send("SET_STOP_ALTITUDE", arg_f=30.0)
+    assert len({a.req_id, b.req_id, c.req_id}) == 3 and 0 not in {a.req_id, b.req_id, c.req_id}
+
+
+def test_arg_f_config_validation():
+    ok = {"action": "ZERO_ESTIMATORS", "target": 1, "arg_f_min": 1, "arg_f_max": 60, "arg_f_default": 10}
+    e = _cfg([ok]).requests.actions[0]
+    assert (e.arg_f_min, e.arg_f_max, e.arg_f_default) == (1.0, 60.0, 10.0)
+    for bad in ({**ok, "arg_f_default": 99}, {**ok, "arg_f_max": float("inf")}, {**ok, "arg_f_min": True},
+                {"action": "ZERO_ESTIMATORS", "target": 1, "arg_f_min": 1}):  # fmt: skip
+        with pytest.raises(ConfigError):
+            _cfg([bad])

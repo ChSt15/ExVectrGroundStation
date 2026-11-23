@@ -123,7 +123,7 @@ test("T9b tail fields: nothing for zero or older senders, compact cells when set
   assert.deepEqual([d.ctrl_flags.text, d.ctrl_flags.tone], ["ABORT latched, FAILSAFE latched", "bad"]);
   assert.equal(d.go_refusal.text, "reserved (motors armed is not a go precondition)");
   assert.equal(d.degraded.text, "ToF lost, ship-node heartbeat lost");
-  assert.equal(d.mission_profile.text, "2");
+  assert.equal(d.mission_profile.text, "2 (flight)");
   assert.equal(d.rc_rejected.text, "3");
   assert.equal(byKey(describeVehicleStatus(entry({ ...FULL, ctrl_flags: 0x180 }), 100.2)).ctrl_flags.tone, "");
   assert.deepEqual(decodeFailureBits(1 << 13), ["motors-armed watchdog"]);

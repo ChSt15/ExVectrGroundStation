@@ -77,9 +77,9 @@ async def test_group_spacing_100ms_and_everything_else_stays_500ms():
     assert len(r.usb.sent) == 5
     r.clock.advance(0.15)  # a non-group command after a group send still needs 500 ms
     with pytest.raises(TelecommandError):
-        await r.send("ZeroEstimators")
+        await r.send("CalibGyroStart")
     r.clock.advance(0.5)
-    await r.send("ZeroEstimators")
+    await r.send("CalibGyroStart")
     with pytest.raises(TelecommandError):  # and the group after a non-group command too
         r.clock.advance(0.15)
         await r.send("SimWindSpeed")

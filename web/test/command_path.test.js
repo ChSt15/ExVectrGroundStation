@@ -15,7 +15,7 @@ test("command path rows: vehicle-reported mode, motors armed, flags, refusal, pr
   assert.equal(r.flags.text, "Toggle SD off, then on (motors armed), FAILSAFE latched, SC mismatch, SE hold zeroing, SE refused");
   assert.equal(r.flags.tone, "bad");
   assert.equal(r.go_refusal.text, "estimator zeroing window or no valid zero");
-  assert.equal(r.mission_profile.text, "2");
+  assert.equal(r.mission_profile.text, "2 (flight)");
   assert.equal(r.countdown.text, COUNTDOWN_NOTE);
   const q = rowsOf({ simulation: false, armed: false, ctrl_flags: 0, go_refusal: 0, mission_profile: 255 });
   assert.equal(q.mode.text, "REAL SENSORS");

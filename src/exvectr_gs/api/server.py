@@ -538,6 +538,7 @@ class ApiServer:
                 remote_addr=client.addr,
                 confirm=a["confirm"],
                 understand_link_stops=a["understand_link_stops"],
+                arg_f=a["arg_f"],
             )
         )
         self._push_requests()

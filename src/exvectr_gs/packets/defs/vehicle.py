@@ -168,7 +168,7 @@ class MissionState(Packet):
     )
     stop_altitude: float | None = f(
         unit="m",
-        desc="the stop altitude parameter (echo that confirms SetStopAltitude), None = unknown / older sender",
+        desc="the stop altitude parameter (echo that cross-checks SET_STOP_ALTITUDE), None = unknown / older sender",
     )
 
 

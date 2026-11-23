@@ -28,6 +28,10 @@
     "hold_s": 2,
     "hysteresis_m": 1
   },
+  "ground_distance": {
+    "enabled": true,
+    "repeat_s": 1.0
+  },
   "failure": {
     "repeat_s": 5,
     "repeats": 0

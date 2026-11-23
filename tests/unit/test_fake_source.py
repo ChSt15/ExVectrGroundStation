@@ -196,3 +196,43 @@ async def test_fake_source_request_is_idempotent_drops_first_n_and_respects_reac
     assert len(src.executed_requests) == 1 and len(src.received_requests) == 3
     src._state = "searching"
     assert await src.send(_request_packet(9)) is False  # not connected
+
+
+# ---- request_rules: the documented executor answers for actions 12 and 13 (test double)
+
+
+def _act(action, rid=5, target=1, arg_f=25.0, session=99):
+    from exvectr_gs.packets.defs.link import Request
+
+    return Request(t=1, src="gs", req_id=rid, action=action, target=target, arg_i=0, arg_f=arg_f, session=session)
+
+
+async def _rules_answer(pkt, **opts):
+    src = make(answer_requests=True, request_rules=True, request_latched_session=99, **opts)
+    _, got = await _answer(src, pkt)
+    return src, [(p.status, p.detail) for p in got]
+
+
+async def test_request_rules_done_changes_the_echoed_stop_altitude_once():
+    src, got = await _rules_answer(_act(13))
+    assert got == [(0, 0)] and src.stop_altitude == 25.0
+    _, got = await _rules_answer(_act(12, arg_f=10.0))
+    assert got == [(0, 0)]
+
+
+async def test_request_rules_each_refusal_pair():
+    assert (await _rules_answer(_act(13, target=2)))[1] == [(3, 2)]  # wrong target (node 2 is reachable by the fake)
+    assert (await _rules_answer(_act(13), request_on_ground=False))[1] == [(2, 1)]
+    assert (await _rules_answer(_act(13, session=5)))[1] == [(2, 3)]  # session differs
+    assert (await _rules_answer(_act(13, session=0)))[1] == [(2, 3)]  # session 0
+    assert (await _rules_answer(_act(13, arg_f=0.5)))[1] == [(3, 1)]  # out of range
+    assert (await _rules_answer(_act(13, arg_f=float("nan"))))[1] == [(3, 1)]
+    # the session is checked before the ground state
+    assert (await _rules_answer(_act(13, session=5), request_on_ground=False))[1] == [(2, 3)]
+    # a refused value never changes the echo
+    src, _ = await _rules_answer(_act(13, arg_f=0.5))
+    assert src.stop_altitude == 20.0
+    # other actions keep the plain configured answer
+    src = make(answer_requests=True, request_rules=True, request_status=0)
+    _, got = await _answer(src, _request_packet())
+    assert [(p.status, p.detail) for p in got] == [(0, 0)]

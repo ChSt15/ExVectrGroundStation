@@ -150,7 +150,9 @@ class FakeVehiclePty:
     def __init__(self, link: str | Path, seed: int = 1, speed: float = 1.0, rates: dict[str, float] | None = None,
                  console: bool = True, profile: str = "provisional-1", role: str = "vehicle",
                  hb_hz: float = 1.0, schema_hash: int | None = None, net_version: int = 1,
-                 request_status: int = 0, request_drop_first: int = 0):  # fmt: skip
+                 request_status: int = 0, request_drop_first: int = 0,
+                 request_rules: bool = False, request_on_ground: bool = True,
+                 request_latched_session: int | None = None):  # fmt: skip
         if profile not in ("provisional-1", "exvectrnet-1") or role not in ("vehicle", "txmodule"):
             raise ValueError(f"unknown profile {profile!r} or role {role!r}")
         self.profile = profile
@@ -184,6 +186,14 @@ class FakeVehiclePty:
         # `request_drop_first` attempts of each id get no answer). `received_requests` lists every attempt.
         self.request_status = request_status
         self.request_drop_first = request_drop_first
+        # `request_rules`: the documented executor answers for ZERO_ESTIMATORS (12) and SET_STOP_ALTITUDE (13), like
+        # the fake source (test double, no vehicle logic): wrong target 3/2, not on the ground 2/1, session differs
+        # from `request_latched_session` (None = the session of the first accepted CMD_STATE, none latched = refused)
+        # 2/3, SET_STOP_ALTITUDE below 1 or not finite 3/1, else DONE.
+        self.request_rules = request_rules
+        self.request_on_ground = request_on_ground
+        self.request_latched_session = request_latched_session
+        self.stop_altitude = 20.0
         self.received_requests: list[dict] = []
         # CMD_STATE test double (port 0x13, no vehicle logic): every frame is parsed strictly like the vehicle
         # (`net.parse_cmd_state`); `received_cmd` lists every frame (dict with src, dst, seq and the fields, or
@@ -385,6 +395,8 @@ class FakeVehiclePty:
             )
             return self._data(src, 0, net.PORT_ACTUATORS, pl)
         if name == "MISSION":
+            if self.request_rules:  # the echo of SET_STOP_ALTITUDE
+                ms = {**ms, "stop_altitude": self.stop_altitude}
             return self._data(src, 0, net.PORT_MISSION, net.pack_mission(t_us, ms))
         if name == "GNSS":
             return self._data(src, 0, net.PORT_GNSS, net.pack_gnss(t_us, gps))
@@ -455,7 +467,21 @@ class FakeVehiclePty:
         n = self._req_attempts[req["req_id"]] = self._req_attempts.get(req["req_id"], 0) + 1
         if n <= self.request_drop_first:
             return
-        self.send_net(self.node, 0, net.PORT_REQUEST_ACK, net.pack_request_ack(req["req_id"], self.request_status))
+        status, detail = self.request_status, 0
+        if self.request_rules and req["action"] in (12, 13):
+            if req["target"] != self.node:
+                status, detail = 3, 2
+            elif not req["session"] or req["session"] != (self.request_latched_session or self.cmd_session):
+                status, detail = 2, 3
+            elif not self.request_on_ground:
+                status, detail = 2, 1
+            elif req["action"] == 13 and not (math.isfinite(req["arg_f"]) and req["arg_f"] >= 1.0):
+                status, detail = 3, 1
+            else:
+                status, detail = 0, 0
+                if req["action"] == 13:
+                    self.stop_altitude = req["arg_f"]
+        self.send_net(self.node, 0, net.PORT_REQUEST_ACK, net.pack_request_ack(req["req_id"], status, detail))
 
     def _on_cmd_state(self, f: dict) -> None:
         """A CMD_STATE frame: parsed strictly, recorded, the first valid session is latched."""
@@ -539,10 +565,16 @@ def main() -> None:
     ap.add_argument("--role", choices=["vehicle", "txmodule"], default="vehicle", help="exvectrnet-1 only")
     ap.add_argument("--request-status", type=int, default=0, help="REQUEST_ACK status to answer with (0 DONE, 2 ...)")
     ap.add_argument("--request-drop-first", type=int, default=0, help="swallow the first N attempts of each REQUEST id")
+    ap.add_argument(
+        "--request-rules",
+        action="store_true",
+        help="answer ZERO_ESTIMATORS / SET_STOP_ALTITUDE like the vehicle executor",
+    )
     args = ap.parse_args()
     veh = FakeVehiclePty(
         args.link, seed=args.seed, speed=args.speed, profile=args.profile, role=args.role,
         request_status=args.request_status, request_drop_first=args.request_drop_first,
+        request_rules=args.request_rules,
     )  # fmt: skip
     veh.start()
     print(f"fake vehicle on {args.link} -> {os.ttyname(veh._slave)} (Ctrl-C to stop)")

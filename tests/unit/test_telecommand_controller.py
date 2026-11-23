@@ -255,7 +255,11 @@ def test_shipped_configs_whitelist_the_expected_commands():
         assert not removed & set(names)
         types = {e.type for e in names.values()}
         assert not types & {"Arm", "SystemReset", "SimulationMode", "MissionBegin", "MissionAbort"}
-        assert "ZeroEstimators" in names
+        assert "ZeroEstimators" not in names and "SetStopAltitude" not in names  # now the requests of the same name
+        req = {e.action: e for e in c.requests.actions}
+        zr, sr = req["ZERO_ESTIMATORS"], req["SET_STOP_ALTITUDE"]
+        assert (zr.target, zr.arg_f_min, zr.arg_f_max, zr.arg_f_default, zr.confirm) == (1, 1.0, 60.0, 10.0, "hold")
+        assert (sr.target, sr.arg_f_min, sr.arg_f_max, sr.arg_f_default) == (1, 1.0, 1e6, 20.0)
         assert all(e.confirm == "hold" for e in names.values())
         cal = {k: v for k, v in names.items() if v.group == "Calibration"}
         assert len(cal) == 16 and "CalibMagStop" in cal and "MagSave" not in cal
@@ -272,14 +276,6 @@ def test_shipped_configs_whitelist_the_expected_commands():
                 ("CalibApply", sub, 0),
             ]
         assert (cal["CalibSave"].type, cal["CalibSave"].subsystem) == ("Save", 0)
-        z = names["ZeroEstimators"]
-        assert (z.type, z.subsystem, z.param_int) == ("ZeroEstimators", 0, 0x2E)
-        assert (z.param_float, z.param_float_min, z.param_float_max, z.param_float_name) == (
-            10.0,
-            1.0,
-            60.0,
-            "duration_s",
-        )
         reb = {(e.action, e.target): e for e in c.requests.actions if e.action == "LINK_REBOOT"}
         assert set(reb) == {("LINK_REBOOT", 2), ("LINK_REBOOT", 3)}
         assert all(e.confirm == "danger" and e.warning for e in reb.values())

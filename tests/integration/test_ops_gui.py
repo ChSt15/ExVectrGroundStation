@@ -26,7 +26,7 @@ TX_RATES = {"VEHICLE_STATUS": 5.0, "LINK_STATS_TX": 4.0, "LINK_STATS_RX": 4.0, "
 
 
 @contextlib.asynccontextmanager
-async def rig_with(tmp_path, usb_kw=None, tx_kw=None, with_usb=True, commands=None):
+async def rig_with(tmp_path, usb_kw=None, tx_kw=None, with_usb=True, commands=None, requests=None):
     v1 = FakeVehiclePty(tmp_path / "usb", speed=2.0, profile="exvectrnet-1", hb_hz=10.0, **(usb_kw or {}))
     v2 = FakeVehiclePty(
         tmp_path / "radio",
@@ -61,6 +61,7 @@ async def rig_with(tmp_path, usb_kw=None, tx_kw=None, with_usb=True, commands=No
                 "source": sources,
                 "recorder": {"directory": tempfile.mkdtemp(prefix="exgs-test-rec-")},
                 "telecommands": {"command": commands or COMMANDS},
+                **({"requests": {"action": requests}} if requests else {}),
             }
         )
     )
@@ -140,50 +141,92 @@ async def test_status_bar_shows_only_reported_values_and_follows_a_simulation_to
         assert len(rig.v1.received_telecommands) == 1  # never repeated
 
 
+REQ_ACTIONS = [
+    {"action": "ZERO_ESTIMATORS", "target": 1, "label": "Zero estimators", "group": "Vehicle",
+     "arg_f_min": 1.0, "arg_f_max": 60.0, "arg_f_default": 10.0, "arg_f_name": "window, s"},
+    {"action": "SET_STOP_ALTITUDE", "target": 1, "label": "Stop altitude", "group": "Vehicle settings",
+     "arg_f_min": 1.0, "arg_f_max": 1e6, "arg_f_default": 20.0},
+]  # fmt: skip
+
+
+async def set_field(b, sel, value):
+    await b.eval(
+        f"(() => {{ const e = document.querySelector({sel!r}); e.value = {value!r}; "
+        "e.dispatchEvent(new Event('input')); })()"
+    )
+
+
 @needs_browser
-async def test_zero_estimators_panel_float_field_and_the_zeroing_indicator(tmp_path):
-    async with rig_with(tmp_path) as rig, browser_check.Browser(1500, 1300, 9372) as b:
-        await open_page(b, rig, ["telecommands"])
-        await until(
-            lambda: b.eval("document.querySelector('#statusbar').dataset.state === 'fresh'"), what="fresh status"
-        )
-        assert "not zeroing" == await text(b, cell("zeroing"))  # reported flag clear, nothing sent yet
-        row = "[data-panel=telecommands] .tc-row[data-name=ZeroEstimators]"
-        btn = f"{row} .rq-btn"
-        fld = f"{row} .tc-float"
-        assert await b.eval(f"document.querySelector({fld!r}).value") == "10"  # default duration
-        await b.eval(  # out of range: the button is disabled
-            f"(() => {{ const e = document.querySelector({fld!r}); e.value = '99'; "
-            "e.dispatchEvent(new Event('input')); })()"
-        )
+async def test_zero_estimators_is_a_request_with_a_window_field_and_the_vehicles_ack(tmp_path):
+    async with (
+        rig_with(tmp_path, usb_kw={"request_rules": True}, requests=REQ_ACTIONS) as rig,
+        browser_check.Browser(1500, 1300, 9372) as b,
+    ):
+        rig.v1.request_latched_session = rig.app.engine.session  # the vehicle's latched command session
+        await open_page(b, rig, ["requests"])
+        row = "[data-panel=requests] .rq-row[data-key='ZERO_ESTIMATORS@1']"
+        btn, fld = f"{row} .rq-btn", f"{row} .tc-float"
+        await until(lambda: b.eval(f"!!document.querySelector({fld!r})"), what="row built")
+        assert await b.eval(f"document.querySelector({fld!r}).value") == "10"  # default window
+        assert not await b.eval("!!document.querySelector('[data-panel=requests] [data-key=\"SET_STOP_ALTITUDE@1\"]')")
+        await set_field(b, fld, "99")  # out of range: disabled
         assert await b.eval(f"document.querySelector({btn!r}).disabled") is True
-        await b.eval(
-            f"(() => {{ const e = document.querySelector({fld!r}); e.value = '3'; "
-            "e.dispatchEvent(new Event('input')); })()"
-        )
+        await set_field(b, fld, "3")
         await until(lambda: b.eval(f"!document.querySelector({btn!r}).disabled"), what="enabled")
         await press(b, btn)
-        await until(lambda: len(rig.v1.received_telecommands) == 1, timeout=3, what="frame after the hold")
+        await until(lambda: len(rig.v1.received_requests) >= 1, timeout=3, what="request after the hold")
         await let_go(b, btn)
-        tc = rig.v1.received_telecommands[0]
-        assert (tc["type"], tc["param_int"], tc["param_float"]) == (10, 0x2E, 3.0)
+        req = rig.v1.received_requests[0]
+        assert (req["action"], req["target"], req["arg_f"]) == (12, 1, 3.0) and req["session"] != 0
         await until(
-            lambda: b.eval(f"document.querySelector({cell('zeroing')!r}).textContent.startsWith('ZEROING')"),
+            lambda: b.eval(f"document.querySelector({row + ' .rq-state'!r}).textContent.startsWith('ACK DONE')"),
             timeout=4,
-            what="ZEROING as reported",
+            what="ACK DONE",
         )
-        t = await text(b, cell("zeroing"))
-        assert "ZeroEstimators sent" in t and "ago" in t
-        assert await b.eval(f"document.querySelector({cell('zeroing')!r}).parentElement.dataset.tone") == "warn"
-        sent = await text(b, f"{row} .rq-state")
-        assert "once via usb" in sent and "3" in sent
+        assert not rig.v1.received_telecommands  # no legacy telecommand
+
+
+@needs_browser
+async def test_stop_altitude_set_is_a_request_that_shows_set_after_ack_and_echo_and_each_refusal(tmp_path):
+    async with (
+        rig_with(tmp_path, usb_kw={"request_rules": True}, requests=REQ_ACTIONS) as rig,
+        browser_check.Browser(1500, 1300, 9373) as b,
+    ):
+        rig.v1.request_latched_session = rig.app.engine.session
+        await open_page(b, rig, ["telecommands"])
+        inp, btn = "[data-testid=stopalt-input]", "[data-testid=stopalt-set]"
+        st = "[data-testid=stopalt-state]"
+        await until(lambda: b.eval(f"!document.querySelector({btn!r}).disabled"), what="Set enabled")
+        await set_field(b, inp, "35")
+        await b.eval(f"document.querySelector({btn!r}).click()")  # a plain click
         await until(
-            lambda: b.eval(f"document.querySelector({cell('zeroing')!r}).textContent.startsWith('not zeroing')"),
-            timeout=8,
-            what="ZEROING cleared by the vehicle",
+            lambda: b.eval(f"document.querySelector({st!r}).textContent === 'set'"), timeout=6, what="set (ACK + echo)"
         )
-        await b.sleep(1.0)
-        assert len(rig.v1.received_telecommands) == 1
+        assert await b.eval(f"document.querySelector({st!r}).dataset.tone") == "ok"
+        reqs = [r for r in rig.v1.received_requests if r["action"] == 13]
+        assert reqs and {r["arg_f"] for r in reqs} == {35.0} and len({r["req_id"] for r in reqs}) == 1
+        assert "35.0" in await text(b, "[data-testid=stopalt-echo]")
+        assert not rig.v1.received_telecommands
+        # a refusal (not on the ground) is worded and gets a NEW req_id on the next click
+        rig.v1.request_on_ground = False
+        await b.sleep(0.6)  # the core's 500 ms spacing between requests
+        await set_field(b, inp, "40")
+        await b.eval(f"document.querySelector({btn!r}).click()")
+        await until(
+            lambda: b.eval(f"document.querySelector({st!r}).textContent.startsWith('refused')"),
+            timeout=6,
+            what="refusal",
+        )
+        assert await text(b, st) == "refused: motors armed or in flight"
+        assert await b.eval(f"document.querySelector({st!r}).dataset.tone") == "bad"
+        rig.v1.request_on_ground = True
+        await b.sleep(0.6)
+        await b.eval(f"document.querySelector({btn!r}).click()")
+        await until(
+            lambda: b.eval(f"document.querySelector({st!r}).textContent === 'set'"), timeout=6, what="set again"
+        )
+        ids = [r["req_id"] for r in rig.v1.received_requests if r["action"] == 13]
+        assert len(set(ids)) == 3  # 35, refused 40, 40 again: one id per user action
 
 
 @needs_browser

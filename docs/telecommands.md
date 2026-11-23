@@ -1,5 +1,7 @@
 # TEMPORARY legacy telecommand uplink
 
+> **T9b-5 (GS side, 2026-11-23): `ZeroEstimators` (10) and `SetStopAltitude` (19) are REMOVED on the vehicle** (it ignores and counts them). They are the `ZERO_ESTIMATORS` and `SET_STOP_ALTITUDE` requests now ([requests.md](requests.md)); the shipped configs no longer list them, the `TelecommandType` mirror keeps the ids. The table rows and the ZeroEstimators section below are history.
+>
 > **GS-control cutover (2026-11-23):** safety commands are now the ground station's command state `CMD_STATE`, sent continuously by the command engine from the Pocket or the virtual switches ([radio.md](radio.md)); the vehicle no longer interprets any RC state. The paragraph below is the T9b-4 history.
 >
 > **T9b-4 (2026-11-22): the six safety telecommands are gone from the whitelist.** The vehicle took all safety commands from RC state (the Pocket, or the virtual radio as the `bench` source on USB) and **ignores** the telecommands `Arm`, `SimulationMode`, `MissionBegin`, `MissionSelect`, `MissionAbort` and `SystemReset` (it counts them and logs `Telecommand N ignored`, at most every 5 s). The configs no longer list them and `exgs tc` / the GUI cannot send them. Safety commands are given with the Pocket or virtual switches through the command engine ([radio.md](radio.md)). What remains here is non-safety only: `ZeroEstimators` (until T9b-5 moves it to a `REQUEST`), the calibration commands, the simulation wind and the servo faults. Where the text below still describes the removed entries, it is history; the shipped tables are authoritative.
@@ -19,7 +21,7 @@ The vehicle accepts the old 8-byte `Telecommand` on ExVectrNetwork **port 0x7F**
 | 0 | `type` | `TelecommandType`: 0 CalibStart, 1 CalibApply, 2 Load (not handled by the vehicle), 3 Save, 4 SystemReset, 5 Arm, 6 SimulationMode, 7 MissionBegin, 8 MissionSelect, 9 MissionAbort, 10 ZeroEstimators, 19 SetStopAltitude |
 | 1 | `subsystem` | `Subsystem`: 0 Gyro, 1 Accel, 2 Magneto, 3 Baro, 4 GNSS, 5 AttFilter, 6 PosFilter |
 | 2-3 | `paramInt` | int16, little-endian |
-| 4-7 | `paramFloat` | float32, little-endian; 0 for every command except `ZeroEstimators` (duration in s) |
+| 4-7 | `paramFloat` | float32, little-endian; 0 for every command (`ZeroEstimators` took a duration in s; removed on the vehicle) |
 
 Network frame: CTRL `0x48` (DATA, QoS EVENT, not latest), TTL 3, DST 1, SRC 0, PORT 0x7F, SEQ (+1 per command), then the 8 bytes. A test checks these bytes against an independent decoder (`tools/fake_vehicle_net.py`). Vehicle semantics (magic values, preconditions) are the flight software's; the ground station knows only the whitelist below.
 
