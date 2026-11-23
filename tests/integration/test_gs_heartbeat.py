@@ -11,7 +11,7 @@ import pytest
 
 from exvectr_gs.core.app import CoreApp
 from exvectr_gs.core.config import parse_config
-from exvectr_gs.packets.defs.link import RcOrigin, RcState
+from exvectr_gs.packets.defs.link import CmdState, RcOrigin, RcState
 from exvectr_gs.sources import SerialSource
 from exvectr_gs.wire import load_profile
 
@@ -147,17 +147,24 @@ async def test_provisional_profile_and_fake_source_send_nothing(tmp_path):
         v.stop()
 
 
-async def test_rc_stays_silent_while_heartbeats_continue_and_lease_logic_is_unaffected(tmp_path):
+async def test_heartbeats_flow_and_the_command_state_is_the_only_control_frame(tmp_path):
     v = make(tmp_path, "veh")
     try:
         app = make_app([("usb", "vehicle_usb", "control", v)])
         async with app_running(app):
             await wait_for(lambda: len(v.heartbeats_from(0)) >= 3, timeout=8, what="3 hb")
-            assert not [f for f in v.received if f.channel == 0x10]  # no lease, no RC, heartbeats flowing
-            # an explicit RC send through the control source still works and is the only RC path
-            chs = [1500] * 16
-            assert await app.sources[0].send(RcState(origin=RcOrigin.gs, ch_us=chs, seq=1)) is True
-            await wait_for(lambda: [f for f in v.received if f.channel == 0x10], what="rc")
+            assert not [f for f in v.received if f.channel == 0x10]  # the GS never sends RC_STATE
+            # a command state through the control source works and is the only control path
+            assert (
+                await app.sources[0].send(
+                    CmdState(
+                        t=1, src="gs", session=7, go=0, profile=2, vehicle_mode=0, motors=0, reset_button=0, failsafe=0
+                    )
+                )
+                is True
+            )  # noqa: E501
+            await wait_for(lambda: [f for f in v.received if f.channel == 0x13], what="cmd state")
+            assert await app.sources[0].send(RcState(origin=RcOrigin.gs, ch_us=[1500] * 16, seq=1)) is False
             n = len(v.heartbeats_from(0))
             await wait_for(lambda: len(v.heartbeats_from(0)) > n, timeout=3, what="hb continues")
     finally:

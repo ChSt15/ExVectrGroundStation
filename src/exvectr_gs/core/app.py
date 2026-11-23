@@ -14,7 +14,7 @@ from .. import __version__
 from ..packets import REGISTRY
 from ..packets.defs.host import GsEvent, GsEventKind
 from ..packets.defs.vehicle import MissionState, VehicleState
-from ..rc import RadioConfigError, RcController, load_radio_config
+from ..rc import CommandEngine, RadioConfigError, RcController, load_radio_config
 from ..recording import LogLibrary, Recorder
 from ..replay import Replayer
 from ..requests import RequestController
@@ -87,9 +87,9 @@ class CoreApp:
             flush_interval_ms=cfg.recorder.flush_interval_ms,
             fsync_interval_ms=cfg.recorder.fsync_interval_ms,
         )
-        # RC controller, the only uplink. An invalid or missing radio config means no RC controller at all
-        # (`rc` is None, the API answers not_implemented); the rest of the core still runs. Nothing is sent
-        # until a client takes a control lease, and every control starts at its configured safe default.
+        # Virtual panel (leases, the GUI's virtual Pocket): an input of the command engine, sends nothing itself.
+        # An invalid or missing radio config means no virtual panel (`rc` is None, the API answers
+        # not_implemented to rc.*); the engine still runs with the Pocket as its input.
         self.rc: RcController | None = None
         self.rc_error: str | None = None
         try:
@@ -97,12 +97,14 @@ class CoreApp:
             if not radio_path.is_absolute() and not radio_path.exists():
                 radio_path = Path(__file__).resolve().parents[3] / radio_path
             self.rc = RcController(
-                load_radio_config(radio_path), self.sources, self.bus,
-                clock=self.clock, control_hosts=cfg.server.control_hosts,
-            )  # fmt: skip
+                load_radio_config(radio_path), self.bus, clock=self.clock, control_hosts=cfg.server.control_hosts
+            )
         except RadioConfigError as e:
             self.rc_error = str(e)
             log.error("RC controller disabled, invalid radio config: %s", e)
+        # The command engine: the ground station is the vehicle's control source (docs/radio.md). One per core,
+        # the only sender of CMD_STATE, independent of GUI clients and leases. One session id per core start.
+        self.engine = CommandEngine(self.sources, self.bus, clock=self.clock, virtual=self.rc)
         # Whitelisted REQUEST sender, the second uplink (user decision 2026-11-19, docs/requests.md). It sends
         # nothing by itself: a control-host client must call `request.send` with the confirmation arguments.
         self.requests = RequestController(
@@ -110,6 +112,7 @@ class CoreApp:
         )
         # TEMPORARY legacy telecommand sender (user decision 2026-11-20, docs/telecommands.md): third uplink, one
         # frame per confirmation, deleted with the flight software's T9b.
+        self.requests.session_fn = lambda: self.engine.session
         self.telecommands = TelecommandController(
             cfg.telecommands, self.sources, self.bus, clock=self.clock, control_hosts=cfg.server.control_hosts
         )
@@ -270,7 +273,7 @@ class CoreApp:
         return True
 
     def _shutdown_cleanly(self) -> None:
-        """Release what must not outlive the core: a recording is closed (and fsynced) and an RC lease released.
+        """Release what must not outlive the core: a recording is closed (and fsynced) and a panel lease released.
         Serial ports close when the source tasks are cancelled just after."""
         with contextlib.suppress(Exception):
             if self.recorder.status().active:
@@ -293,8 +296,7 @@ class CoreApp:
         tasks.append(asyncio.create_task(self._heartbeat_loop(), name="gs-heartbeat"))
         tasks.append(asyncio.create_task(self.requests.run(), name="requests"))
         api = None
-        if self.rc is not None:
-            tasks.append(asyncio.create_task(self.rc.run(), name="rc"))
+        tasks.append(asyncio.create_task(self.engine.run(), name="command-engine"))
         if self.cfg.update.auto_check_interval_s > 0:
             tasks.append(asyncio.create_task(self.update.auto_check_loop(), name="update-check"))
         try:
@@ -303,6 +305,7 @@ class CoreApp:
 
                 api = ApiServer(self, self.cfg.server.bind, self.cfg.server.port)
                 self.api = api
+                self.engine.notify = lambda level, text, key: api.event(level, text, toast=key)
                 await api.start()
                 summary(f"api: listening on {self.cfg.server.bind}:{api.port}")
             end = None if duration_s is None else self.clock.now() + int(duration_s * 1e9)

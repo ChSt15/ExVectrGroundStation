@@ -1,14 +1,16 @@
-"""RC control commands: `exgs rc acquire|keepalive|release|show|set|unlock|lock|session` (controller: T6).
+"""Virtual panel commands: `exgs rc acquire|keepalive|release|show|set|unlock|lock|session` (controller: T6).
 
-SAFETY-RELEVANT but thin: every command is a request to the core, which enforces the control-lease
-rules (control hosts only, stop sending when the lease ends, safe defaults, control locks). Nothing here
-sends anything to the vehicle itself. Two ways to hold control (user decision 2026-11-19):
+SAFETY-RELEVANT but thin: every command is a request to the core, which enforces the lease rules (control
+hosts only, safe defaults, control locks). Nothing here sends anything to the vehicle itself. Since the GS-control
+cutover the core's command engine is the only sender and runs without any client: a lease only decides who may
+move the VIRTUAL switches (the input of the engine while the Pocket is not live). Two ways to hold the panel (user
+decision 2026-11-19):
 
 - One-shot commands (`rc set`, `rc unlock`, ...) take or renew a *keepalive* lease with an idle timeout
-  (default 5 s, max 9 s). Every rc command and `rc keepalive` renews it. When nothing renews it, the core
-  stops sending and returns every control to its default.
+  (default 5 s, max 9 s). Every rc command and `rc keepalive` renews it. When nothing renews it, the panel returns
+  to its defaults and the engine holds its last command state.
 - `rc session` is one long-running process holding a *connection* lease with a 300 ms heartbeat. When the
-  process exits or crashes the connection drops and sending stops at once.
+  process exits or crashes the connection drops and the lease ends at once (the command stream continues).
 """
 
 from __future__ import annotations
@@ -167,7 +169,7 @@ async def _keepalive(c: CoreClient, args: argparse.Namespace) -> int:
 
 async def _release(c: CoreClient, args: argparse.Namespace) -> int:
     await c.request("rc.release")
-    emit(args, {"op": "rc.release"}, "released (the core stops sending)")
+    emit(args, {"op": "rc.release"}, "released (the virtual panel is free; the command stream continues)")
     return EXIT_OK
 
 
@@ -225,7 +227,7 @@ async def run_line(rc: Rc, line: str) -> bool:
         return False
     if cmd == "release":
         await rc.c.request("rc.release")
-        emit(args, {"op": "rc.release"}, "released (the core stops sending)")
+        emit(args, {"op": "rc.release"}, "released (the virtual panel is free; the command stream continues)")
         return False
     if cmd == "keepalive":
         return True
@@ -304,7 +306,7 @@ async def _session(c: CoreClient, args: argparse.Namespace) -> int:
             await asyncio.wait({reader, lost_w}, return_when=asyncio.FIRST_COMPLETED)
             if lost.is_set():
                 reader.cancel()
-                raise CliError("the control lease was lost (the core stopped sending)", 3, "no_lease")
+                raise CliError("the panel lease was lost (the command stream continues)", 3, "no_lease")
             lost_w.cancel()
             line = reader.result()
             if not line:  # EOF: end of script or stdin
@@ -337,7 +339,7 @@ def register(sub: argparse._SubParsersAction) -> None:
     a = add_client_command(rs, "acquire", "take a keepalive lease (idle timeout 5 s)", _acquire)
     idle(a)
     add_client_command(rs, "keepalive", "renew the keepalive lease", _keepalive)
-    add_client_command(rs, "release", "release the lease (the core stops sending at once)", _release)
+    add_client_command(rs, "release", "release the virtual panel lease (the command stream continues)", _release)
     add_client_command(rs, "show", "show the RC status", _show)
     s = add_client_command(rs, "set", "set controls, e.g. SA=1 S1=0.4 (takes or renews a keepalive lease)", _set)
     s.add_argument("assignments", nargs="+", metavar="CONTROL=VALUE")

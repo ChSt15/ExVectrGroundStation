@@ -67,8 +67,18 @@ def rc_text(rc: dict | None) -> str:
         f"{k}=locked" if v["locked"] else f"{k}=UNLOCKED({v['remaining_s']:.0f}s)"
         for k, v in rc.get("locks", {}).items()
     )
+    cmd = rc.get("command")
+    cmd_line = ""
+    if cmd:
+        o = cmd["out"]
+        cmd_line = (
+            f"\n  command: session={cmd['session']:08X} input={cmd['input']} pocket={cmd['pocket']} "
+            f"go={o['go']} profile={o['profile']} mode={'SIM' if o['vehicle_mode'] else 'REAL'} "
+            f"motors={'armed' if o['motors'] else 'disarmed'} reset={o['reset_button']} failsafe={o['failsafe']}"
+        )
     return (
         f"rc: {rc['mode']} sending={rc['sending']} target={rc['target']}{holder}"
+        + cmd_line
         + (f"\n  controls: {ctl}" if ctl else "")
         + (f"\n  locks: {locks}" if locks else "")
     )

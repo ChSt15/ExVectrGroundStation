@@ -1,4 +1,5 @@
-"""`exgs rc ...` against a real core process whose fake source is the control link with the test echo."""
+"""`exgs rc ...` (the virtual panel) against a real core process whose fake source is the command link with the test
+echo (the echoed field is `go`)."""
 
 import contextlib
 import json
@@ -26,6 +27,7 @@ id = "fake"
 kind = "fake"
 rc_role = "control"
 echo_rc = true
+echo_field = "go"
 [radio]
 config = "config/radio.pocket.toml"
 """
@@ -94,10 +96,10 @@ def test_agent_bench_sequence_and_hold(core):
         assert exgs(core, "rc", "set", "SA=0").returncode == 0  # the safe position first (renews the lease)
         assert exgs(core, "rc", "set", "SA=1", "S1=0.5").returncode == 0
         st = show(core)
-        assert st["mode"] == "master" and st["sending"] and st["controls"]["SA"] == 1
+        assert st["mode"] == "virtual" and st["sending"] and st["controls"]["SA"] == 1
         assert st["channels_us"][4] == 2000 and st["channels_us"][9] == 1500
         assert st["lease"]["kind"] == "keepalive" and st["lease"]["idle_s"] == 9.0
-        r = exgs(core, "wait", "MissionState.mission_index == 2", "--timeout", "5")  # the test echo
+        r = exgs(core, "wait", "MissionState.mission_index == 1", "--timeout", "5")  # the test echo
         assert r.returncode == 0, r.stdout + r.stderr
         # bad controls and values
         assert exgs(core, "rc", "set", "SA=5", "--json").returncode == 1
@@ -110,17 +112,19 @@ def test_agent_bench_sequence_and_hold(core):
         assert time.monotonic() - t0 >= 0.5
         assert show(core)["controls"]["SE"] == 0
         # a non-momentary control with --hold is restored by the CLI
-        assert exgs(core, "rc", "set", "SB=2", "--hold", "0.3").returncode == 0
-        assert show(core)["controls"]["SB"] == 0
+        assert exgs(core, "rc", "set", "SB=1", "--hold", "0.3").returncode == 0
+        assert show(core)["controls"]["SB"] == 2  # restored to what it was: the panel starts at the engine's profile 2
         assert exgs(core, "rc", "set", "SE=1", "--hold", "99").returncode == 1  # bounded
         assert exgs(core, "rc", "keepalive").returncode == 0
     finally:
         assert exgs(core, "rc", "release").returncode == 0
     st = show(core)
-    assert st["mode"] == "idle" and not st["sending"] and st["controls"]["SA"] == 0 and st["lease"] is None
+    assert (
+        st["mode"] == "idle" and st["sending"] and st["controls"]["SA"] == 0 and st["lease"] is None
+    )  # engine goes on
 
 
-def test_one_shot_set_takes_a_keepalive_lease_that_lapses_to_silence_and_defaults(core):
+def test_one_shot_set_takes_a_keepalive_lease_that_lapses_to_the_panel_defaults(core):
     r = exgs(core, "rc", "set", "SA=1", "--idle", "1.2", "--json")  # no lease held: this command takes one
     assert r.returncode == 0, r.stderr
     lines = [json.loads(x) for x in r.stdout.splitlines()]
@@ -129,7 +133,7 @@ def test_one_shot_set_takes_a_keepalive_lease_that_lapses_to_silence_and_default
     assert st["sending"] and st["controls"]["SA"] == 1 and st["lease"]["idle_s"] == 1.2
     time.sleep(1.8)  # nobody renews it
     st = show(core)
-    assert st["lease"] is None and not st["sending"] and st["controls"]["SA"] == 0 and st["mode"] == "idle"
+    assert st["lease"] is None and st["sending"] and st["controls"]["SA"] == 0 and st["mode"] == "idle"
 
 
 def test_keepalive_command_renews_the_lease(core):
@@ -213,7 +217,7 @@ def test_session_holds_a_connection_lease_and_a_crash_ends_it_at_once(core):
         p.stdout.close()
         p.stderr.close()
     st = show(core)
-    assert not st["sending"] and st["controls"]["SA"] == 0 and st["mode"] == "idle"
+    assert st["sending"] and st["controls"]["SA"] == 0 and st["mode"] == "idle"  # the stream never needed the session
 
 
 def test_session_that_stops_heartbeating_loses_the_lease_within_a_second(core):
@@ -241,8 +245,9 @@ def test_session_that_stops_heartbeating_loses_the_lease_within_a_second(core):
 def test_session_script_commands_unlock_and_end_releases(core, tmp_path):
     script = tmp_path / "s.txt"
     script.write_text(
-        "# bench sequence\nset SA=0\nunlock SD\nset SD=1 SA=1\nsleep 0.3\nset SE=1 --hold 0.2\nshow\nquit\n"
-    )
+        "# bench sequence\nset SA=0\nunlock SD\nset SD=1 SA=1\nsleep 0.3\nset SE=1 --hold 0.2\nshow\n"
+        "set SD=0 SA=0\nsleep 0.2\nquit\n"
+    )  # the engine holds the last state after the session: so the script disarms and aborts first
     r = subprocess.run(
         [
             sys.executable,
@@ -262,8 +267,10 @@ def test_session_script_commands_unlock_and_end_releases(core, tmp_path):
         timeout=30,
     )
     assert r.returncode == 0, r.stdout + r.stderr
-    shown = [json.loads(x) for x in r.stdout.splitlines() if '"mode"' in x][-1]
-    assert shown["controls"]["SD"] == 1 and shown["controls"]["SA"] == 1 and shown["lease"]["kind"] == "connection"
+    shown = [json.loads(x) for x in r.stdout.splitlines() if '"mode"' in x]
+    assert any(
+        d["controls"]["SD"] == 1 and d["controls"]["SA"] == 1 and d["lease"]["kind"] == "connection" for d in shown
+    )
     st = show(core)  # the session ended: lease released, everything back at defaults and locked
     assert st["lease"] is None and st["controls"]["SD"] == 0 and st["locks"]["SD"]["locked"] is True
 
@@ -276,7 +283,7 @@ def test_session_stops_on_a_failing_command_unless_keep_going(core, tmp_path):
     assert r.returncode == 3 and "control_locked" in r.stdout
     assert '"mode"' not in r.stdout  # stopped before `show`
     r = subprocess.run(base + ["--keep-going"], cwd=ROOT, capture_output=True, text=True, timeout=30)
-    assert r.returncode == 0 and "control_locked" in r.stderr and "rc: master" in r.stdout
+    assert r.returncode == 0 and "control_locked" in r.stderr and "rc: virtual" in r.stdout
     assert show(core)["lease"] is None
 
 
