@@ -17,7 +17,10 @@ SAFETY-RELEVANT. Rules this module enforces:
   that an acquire while the engine is sending presets the panel to the engine's output (`preset`), so taking the
   panel changes nothing that is sent.
 - A control configured with `lock = true` (SD, motors armed) is held at its default until it is explicitly unlocked
-  with a held lease, and relocks (back to its default, motors disarmed) after `lock_timeout_s`.
+  with a held lease. Only ARMING is guarded: setting it back to its default (disarm) is always immediate. An unlock
+  has NO timeout: it stays open until the user locks it (`lock`: back to default, guard closed) or a reset event
+  closes it (`relock_all`: failsafe request, SE system reset; also a lease end and a core start). No timer ever
+  changes a control.
 - A momentary control (SE) returns to its default automatically, so a killed client cannot leave it pressed.
 - The panel never computes a command and never reads vehicle state.
 """
@@ -97,7 +100,7 @@ class RcController:
         self._hb_deadline = 0
         self._state: dict[str, float | int] = cfg.default_state()  # always the defaults at start
         self._mom_until: dict[str, int] = {}
-        self._unlock_until: dict[str, int] = {}  # lockable control id -> ns deadline; absent = locked
+        self._unlocked: set[str] = set()  # lockable control ids whose guard is open; absent = locked
         # Set by the command engine: called right after a lease starts, so the panel is preset to the engine's output
         # before the client can set anything (an edit made before the engine took the panel would be wiped).
         self.on_acquire: Callable[[], None] | None = None
@@ -120,7 +123,7 @@ class RcController:
         """Every control back to its default and every lock closed."""
         self._state = self.cfg.default_state()
         self._mom_until.clear()
-        self._unlock_until.clear()
+        self._unlocked.clear()
 
     def _end_lease(self, kind: GsEventKind, why: str) -> None:
         lease, self._lease = self._lease, None
@@ -129,16 +132,13 @@ class RcController:
             self._event(kind, f"{lease.kind} lease {lease.id} held by {lease.holder}: {why}")
 
     def _expire(self, now: int) -> None:
-        """Lease, unlock and momentary expiry. Run before every operation and every tick."""
+        """Lease and momentary expiry. Run before every operation and every tick."""
         lease = self._lease
         if lease is not None:
             if lease.kind == "keepalive" and lease.expires is not None and now >= lease.expires:
                 self._end_lease(GsEventKind.lease_expired, "not renewed within its idle timeout")
             elif lease.kind == "connection" and now >= self._hb_deadline:
                 self._end_lease(GsEventKind.lease_expired, "heartbeat lost")
-        for cid, until in list(self._unlock_until.items()):
-            if now >= until:
-                self._relock(cid)
         for cid, until in list(self._mom_until.items()):
             if now >= until:
                 self._state[cid] = self.cfg.control(cid).default
@@ -146,7 +146,7 @@ class RcController:
 
     def _relock(self, cid: str) -> None:
         """Lock a control and return it to its default (off)."""
-        self._unlock_until.pop(cid, None)
+        self._unlocked.discard(cid)
         self._mom_until.pop(cid, None)
         self._state[cid] = self.cfg.control(cid).default
 
@@ -217,7 +217,7 @@ class RcController:
             raise ValueError(f"hold_s must be within (0, {MAX_HOLD_S:g}]")
         for cid, v in checked.items():
             spec = self.cfg.control(cid)
-            if spec.lock and cid not in self._unlock_until and v != spec.default:
+            if spec.lock and cid not in self._unlocked and v != spec.default:
                 raise ControlLocked(f"control {cid} is locked: unlock it first")  # nothing of the request applied
         now = self._clock.now()
         for cid, v in checked.items():
@@ -230,12 +230,12 @@ class RcController:
         return self.status()
 
     def unlock(self, lease_id: str, control: str) -> RcStatus:
-        """Deliberate-action guard: the control may be set to non-default values for `lock_timeout_s`."""
+        """Deliberate-action guard: arming is possible until locked again (no timeout)."""
         self._check_lease(lease_id)
         spec = self.cfg.control(control)
         if not spec.lock:
             raise ValueError(f"control {control} has no lock")
-        self._unlock_until[control] = self._clock.now() + int(spec.lock_timeout_s * 1e9)
+        self._unlocked.add(control)
         return self.status()
 
     def lock(self, lease_id: str, control: str) -> RcStatus:
@@ -246,16 +246,20 @@ class RcController:
         self._relock(control)
         return self.status()
 
+    def relock_all(self) -> None:
+        """Reset event (failsafe request, SE system reset): every guard closes and every locked control returns to its
+        default (SD disarmed). Needs no lease; the engine follows the panel only through its pickup rules."""
+        for c in self.cfg.controls:
+            if c.lock and (c.id in self._unlocked or self._state.get(c.id, c.default) != c.default):
+                self._relock(c.id)
+                self._state[c.id] = c.default
+
     def _locks(self, now: int) -> dict[str, dict]:
         out: dict[str, dict] = {}
         for c in self.cfg.controls:
             if c.lock:
-                until = self._unlock_until.get(c.id)
-                out[c.id] = {
-                    "locked": until is None,
-                    "remaining_s": None if until is None else max(0.0, (until - now) / 1e9),
-                    "timeout_s": c.lock_timeout_s,
-                }
+                st = self._state.get(c.id, c.default)
+                out[c.id] = {"locked": c.id not in self._unlocked, "armed": st != c.default}
         return out
 
     # ------------------------------------------------------------ status
@@ -310,10 +314,9 @@ class RcController:
 
     def preset(self, sw: Switches) -> None:
         """Set the panel to the engine's output when it becomes the input, so that taking it changes nothing that is
-        sent. SD at 1 (motors armed) opens its guard for the usual unlock time, so the panel can show it."""
+        sent. SD at 1 (motors armed) opens its guard, so the panel can show it."""
         if self._lease is None:
             return
-        now = self._clock.now()
         for cid, v in (("SA", sw.sa), ("SB", sw.sb), ("SC", sw.sc), ("SD", sw.sd), ("SE", sw.se)):
             try:
                 spec = self.cfg.control(cid)
@@ -323,5 +326,5 @@ class RcController:
                 continue
             self._state[cid] = spec.check(v)
             if spec.lock and v != spec.default:
-                self._unlock_until[cid] = now + int(spec.lock_timeout_s * 1e9)
+                self._unlocked.add(cid)
             self._mom_until.pop(cid, None)

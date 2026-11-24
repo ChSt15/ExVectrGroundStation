@@ -41,7 +41,7 @@ class ControlSpec:
     meaning: str = ""  # informational only
     svg: Mapping[str, float] = field(default_factory=dict)
     lock: bool = False  # deliberate-action guard: held at the default until unlocked (generic, no meaning attached)
-    lock_timeout_s: float = DEFAULT_LOCK_TIMEOUT_S  # an unlock lapses (and the control returns to default) after this
+    lock_timeout_s: float = DEFAULT_LOCK_TIMEOUT_S  # accepted for old configs, IGNORED (no timer ever relocks)
 
     @property
     def discrete(self) -> bool:

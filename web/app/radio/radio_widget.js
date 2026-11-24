@@ -213,7 +213,7 @@ export function createRadioWidget(el, ctx) {
     for (const ev of ["pointerup", "pointercancel", "lostpointercapture", "pointerleave", "blur"]) btn.addEventListener(ev, stop);
     btn.addEventListener("keydown", (e) => { if ((e.key === " " || e.key === "Enter") && !e.repeat) { start(); e.preventDefault(); } });
     btn.addEventListener("keyup", (e) => { if (e.key === " " || e.key === "Enter") stop(); });
-    const relock = h("button", { class: "rc-relock", text: "Relock", title: "lock again (the control returns to its default)", onclick: () => act("rc.lock", { control: spec.id }) });
+    const relock = h("button", { class: "rc-relock", text: "Lock", title: "lock again (the control returns to its default = disarmed)", onclick: () => act("rc.lock", { control: spec.id }) });
     return { btn, info, relock, stop };
   }
 
@@ -248,7 +248,7 @@ export function createRadioWidget(el, ctx) {
           lockUi.btn.disabled = !banner.interactive;
           const open = banner.interactive && lock && !lock.locked;
           lockUi.relock.hidden = !open;
-          lockUi.info.textContent = lockedWhileOperating ? "hold 1 s" : open && unlockLeft !== null ? `unlocked · ${Math.ceil(unlockLeft)} s` : lock && lock.locked ? "locked" : "";
+          lockUi.info.textContent = lockedWhileOperating ? "hold 1 s" : open ? (lock.armed ? "unlocked · armed" : "unlocked · disarmed") : lock && lock.locked ? "locked" : "";
         }
       },
     };

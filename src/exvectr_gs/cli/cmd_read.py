@@ -63,10 +63,7 @@ def rc_text(rc: dict | None) -> str:
     lease = rc["lease"]
     holder = f" lease={lease['id']} holder={lease['holder']} kind={lease['kind']}" if lease else ""
     ctl = " ".join(f"{k}={fmt_value(v)}" for k, v in rc["controls"].items())
-    locks = " ".join(
-        f"{k}=locked" if v["locked"] else f"{k}=UNLOCKED({v['remaining_s']:.0f}s)"
-        for k, v in rc.get("locks", {}).items()
-    )
+    locks = " ".join(f"{k}=locked" if v["locked"] else f"{k}=UNLOCKED" for k, v in rc.get("locks", {}).items())
     cmd = rc.get("command")
     cmd_line = ""
     if cmd:

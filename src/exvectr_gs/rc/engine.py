@@ -58,6 +58,7 @@ class CommandEngine:
         self._bus = bus
         self._clock = clock or MonotonicClock()
         self._virtual = virtual
+        self._prev_reset = 0
         self.session = session if session else new_session()
         self.core = CommandCore()
         # (level, text, key): the Pocket-loss warning for clients (the API turns it into an event with a toast); the
@@ -95,6 +96,8 @@ class CommandEngine:
         was = self.core.failsafe_latched
         self.core.set_failsafe(on, now)
         if on and not was:
+            if self._virtual is not None:
+                self._virtual.relock_all()  # reset event: the arming guard closes
             self._event("FAILSAFE requested by the ground station", "warn", "gs_failsafe")
         elif not on and was:
             self._event("GS failsafe request cleared", "info", "gs_failsafe_clear")
@@ -237,6 +240,10 @@ class CommandEngine:
         if self._virtual is not None:
             self.core.virtual_input(now, self._virtual.poll())
         self._after(now)
+        rb = self.core.out.reset_button
+        if rb == 1 and self._prev_reset == 0 and self._virtual is not None:
+            self._virtual.relock_all()  # SE system reset: the arming guard closes
+        self._prev_reset = rb
         await asyncio.sleep(0)
 
     async def run(self) -> None:

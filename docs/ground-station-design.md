@@ -345,7 +345,7 @@ class RcController:
     def heartbeat(self, lease_id: str) -> None: ...  # connection leases: at least every 1 s; keepalive leases: a renewal
     def set(self, lease_id: str, values: Mapping[str, float | int], hold_s: float | None = None) -> RcStatus: ...
         # by control id; validated; raises ControlLocked for a non-default value on a locked control (nothing applied)
-    def unlock(self, lease_id: str, control: str) -> RcStatus: ...  # control has `lock`; relocks after lock_timeout_s
+    def unlock(self, lease_id: str, control: str) -> RcStatus: ...  # control has `lock`; no timeout; relocked by lock, reset events, lease end_s
     def lock(self, lease_id: str, control: str) -> RcStatus: ...    # relock at once, control back to its default
     def status(self) -> RcStatus: ...
     async def run(self) -> None: ...                 # sender timer + lease/momentary expiry + mirror detection
