@@ -167,7 +167,7 @@ def test_locked_sd_needs_the_explicit_unlock_flag(core):
         assert r.returncode == 0, r.stderr
         st = show(core)
         assert st["controls"]["SD"] == 1 and st["locks"]["SD"]["locked"] is False
-        assert 0 < st["locks"]["SD"]["remaining_s"] <= 60
+        assert st["locks"]["SD"]["armed"] is True
         assert "UNLOCKED" in exgs(core, "rc", "show").stdout
         # a failed request after an unlock leaves nothing unlocked
         r = exgs(core, "rc", "set", "SD=1", "SB=9", "--unlock", "SD")

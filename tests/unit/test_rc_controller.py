@@ -261,7 +261,7 @@ def test_locked_control_rejects_non_default_and_applies_nothing():
     r = Rig()
     lease = r.acquire()
     st = r.rc.status()
-    assert st.locks["SD"]["locked"] is True and st.locks["SD"]["remaining_s"] is None
+    assert st.locks["SD"]["locked"] is True
     assert set(st.locks) == {"SD"}
     with pytest.raises(ControlLocked):
         r.rc.set(lease.id, {"SA": 1, "SD": 1})  # one bad value: the whole request is rejected
@@ -285,34 +285,49 @@ def test_unlock_needs_a_lease_and_a_lockable_control():
         r.rc.lock(lease.id, "SA")
 
 
-def test_unlocked_control_can_be_set_and_relocks_after_the_timeout_to_off():
+def test_unlock_has_no_timeout_armed_or_not_and_disarm_is_immediate():
     r = Rig()
     lease = r.acquire()
     st = r.rc.unlock(lease.id, "SD")
-    assert st.locks["SD"] == {"locked": False, "remaining_s": 60.0, "timeout_s": 60.0}
-    r.rc.set(lease.id, {"SD": 1})
+    assert st.locks["SD"] == {"locked": False, "armed": False}
+    for _ in range(12):  # 12 x 15 s = 3 x the old 60 s window, unlocked and DISARMED: stays unlocked
+        beat(r, lease, 15.0)
+        r.poll()
+        assert r.rc.status().locks["SD"]["locked"] is False
+    r.rc.set(lease.id, {"SD": 1})  # arming is one deliberate action while unlocked
     r.poll()
     assert r.ch()[7] == 2000
-    beat(r, lease, 59.0)
-    assert r.rc.status().controls["SD"] == 1
-    assert r.rc.status().locks["SD"]["remaining_s"] == pytest.approx(0.96, abs=0.01)
-    beat(r, lease, 1.01)
-    assert r.rc.status().controls["SD"] == 0 and r.rc.status().locks["SD"]["locked"] is True  # reset to off
-    r.poll()
-    assert r.ch()[7] == 1000  # the expiry is applied on the next tick, no operation needed
+    for _ in range(12):
+        beat(r, lease, 15.0)
+        r.poll()
+        assert r.rc.status().controls["SD"] == 1 and r.ch()[7] == 2000
+    assert r.rc.status().locks["SD"] == {"locked": False, "armed": True}
+    st = r.rc.set(lease.id, {"SD": 0})  # disarm: immediate, stays unlocked
+    assert st.controls["SD"] == 0 and st.locks["SD"]["locked"] is False
+    r.rc.set(lease.id, {"SD": 1})
+    assert r.rc.lock(lease.id, "SD").controls["SD"] == 0  # explicit Lock: disarmed and guarded again
     with pytest.raises(ControlLocked):
         r.rc.set(lease.id, {"SD": 1})
 
 
-def test_unlock_expiry_is_applied_by_the_tick_alone():
+def test_disarm_needs_no_unlock_in_the_locked_state():
     r = Rig()
-    lease = r.acquire("keepalive", 9, holder="cli")
+    lease = r.acquire()
+    assert r.rc.set(lease.id, {"SD": 0}).controls["SD"] == 0  # locked, disarmed: accepted
+    r.rc._state["SD"] = 1  # armed by a preset path
+    assert r.rc.set(lease.id, {"SD": 0}).controls["SD"] == 0
+
+
+def test_reset_events_relock_and_disarm_without_a_lease():
+    r = Rig()
+    lease = r.acquire()
     r.rc.unlock(lease.id, "SD")
     r.rc.set(lease.id, {"SD": 1})
-    beat(r, lease, 56.0)  # lease kept alive by renewals, unlock not renewed
-    r.clock.advance(5.0)  # t = 61 s since the unlock, 5 s since the last renewal: lease alive, unlock lapsed
-    assert r.rc.poll() is not None  # the poll itself relocks, no operation in between
-    assert r.ch()[7] == 1000 and r.rc._unlock_until == {} and r.rc.status().lease is not None
+    r.rc.relock_all()
+    st = r.rc.status()
+    assert st.controls["SD"] == 0 and st.locks["SD"] == {"locked": True, "armed": False}
+    r.rc.release(lease.id)
+    r.rc.relock_all()  # no lease: harmless
 
 
 def test_explicit_lock_resets_to_default_and_is_idempotent():
@@ -339,22 +354,22 @@ def test_every_end_of_control_returns_defaults_and_relocks():
     lease = r.acquire()
     _unlock_sd_on(r, lease)
     r.rc.release(lease.id)
-    assert r.rc._unlock_until == {} and r.rc.status().controls == r.cfg.default_state()
+    assert r.rc._unlocked == set() and r.rc.status().controls == r.cfg.default_state()
     # heartbeat loss
     r = Rig()
     lease = r.acquire()
     _unlock_sd_on(r, lease)
     r.clock.advance(1.01)
-    assert r.rc.status().lease is None and r.rc._unlock_until == {} and r.rc.status().controls["SD"] == 0
+    assert r.rc.status().lease is None and r.rc._unlocked == set() and r.rc.status().controls["SD"] == 0
     # keepalive expiry
     r = Rig()
     lease = r.acquire("keepalive", 1.0, holder="cli")
     _unlock_sd_on(r, lease)
     r.clock.advance(1.01)
-    assert r.rc.status().lease is None and r.rc._unlock_until == {} and r.rc.status().controls["SD"] == 0
+    assert r.rc.status().lease is None and r.rc._unlocked == set() and r.rc.status().controls["SD"] == 0
     # acquire after an unlock that was never closed (cannot normally happen: defence in depth)
     r = Rig()
-    r.rc._unlock_until["SD"] = 10**18
+    r.rc._unlocked.add("SD")
     r.rc._state["SD"] = 1
     lease = r.acquire()
     assert r.rc.status().controls["SD"] == 0 and r.rc.status().locks["SD"]["locked"] is True
@@ -518,6 +533,6 @@ def test_preset_sets_the_panel_to_the_engine_output_and_opens_the_sd_guard_for_a
     r.rc.preset(Switches(sa=0, sb=2, sc=1, sd=1, se=0))
     st = r.rc.status()
     assert (st.controls["SA"], st.controls["SB"], st.controls["SC"], st.controls["SD"]) == (0, 2, 1, 1)
-    assert st.locks["SD"]["locked"] is False  # shown as armed, relocks (disarms) after the usual timeout
+    assert st.locks["SD"]["locked"] is False  # shown as armed
     beat(r, lease, 61)
-    assert r.rc.poll().sd == 0 and r.rc.status().locks["SD"]["locked"] is True
+    assert r.rc.poll().sd == 1 and r.rc.status().locks["SD"]["armed"] is True  # no timeout disarms it

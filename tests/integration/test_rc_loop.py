@@ -428,13 +428,12 @@ async def test_locked_control_api_flow_and_push_state():
         st = await c.ok("rc.set", values={"SD": 0})
         assert st["controls"]["SA"] == 0 and st["locks"]["SD"] == {
             "locked": True,
-            "remaining_s": None,
-            "timeout_s": 60.0,
+            "armed": False,
         }
         assert await c.err("rc.unlock", control="SA") == "invalid_value"  # SA has no lock
         assert await c.err("rc.unlock", control="NOPE") == "invalid_value"
         st = await c.ok("rc.unlock", control="SD")
-        assert st["locks"]["SD"]["locked"] is False and 59 < st["locks"]["SD"]["remaining_s"] <= 60
+        assert st["locks"]["SD"]["locked"] is False and st["locks"]["SD"]["armed"] is False
         await c.ok("rc.set", values={"SD": 1})
         for _ in range(5):
             await c.ok("rc.heartbeat")

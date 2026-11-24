@@ -9,8 +9,10 @@
 # panel lease ends (the engine then holds its last command state). Nothing is persisted.
 #
 # `lock = true` on a control makes it a guarded control: it is held at its default and can only be set
-# to another value after an explicit unlock (rc.unlock), for at most `lock_timeout_s` (default 60 s).
-# Relocking, a lease end and every acquire return it to its default (SD: motors disarmed). A panel that becomes the
+# to another value after an explicit unlock (rc.unlock, a deliberate hold in the GUI). Only arming is guarded: going
+# back to the default (disarm) is always immediate. An unlock has NO timeout: it stays open until the user locks it
+# again, or a reset event closes it (core start, SE system reset, failsafe request, lease end). Locking, those
+# events and every acquire return it to its default (SD: motors disarmed). A panel that becomes the
 # engine's input starts at the engine's output (SD at armed opens its guard). The ground station does not know what
 # the control means.
 
@@ -71,7 +73,7 @@ channel = 8
 values_us = [1000, 2000]
 default = 0
 lock = true               # deliberate-action guard: cannot leave its default until unlocked (hold the padlock 1 s)
-lock_timeout_s = 60       # an unlock lapses after this; the control then returns to its default (off)
+lock_timeout_s = 60       # accepted for old configs, IGNORED: no timer ever relocks or changes a control
 svg = { x = 136, y = 40 }
 
 [[controls]]

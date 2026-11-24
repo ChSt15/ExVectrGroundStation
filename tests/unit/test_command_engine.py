@@ -237,6 +237,48 @@ def test_a_lease_ending_or_a_client_leaving_never_stops_the_stream():
     assert n >= 22 and r.engine.status()["input"] == "none"
 
 
+def test_armed_virtual_sd_stays_armed_past_any_time_lease_end_and_tab_close():
+    async def go():
+        r = Rig()
+        lease = r.rc.acquire("gui", "connection", None, "127.0.0.1")
+        r.rc.unlock(lease.id, "SD")
+        r.rc.set(lease.id, {"SD": 1})
+        await r.run_for(0.2)
+        assert r.usb.sent[-1].motors == 1
+        for _ in range(380):  # 3 x the old 60 s window, lease kept alive by heartbeats
+            r.rc.heartbeat(lease.id)
+            await r.run_for(0.5, step_ms=100)
+            assert r.usb.sent[-1].motors == 1
+        await r.run_for(0.2)
+        assert r.usb.sent[-1].motors == 1 and r.usb.sent[-1].input_virtual is True
+        # the tab closes: the connection lease is lost with the heartbeat, the panel returns to defaults
+        r.clock.advance(2.0)
+        await r.run_for(0.5)
+        assert r.rc.status().lease is None and r.rc.status().controls["SD"] == 0
+        return r
+
+    r = run(go())
+    assert r.engine.status()["input"] == "none" and r.usb.sent[-1].motors == 1  # the engine holds (D-GS5)
+
+
+def test_failsafe_request_and_se_reset_relock_the_virtual_arming_guard():
+    async def go():
+        r = Rig()
+        lease = r.rc.acquire("gui", "connection", None, "127.0.0.1")
+        r.rc.unlock(lease.id, "SD")
+        await r.run_for(0.2)
+        assert r.rc.status().locks["SD"]["locked"] is False
+        r.engine.set_failsafe(True)
+        assert r.rc.status().locks["SD"]["locked"] is True
+        r.engine.set_failsafe(False)
+        r.rc.unlock(lease.id, "SD")
+        r.rc.set(lease.id, {"SE": 1}, hold_s=0.3)
+        await r.run_for(0.3)
+        assert r.rc.status().locks["SD"]["locked"] is True  # SE system reset closes the guard
+
+    run(go())
+
+
 def test_failsafe_level_goes_into_the_next_frame():
     async def go():
         r = Rig()
