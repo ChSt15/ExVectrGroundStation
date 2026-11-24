@@ -270,6 +270,21 @@ def _home_position(p: xp.HomePosition, t: int, src: str, meta: dict) -> list[Pac
     ]
 
 
+def _mission_params(p: xp.MissionParams, t: int, src: str, meta: dict) -> list[Packet]:
+    return [
+        V.MissionParams(
+            t=t,
+            src=src,
+            ascent_speed=_nn(p.ascent_speed),
+            apogee_altitude=_nn(p.apogee_altitude),
+            hover_hold_s=_nn(p.hover_hold_s),
+            p1_hold_1_s=_nn(p.p1_hold_1_s),
+            p1_hold_2_s=_nn(p.p1_hold_2_s),
+            p1_hold_3_s=_nn(p.p1_hold_3_s),
+        )
+    ]
+
+
 def _handset_telem(p: xp.HandsetTelem, t: int, src: str, meta: dict) -> list[Packet]:
     H = xp.HandsetTelem
     return [
@@ -425,6 +440,7 @@ MAPPERS: dict[type, Callable[..., list[Packet] | str]] = {
     xp.AirGnss: _air_gnss,
     xp.AirGnssInfo: _air_gnss_info,
     xp.HomePosition: _home_position,
+    xp.MissionParams: _mission_params,
     xp.HandsetTelem: _handset_telem,
     xp.LinkStats: _link_stats,
     xp.LinkConfig: _link_config,
@@ -450,6 +466,7 @@ PRODUCED_TYPES = {
     "MissionState",
     "Gps",
     "HomePosition",
+    "MissionParams",
     "HandsetTelem",
     "TxModuleStats",
     "RxModuleStats",

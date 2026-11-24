@@ -204,6 +204,21 @@ Version 1, direction `down`, nominal rate n/a, history: no.
 | `epoch` | int | - | the VEHICLE_STATUS.home_epoch value this copy belongs to |
 | `set_time` | time_ns | ns | vehicle time when set or refined, 0 = never |
 
+## MissionParams
+
+Mission parameters the vehicle currently uses (MISSION_PARAMS, port 0x26, readback of SET_MISSION_PARAM). None = unknown (NaN on the wire). The stop altitude is in MissionState.stop_altitude.
+
+Version 1, direction `down`, nominal rate n/a, history: no.
+
+| Field | Kind | Unit | Description |
+|---|---|---|---|
+| `ascent_speed` | float | m/s | climb speed to the apogee waypoint |
+| `apogee_altitude` | float | m | apogee waypoint altitude above the position reference |
+| `hover_hold_s` | float | s | profile 0 hover test hold |
+| `p1_hold_1_s` | float | s | profile 1 hold at 1 m |
+| `p1_hold_2_s` | float | s | profile 1 hold at 2 m x |
+| `p1_hold_3_s` | float | s | profile 1 hold at 2 m x and 2 m y |
+
 ## Actuators
 
 exvectr_packets ACTUATORS: flap angles, TVC deflection, thrust, ground distance.
@@ -344,7 +359,7 @@ Version 1, direction `up`, nominal rate n/a, history: no.
 | Field | Kind | Unit | Description |
 |---|---|---|---|
 | `req_id` | int | - | non-zero, new per action, reused on every retry |
-| `action` | enum (RequestAction: NONE=0, CALIB_GYRO_START=1, CALIB_GYRO_STOP=2, CALIB_ACCEL_START=3, CALIB_ACCEL_STOP=4, CALIB_MAG_START=5, CALIB_MAG_STOP=6, CALIB_APPLY=7, SAVE_CONFIG=8, SYSTEM_RESET=9, LINK_UPLOAD_MODE=10, LINK_REBOOT=11, ZERO_ESTIMATORS=12, SET_STOP_ALTITUDE=13, CALIB_CONTROL=14, SIM_WIND_SPEED=15, SIM_WIND_DIRECTION=16, SIM_GUST_STRENGTH=17, SIM_GUST_PERIOD=18, SIM_GUST_SEED=19, SIM_FLAP_STUCK=20, SIM_FLAP_SLOW=21, SIM_FAULT_CLEAR=22, GET_HOME_POSITION=23) | - |  |
+| `action` | enum (RequestAction: NONE=0, CALIB_GYRO_START=1, CALIB_GYRO_STOP=2, CALIB_ACCEL_START=3, CALIB_ACCEL_STOP=4, CALIB_MAG_START=5, CALIB_MAG_STOP=6, CALIB_APPLY=7, SAVE_CONFIG=8, SYSTEM_RESET=9, LINK_UPLOAD_MODE=10, LINK_REBOOT=11, ZERO_ESTIMATORS=12, SET_STOP_ALTITUDE=13, CALIB_CONTROL=14, SIM_WIND_SPEED=15, SIM_WIND_DIRECTION=16, SIM_GUST_STRENGTH=17, SIM_GUST_PERIOD=18, SIM_GUST_SEED=19, SIM_FLAP_STUCK=20, SIM_FLAP_SLOW=21, SIM_FAULT_CLEAR=22, GET_HOME_POSITION=23, SET_MISSION_PARAM=24) | - |  |
 | `target` | int | - | destination node id |
 | `arg_i` | int | - |  |
 | `arg_f` | float | - |  |

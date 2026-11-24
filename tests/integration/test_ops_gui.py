@@ -171,46 +171,84 @@ async def test_zero_estimators_is_a_request_with_a_window_field_and_the_vehicles
         )
 
 
+MP_ACTIONS = [
+    {"action": "SET_MISSION_PARAM", "target": 1, "label": f"p{i}", "group": "Mission parameters", "arg_i": i,
+     "arg_f_min": lo, "arg_f_max": hi, "arg_f_default": d}
+    for i, (lo, hi, d) in enumerate(
+        [(0.5, 10.0, 7.0), (2.0, 1000.0, 120.0), (0.0, 600.0, 30.0), (0.0, 600.0, 10.0), (0.0, 600.0, 15.0),
+         (0.0, 600.0, 15.0)], start=1)
+]  # fmt: skip
+
+
 @needs_browser
-async def test_stop_altitude_set_is_a_request_that_shows_set_after_ack_and_echo_and_each_refusal(tmp_path):
+async def test_mission_parameters_panel_sends_all_changed_fields_paced_with_each_result_in_words(tmp_path):
     async with (
-        rig_with(tmp_path, usb_kw={"request_rules": True}, requests=REQ_ACTIONS) as rig,
+        rig_with(tmp_path, usb_kw={"request_rules": True}, requests=REQ_ACTIONS + MP_ACTIONS) as rig,
         browser_check.Browser(1500, 1300, 9373) as b,
     ):
         rig.v1.request_latched_session = rig.app.engine.session
         await open_page(b, rig, ["vehicle"])
-        inp, btn = "[data-testid=stopalt-input]", "[data-testid=stopalt-set]"
-        st = "[data-testid=stopalt-state]"
-        await until(lambda: b.eval(f"!document.querySelector({btn!r}).disabled"), what="Set enabled")
-        await set_field(b, inp, "35")
-        await b.eval(f"document.querySelector({btn!r}).click()")  # a plain click
+        inp = lambda k: f"[data-testid=mp-input-{k}]"  # noqa: E731
+        st = lambda k: f"[data-testid=mp-state-{k}]"  # noqa: E731
+        send = "[data-testid=mp-send]"
+        # the fields show the vehicle readback (MISSION_PARAMS, MISSION); nothing changed: Send disabled
         await until(
-            lambda: b.eval(f"document.querySelector({st!r}).textContent === 'set'"), timeout=6, what="set (ACK + echo)"
+            lambda: b.eval(
+                "document.querySelector('[data-testid=mp-vehicle-hover_hold_s]').textContent === 'vehicle: 30.0'"
+            ),
+            what="readback",
         )
-        assert await b.eval(f"document.querySelector({st!r}).dataset.tone") == "ok"
-        reqs = [r for r in rig.v1.received_requests if r["action"] == 13]
-        assert reqs and {r["arg_f"] for r in reqs} == {35.0} and len({r["req_id"] for r in reqs}) == 1
-        assert "35.0" in await text(b, "[data-testid=stopalt-echo]")
-        # a refusal (not on the ground) is worded and gets a NEW req_id on the next click
+        assert await b.eval(f"document.querySelector({send!r}).disabled") is True
+        assert await b.eval(f"document.querySelector({inp('ascent_speed')!r}).value") == "7"
+        # an out-of-range value is flagged and Send stays disabled; the apogee warning appears below 90 m
+        await set_field(b, inp("ascent_speed"), "11")
+        assert "allowed: 0.5 to 10 m/s" in await text(b, "[data-testid=mp-invalid-ascent_speed]")
+        assert await b.eval(f"document.querySelector({send!r}).disabled") is True
+        await set_field(b, inp("apogee_altitude"), "80")
+        assert await text(b, "[data-testid=mp-apogee-warning]") == "below 90 m: no bellyflop, the flight ends in RTH"
+        await set_field(b, inp("ascent_speed"), "5")
+        await set_field(b, inp("hover_hold_s"), "45")
+        await set_field(b, inp("stop_altitude"), "35")
+        await until(lambda: b.eval(f"!document.querySelector({send!r}).disabled"), what="Send enabled")
+        assert await text(b, send) == "Send (4)"
+        await b.eval(f"document.querySelector({send!r}).click()")  # one plain click sends all four, one by one
+        await until(
+            lambda: b.eval("document.querySelector('[data-testid=mp-summary]').textContent === 'all 4 parameters set'"),
+            timeout=15,
+            what="summary",
+        )
+        for k in ("ascent_speed", "apogee_altitude", "hover_hold_s", "stop_altitude"):
+            assert await text(b, st(k)) == "set", k
+        sent = [(r["action"], r["arg_i"], r["arg_f"], r["req_id"]) for r in rig.v1.received_requests]
+        assert [x[:3] for x in sent] == [(24, 1, 5.0), (24, 2, 80.0), (24, 3, 45.0), (13, 0, 35.0)]
+        assert len({x[3] for x in sent}) == 4  # a new req_id per field
+        assert rig.v1.mission_params[1] == 5.0 and rig.v1.stop_altitude == 35.0
+        await until(
+            lambda: b.eval(
+                "document.querySelector('[data-testid=mp-vehicle-ascent_speed]').textContent === 'vehicle: 5.0'"
+            ),
+            what="readback updated",
+        )
+        assert await b.eval(f"document.querySelector({send!r}).disabled") is True
+        # refusal: shown per row in words, the summary counts it
         rig.v1.request_on_ground = False
-        await b.sleep(0.6)  # the core's 500 ms spacing between requests
-        await set_field(b, inp, "40")
-        await b.eval(f"document.querySelector({btn!r}).click()")
-        await until(
-            lambda: b.eval(f"document.querySelector({st!r}).textContent.startsWith('refused')"),
-            timeout=6,
-            what="refusal",
-        )
-        assert await text(b, st) == "refused: motors armed or in flight"
-        assert await b.eval(f"document.querySelector({st!r}).dataset.tone") == "bad"
-        rig.v1.request_on_ground = True
         await b.sleep(0.6)
-        await b.eval(f"document.querySelector({btn!r}).click()")
+        await set_field(b, inp("hover_hold_s"), "50")
+        await b.eval(f"document.querySelector({send!r}).click()")
         await until(
-            lambda: b.eval(f"document.querySelector({st!r}).textContent === 'set'"), timeout=6, what="set again"
+            lambda: b.eval(
+                "document.querySelector('[data-testid=mp-summary]').textContent === '0 of 1 set, 1 refused'"
+            ),
+            timeout=8,
+            what="refusal summary",
         )
-        ids = [r["req_id"] for r in rig.v1.received_requests if r["action"] == 13]
-        assert len(set(ids)) == 3  # 35, refused 40, 40 again: one id per user action
+        assert await text(b, st("hover_hold_s")) == "refused: motors armed or in flight"
+        # reset to defaults fills the inputs and sends nothing
+        n = len(rig.v1.received_requests)
+        await b.eval("document.querySelector('[data-testid=mp-reset]').click()")
+        assert await b.eval(f"document.querySelector({inp('apogee_altitude')!r}).value") == "120"
+        assert await b.eval(f"document.querySelector({inp('stop_altitude')!r}).value") == "20"
+        assert len(rig.v1.received_requests) == n
 
 
 HOME_ACTION = {"action": "GET_HOME_POSITION", "target": 1, "label": "Request home position", "group": "Vehicle"}

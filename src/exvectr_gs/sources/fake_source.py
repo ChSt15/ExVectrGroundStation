@@ -30,6 +30,7 @@ USB_RATES: dict[str, float] = {
     "MissionState": 10,
     "Gps": 10,
     "HomePosition": 1,  # the real vehicle sends it only on request; the fake repeats it for GUI testing
+    "MissionParams": 1,  # MISSION_PARAMS (USB 1 Hz); radio 0.5 Hz
     "ConsoleText": 0.5,
     # vehicle status and the USB debug set (tuning graphs, raw sensor panel)
     "VehicleStatus": 10,
@@ -50,6 +51,7 @@ RADIO_RATES: dict[str, float] = {
     "FlapState": 50,
     "Gps": 10,  # AIR_GNSS 10 Hz, info fields merged
     "HomePosition": 1,
+    "MissionParams": 0.5,
     "RadioLinkStats": 2,
     "RcState": 10,
 }
@@ -104,7 +106,17 @@ def parse_faults(raw: list[dict[str, Any]]) -> list[Fault]:
     return faults
 
 
-_RULED_ACTIONS = (7, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23)
+_RULED_ACTIONS = (7, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
+
+#: SET_MISSION_PARAM ids -> (MissionParams field, default, min, max)
+MISSION_PARAM_IDS: dict[int, tuple[str, float, float, float]] = {
+    1: ("ascent_speed", 7.0, 0.5, 10.0),
+    2: ("apogee_altitude", 120.0, 2.0, 1000.0),
+    3: ("hover_hold_s", 30.0, 0.0, 600.0),
+    4: ("p1_hold_1_s", 10.0, 0.0, 600.0),
+    5: ("p1_hold_2_s", 15.0, 0.0, 600.0),
+    6: ("p1_hold_3_s", 15.0, 0.0, 600.0),
+}
 
 
 class FakeSource(Source):
@@ -146,6 +158,9 @@ class FakeSource(Source):
         self.request_on_ground = bool(opts.get("request_on_ground", True))
         self.request_latched_session = opts.get("request_latched_session")
         self.stop_altitude = float(opts.get("stop_altitude", 20.0))
+        # SET_MISSION_PARAM (24): DONE sets the value echoed by MissionParams (ids and ranges: MISSION_PARAM_IDS);
+        # REJECTED_INVALID 1 for an unknown id or an out-of-range / non-finite value
+        self.mission_params = {v[0]: v[1] for v in MISSION_PARAM_IDS.values()}
         targets = tuple(int(x) for x in opts.get("request_targets", (1, 2, 3)))
         self.received_requests: deque[Packet] = deque(maxlen=1000)  # every attempt that reached this source
         self.executed_requests: list[tuple[int, int, int]] = []  # (req_id, action, target), once per req_id
@@ -238,6 +253,8 @@ class FakeSource(Source):
             fields["mission_index"] = self._echo_idx
         if type_name == "MissionState" and self.request_rules:
             fields["stop_altitude"] = self.stop_altitude
+        if type_name == "MissionParams":
+            fields.update(self.mission_params)
         if type_name == "VehicleStatus":
             fields["simulation"] = self.simulation
             if self.last_cmd is not None:
@@ -360,6 +377,8 @@ class FakeSource(Source):
             status, detail = self._rules_answer(pkt)
             if status == 0 and int(pkt.action) == 13 and n == 1:  # type: ignore[attr-defined]
                 self.stop_altitude = float(pkt.arg_f)  # type: ignore[attr-defined]
+            if status == 0 and int(pkt.action) == 24 and n == 1:  # type: ignore[attr-defined]
+                self.mission_params[MISSION_PARAM_IDS[int(pkt.arg_i)][0]] = float(pkt.arg_f)  # type: ignore[attr-defined]
         ack = RequestAck(t=self._clock.now(), src=self.id, req_id=rid, status=status, detail=detail)
         asyncio.get_running_loop().call_soon(self._sink, ack)
         return True
@@ -376,6 +395,10 @@ class FakeSource(Source):
         a, ai, af = int(pkt.action), int(pkt.arg_i), float(pkt.arg_f)  # type: ignore[attr-defined]
         if a == 13 and not (math.isfinite(af) and af >= 1.0):
             return 3, 1
+        if a == 24:
+            spec = MISSION_PARAM_IDS.get(ai)
+            if spec is None or not (math.isfinite(af) and spec[2] <= af <= spec[3]):
+                return 3, 1
         if 15 <= a <= 22:
             if not self.request_simulation:
                 return 2, 5

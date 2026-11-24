@@ -319,6 +319,23 @@ class HomePosition(Packet):
 
 
 @packet(
+    "MissionParams",
+    version=1,
+    direction=Direction.DOWN,
+    history=False,
+    desc="Mission parameters the vehicle currently uses (MISSION_PARAMS, port 0x26, readback of SET_MISSION_PARAM). "
+    "None = unknown (NaN on the wire). The stop altitude is in MissionState.stop_altitude.",
+)
+class MissionParams(Packet):
+    ascent_speed: float | None = f(unit="m/s", desc="climb speed to the apogee waypoint")
+    apogee_altitude: float | None = f(unit="m", desc="apogee waypoint altitude above the position reference")
+    hover_hold_s: float | None = f(unit="s", desc="profile 0 hover test hold")
+    p1_hold_1_s: float | None = f(unit="s", desc="profile 1 hold at 1 m")
+    p1_hold_2_s: float | None = f(unit="s", desc="profile 1 hold at 2 m x")
+    p1_hold_3_s: float | None = f(unit="s", desc="profile 1 hold at 2 m x and 2 m y")
+
+
+@packet(
     "Actuators",
     version=1,
     direction=Direction.DOWN,

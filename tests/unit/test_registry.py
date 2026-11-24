@@ -17,7 +17,7 @@ def test_all_section_3_2_types_registered():
             "RxModuleStats", "CmdApplied", "CmdState", "RequestAck", "NetworkStatus", "Request", "LinkConfig",
             "Telecommand",
             "Calibration",
-            "LegacyRow", "HomePosition",
+            "LegacyRow", "HomePosition", "MissionParams",
     }  # fmt: skip
 
 

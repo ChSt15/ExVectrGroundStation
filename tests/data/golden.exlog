@@ -32,4 +32,5 @@
 1763471001100012000 usb Calibration raw_frame=0 gyro_source=7 accel_source=3 mag_source=3 gyro_offset=[0.016,0.035,0.0105] gyro_matrix=[-1.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,-1.0] accel_offset=[0.4,0.5,2.1] accel_matrix=[-1.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,-1.0] mag_offset=[1e-06,0.0,1e-06] mag_matrix=[0.0,0.0,-0.16,0.16,0.0,0.0,0.0,-0.16,0.0] gyro_bias_est=[0.001,0.0,-0.002]
 1763471001100013000 legacy LegacyRow layout="tvc-31" Index=7 LocalTime=12.5 MissionTime=-3.0 PositionX=1.5 PositionZ=2.25
 1763471001100014000 usb HomePosition latlon_valid=true alt_valid=true simulation=false zeroing=false lat=0.8272466559108022 lon=0.1491487518386723 alt=421.5 h_acc=0.85 epoch=2 set_time=123456789012
+1763471001200000000 usb MissionParams ascent_speed=7.0 apogee_altitude=120.0 hover_hold_s=30.0 p1_hold_1_s=10.0 p1_hold_2_s=15.0 p1_hold_3_s=15.0
 #end stopped=2026-11-18T14:21:40.002+01:00 packets=26

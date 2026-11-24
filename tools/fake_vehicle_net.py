@@ -17,6 +17,7 @@ PORT_REQUEST, PORT_REQUEST_ACK, PORT_CMD_STATE = 0x11, 0x12, 0x13
 PORT_VEHICLE_STATUS, PORT_AIR_POSE, PORT_AIR_ACTUATORS, PORT_AIR_MISSION = 0x20, 0x21, 0x22, 0x23
 PORT_POSE, PORT_ACTUATORS, PORT_MISSION, PORT_GNSS = 0x80, 0x81, 0x82, 0x83
 PORT_AIR_GNSS, PORT_AIR_GNSS_INFO, PORT_HOME_POSITION = 0x24, 0x25, 0x50
+PORT_MISSION_PARAMS = 0x26
 PORT_CMD_APPLIED = 0x84
 PORT_IMU, PORT_ESTIMATOR, PORT_TIMING, PORT_CALIBRATION = 0x90, 0x91, 0x92, 0x93
 QOS = {
@@ -243,6 +244,11 @@ def _u16_ms(v: float) -> int:
 def pack_air_gnss_info(t_us: int, g: dict) -> bytes:
     """AIR_GNSS_INFO (10 B): fix type, satellites, h_acc and v_acc u16 at 1 cm (65535 = unknown)."""
     return struct.pack("<IBBHH", t_us, g["fix_type"], g["num_sats"], _u16_cm(g["pos_acc"]), _u16_cm(g["alt_acc"]))
+
+
+def pack_mission_params(values) -> bytes:
+    """MISSION_PARAMS (24 B): six f32 (ascent_speed, apogee_altitude, hover_hold_s, p1_hold_1_s ... p1_hold_3_s)."""
+    return struct.pack("<6f", *values)
 
 
 def pack_home_position(h: dict) -> bytes:
