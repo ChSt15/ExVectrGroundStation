@@ -22,10 +22,13 @@ export function gnssUsable(f) {
   return !finite(f.fix_type) || f.fix_type >= MIN_FIX_TYPE;
 }
 
-/** NWU velocity [N, W, U] to NED [N, E, D]; null when not a finite 3-vector. */
-export function nwuToNed(v) {
+/**
+ * GNSS velocity as [N, W, U] m/s. The decoded `Gps.vel` is already NWU (the system frame, SI), so this only validates:
+ * null when not a finite 3-vector. East motion is negative W, descent is negative U. No NED anywhere in the GUI.
+ */
+export function gnssVelNwu(v) {
   if (!Array.isArray(v) || v.length < 3 || !v.slice(0, 3).every(finite)) return null;
-  return [v[0], -v[1], -v[2]];
+  return [v[0], v[1], v[2]];
 }
 
 export function groundSpeed(v) {

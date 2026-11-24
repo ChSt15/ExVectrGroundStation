@@ -32,8 +32,8 @@ async def test_gnss_panel_shows_position_fix_accuracy_and_a_passing_altitude_cro
         assert "12" in await b.eval(txt("[data-key=gnss-sats]"))  # satellites of the fake
         lat = await b.eval(txt("[data-key=gnss-lat]"))
         assert "51.5" in lat  # about 51.54 deg N, shown in degrees
-        # NED velocity row is the NWU row with W and U negated
-        assert await b.eval(f"document.querySelectorAll({(P + ' [data-row=gnss-vel-ned] td')!r}).length") == 4
+        # NWU velocity row (label + N, W, U)
+        assert await b.eval(f"document.querySelectorAll({(P + ' [data-row=gnss-vel-nwu] td')!r}).length") == 4
         assert "OK" in await b.eval(txt("[data-key=gnss-cc-line]"))
         # accuracy tiles: horizontal and vertical come with the radio's GNSS info
         for k in ("gnss-acc-h", "gnss-acc-v"):
