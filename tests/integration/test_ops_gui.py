@@ -176,7 +176,8 @@ MP_ACTIONS = [
      "arg_f_min": lo, "arg_f_max": hi, "arg_f_default": d}
     for i, (lo, hi, d) in enumerate(
         [(0.5, 10.0, 7.0), (2.0, 1000.0, 120.0), (0.0, 600.0, 30.0), (0.0, 600.0, 10.0), (0.0, 600.0, 15.0),
-         (0.0, 600.0, 15.0)], start=1)
+         (0.0, 600.0, 15.0), (0.2, 20.0, 3.0), (0.2, 20.0, 2.0), (-2000.0, 2000.0, 0.0),
+         (-2000.0, 2000.0, 0.0)], start=1)
 ]  # fmt: skip
 
 
@@ -206,6 +207,11 @@ async def test_mission_parameters_panel_sends_all_changed_fields_paced_with_each
         assert await b.eval(f"document.querySelector({send!r}).disabled") is True
         await set_field(b, inp("apogee_altitude"), "80")
         assert await text(b, "[data-testid=mp-apogee-warning]") == "below 90 m: no bellyflop, the flight ends in RTH"
+        assert await text(b, "[data-testid=mp-lateral-warning]") == ""
+        await set_field(b, inp("apogee_y"), "-3")
+        assert "lateral transfer to home" in await text(b, "[data-testid=mp-lateral-warning]")
+        await set_field(b, inp("apogee_y"), "0")
+        assert await text(b, "[data-testid=mp-lateral-warning]") == ""
         await set_field(b, inp("ascent_speed"), "5")
         await set_field(b, inp("hover_hold_s"), "45")
         await set_field(b, inp("stop_altitude"), "35")
@@ -220,12 +226,12 @@ async def test_mission_parameters_panel_sends_all_changed_fields_paced_with_each
         for k in ("ascent_speed", "apogee_altitude", "hover_hold_s", "stop_altitude"):
             assert await text(b, st(k)) == "set", k
         sent = [(r["action"], r["arg_i"], r["arg_f"], r["req_id"]) for r in rig.v1.received_requests]
-        assert [x[:3] for x in sent] == [(24, 1, 5.0), (24, 2, 80.0), (24, 3, 45.0), (13, 0, 35.0)]
+        assert [x[:3] for x in sent] == [(24, 1, 5.0), (24, 2, 80.0), (13, 0, 35.0), (24, 3, 45.0)]
         assert len({x[3] for x in sent}) == 4  # a new req_id per field
         assert rig.v1.mission_params[1] == 5.0 and rig.v1.stop_altitude == 35.0
         await until(
             lambda: b.eval(
-                "document.querySelector('[data-testid=mp-vehicle-ascent_speed]').textContent === 'vehicle: 5.0'"
+                "document.querySelector('[data-testid=mp-vehicle-hover_hold_s]').textContent === 'vehicle: 45.0'"
             ),
             what="readback updated",
         )

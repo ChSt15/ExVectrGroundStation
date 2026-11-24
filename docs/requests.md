@@ -112,7 +112,7 @@ The details 1 to 3 are as above (1 not on the ground, 2 zeroing refusal, 3 sessi
 
 ## Mission parameters, SET_MISSION_PARAM (feature/mission-params)
 
-`SET_MISSION_PARAM` (action 24, target 1): `arg_i` = parameter id, `arg_f` = the value (SI). One whitelist row per parameter with a **fixed** `arg_i` and its own `arg_f` range (the core refuses an out-of-range or non-finite value before sending). The vehicle accepts it only on the ground with the session: REJECTED_STATE detail 1 (not on the ground, motors armed or in flight), 3 (session mismatch); REJECTED_INVALID detail 1 (unknown id or out-of-range or non-finite value). A vehicle reboot returns the defaults (nothing is stored). The vehicle reads its values back in the plain packet `MISSION_PARAMS` (port 0x26, 1 Hz on USB, 0.5 Hz on the radio; six f32, NaN = unknown, GS packet `MissionParams` with `None`); the stop altitude is not repeated there (`MissionState.stop_altitude`).
+`SET_MISSION_PARAM` (action 24, target 1): `arg_i` = parameter id, `arg_f` = the value (SI). One whitelist row per parameter with a **fixed** `arg_i` and its own `arg_f` range (the core refuses an out-of-range or non-finite value before sending). The vehicle accepts it only on the ground with the session: REJECTED_STATE detail 1 (not on the ground, motors armed or in flight), 3 (session mismatch); REJECTED_INVALID detail 1 (unknown id or out-of-range or non-finite value). A vehicle reboot returns the defaults (nothing is stored). The vehicle reads its values back in the plain packet `MISSION_PARAMS` (port 0x26, 1 Hz on USB, every 5 s on the radio; ten f32 (40 B; an older 24 B payload decodes with the last four as unknown), GS packet `MissionParams` with `None`); the stop altitude is not repeated there (`MissionState.stop_altitude`).
 
 | id | parameter | unit | default | range | used by |
 |---|---|---|---|---|---|
@@ -122,5 +122,11 @@ The details 1 to 3 are as above (1 not on the ground, 2 zeroing refusal, 3 sessi
 | 4 | `P1_HOLD_1_S` | s | 10 | 0..600 | waypoint test (profile 1), hold at 1 m |
 | 5 | `P1_HOLD_2_S` | s | 15 | 0..600 | profile 1, hold at 2 m x |
 | 6 | `P1_HOLD_3_S` | s | 15 | 0..600 | profile 1, hold at 2 m x and 2 m y |
+| 7 | `ASCENT_ACCEL` | m/s^2 | 3 | 0.2..20 | flight (profile 2), acceleration toward the apogee waypoint |
+| 8 | `ASCENT_DECEL` | m/s^2 | 2 | 0.2..20 | flight (profile 2), deceleration at the apogee waypoint |
+| 9 | `APOGEE_X` | m | 0 | -2000..2000 | apogee position X, north of the position reference (NWU +X) |
+| 10 | `APOGEE_Y` | m | 0 | -2000..2000 | apogee position Y, **west** of the position reference (NWU +Y = west) |
 
-The GUI sends them from the Vehicle panel (below, `docs/gui.md`), plain click, no hold, one request per changed field. Every user action gets a new `req_id` (the vehicle rule above), refusals are worded by the same `refusalText` mapping. Test doubles: `FakeSource` with `request_rules = true` and the pty fake answer action 24 (DONE and sets the value read back by `MissionParams`; REJECTED_INVALID 1 for an unknown id or a value outside the table's range) and send `MissionParams` (fake source: 1 Hz usb, 0.5 Hz radio).
+Id 2 (`APOGEE_ALTITUDE`) is the apogee Z. An apogee not above home (|X| or |Y| > 0.5 m) makes the descent fly a lateral transfer to home; the GUI warns. Ids 7..10 and the four extra `MissionParams` fields (`ascent_accel`, `ascent_decel`, `apogee_x`, `apogee_y`) need ExVectrPackets `feature/mission-params-2` (schema hash 0xC2061E5D).
+
+The GUI sends them from the Vehicle panel (below, `docs/gui.md`), plain click, no hold, one request per changed field. Every user action gets a new `req_id` (the vehicle rule above), refusals are worded by the same `refusalText` mapping. Test doubles: `FakeSource` with `request_rules = true` and the pty fake answer action 24 (DONE and sets the value read back by `MissionParams`; REJECTED_INVALID 1 for an unknown id or a value outside the table's range) and send `MissionParams` (fake source: 1 Hz usb, 0.5 Hz radio; the pty fake sends the 40 B form).

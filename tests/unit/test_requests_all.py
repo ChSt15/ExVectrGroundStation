@@ -44,7 +44,7 @@ def test_mirror_has_the_new_action_ids_and_matches_the_generated_enum():
         assert RequestAction[name] == value == xp.RequestAction[name]
     assert RequestAction.CALIB_APPLY == 7 and RequestAction.SAVE_CONFIG == 8
     assert {m.name: m.value for m in RequestAction} == {m.name: m.value for m in xp.RequestAction}
-    assert xp.SCHEMA_HASH == 0x5E23CDD1
+    assert xp.SCHEMA_HASH == 0xC2061E5D
 
 
 # ---------------------------------------------------------------- config
@@ -241,6 +241,10 @@ PARAMS = {  # id -> (MissionParams field, default, min, max)
     4: ("p1_hold_1_s", 10.0, 0.0, 600.0),
     5: ("p1_hold_2_s", 15.0, 0.0, 600.0),
     6: ("p1_hold_3_s", 15.0, 0.0, 600.0),
+    7: ("ascent_accel", 3.0, 0.2, 20.0),
+    8: ("ascent_decel", 2.0, 0.2, 20.0),
+    9: ("apogee_x", 0.0, -2000.0, 2000.0),
+    10: ("apogee_y", 0.0, -2000.0, 2000.0),
 }
 
 
@@ -266,6 +270,13 @@ def test_mission_params_packet_mirror_matches_the_generated_module():
     pkt = xp.MissionParams(ascent_speed=6.0, apogee_altitude=math.nan)
     (out,) = MAPPERS[xp.MissionParams](xp.MissionParams.decode(pkt.encode()), 5, "usb", {})
     assert isinstance(out, MissionParams) and out.ascent_speed == 6.0 and out.apogee_altitude is None
+    # an older sender's short payload (24 B): the four new fields are None
+    old = xp.MissionParams.decode(pkt.encode()[:24])
+    (out,) = MAPPERS[xp.MissionParams](old, 5, "usb", {})
+    assert out.ascent_speed == 6.0 and out.ascent_accel is None and out.apogee_y is None
+    full = xp.MissionParams(ascent_accel=3.0, ascent_decel=2.0, apogee_x=1.5, apogee_y=-2.5)
+    (out,) = MAPPERS[xp.MissionParams](xp.MissionParams.decode(full.encode()), 5, "usb", {})
+    assert (out.ascent_accel, out.ascent_decel, out.apogee_x, out.apogee_y) == (3.0, 2.0, 1.5, -2.5)
 
 
 @pytest.mark.parametrize("pid", sorted(PARAMS))
@@ -297,7 +308,7 @@ async def test_out_of_range_mission_parameter_is_refused_locally_and_by_the_vehi
     assert src._rules_answer(
         Request(t=0, src="x", req_id=1, action=24, target=1, arg_i=pid, arg_f=hi * 2, session=99)
     ) == (3, 1)
-    assert src._rules_answer(Request(t=0, src="x", req_id=1, action=24, target=1, arg_i=7, arg_f=1.0, session=99)) == (
+    assert src._rules_answer(Request(t=0, src="x", req_id=1, action=24, target=1, arg_i=11, arg_f=1.0, session=99)) == (
         3,
         1,
     )

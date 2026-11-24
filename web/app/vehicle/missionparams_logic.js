@@ -1,6 +1,6 @@
 // Pure logic of the 'Mission parameters' rows of the Vehicle panel (docs/requests.md). Display and command only:
-// nothing sends a parameter automatically. Six rows are the whitelisted REQUEST SET_MISSION_PARAM (action 24, target 1,
-// arg_i = parameter id, arg_f = value); the seventh is the stop altitude (SET_STOP_ALTITUDE, logic in stopalt_logic.js).
+// nothing sends a parameter automatically. Ten rows are the whitelisted REQUEST SET_MISSION_PARAM (action 24, target 1,
+// arg_i = parameter id, arg_f = value); the stop altitude is the eleventh, in the Flight group (SET_STOP_ALTITUDE, logic in stopalt_logic.js).
 // The vehicle accepts them only on the ground with the session and answers with a REQUEST_ACK; the vehicle's values
 // come back in the plain MISSION_PARAMS packet (the stop altitude in MissionState.stop_altitude).
 import { refusalText } from "../requests/requests_logic.js";
@@ -11,18 +11,25 @@ export const TARGET = 1;
 export const GAP_MS = 550; // between two requests (the core spaces requests by 500 ms)
 export const TIMEOUT_MS = 7000; // per request, the client's backstop on top of the core's own retries
 export const APOGEE_WARN_M = 90;
+export const LATERAL_WARN_M = 0.5;
+const FLIGHT = "Flight (profile 2)";
 export const NOTE = "accepted only on the ground, motors disarmed; a vehicle reboot returns the defaults";
+export const LATERAL_WARNING = "apogee not above home: the descent flies a lateral transfer to home";
 export const APOGEE_WARNING = "below 90 m: no bellyflop, the flight ends in RTH";
 
 /** Rows in display order. `field` = MissionParams field (null: MissionState.stop_altitude), `id` = arg_i. */
 export const ROWS = [
-  { key: "ascent_speed", id: 1, field: "ascent_speed", label: "Ascent speed", unit: "m/s", min: 0.5, max: 10, def: 7, group: "Flight (profile 2)", step: 0.5 },
-  { key: "apogee_altitude", id: 2, field: "apogee_altitude", label: "Apogee altitude", unit: "m", min: 2, max: 1000, def: 120, group: "Flight (profile 2)", step: 1 },
+  { key: "ascent_speed", id: 1, field: "ascent_speed", label: "Ascent speed", unit: "m/s", min: 0.5, max: 10, def: 7, group: FLIGHT, step: 0.5 },
+  { key: "ascent_accel", id: 7, field: "ascent_accel", label: "Ascent acceleration", unit: "m/s^2", min: 0.2, max: 20, def: 3, group: FLIGHT, step: 0.1 },
+  { key: "ascent_decel", id: 8, field: "ascent_decel", label: "Ascent deceleration", unit: "m/s^2", min: 0.2, max: 20, def: 2, group: FLIGHT, step: 0.1 },
+  { key: "apogee_x", id: 9, field: "apogee_x", label: "Apogee position X (north)", fullLabel: "Apogee position X (north) m", unit: "m", min: -2000, max: 2000, def: 0, group: FLIGHT, step: 0.5 },
+  { key: "apogee_y", id: 10, field: "apogee_y", label: "Apogee position Y (west)", fullLabel: "Apogee position Y (west) m", unit: "m", min: -2000, max: 2000, def: 0, group: FLIGHT, step: 0.5 },
+  { key: "apogee_altitude", id: 2, field: "apogee_altitude", label: "Apogee altitude Z (up)", fullLabel: "Apogee altitude Z (up) m", unit: "m", min: 2, max: 1000, def: 120, group: FLIGHT, step: 1 },
+  { key: "stop_altitude", id: null, field: null, label: "Stop altitude", unit: "m", min: 1, max: Infinity, def: 20, group: FLIGHT, step: 0.5, action: "SET_STOP_ALTITUDE" },
   { key: "hover_hold_s", id: 3, field: "hover_hold_s", label: "Hover hold", unit: "s", min: 0, max: 600, def: 30, group: "Hover test (profile 0)", step: 1 },
   { key: "p1_hold_1_s", id: 4, field: "p1_hold_1_s", label: "Hold 1 (at 1 m)", unit: "s", min: 0, max: 600, def: 10, group: "Waypoint test (profile 1)", step: 1 },
   { key: "p1_hold_2_s", id: 5, field: "p1_hold_2_s", label: "Hold 2 (at 2 m x)", unit: "s", min: 0, max: 600, def: 15, group: "Waypoint test (profile 1)", step: 1 },
   { key: "p1_hold_3_s", id: 6, field: "p1_hold_3_s", label: "Hold 3 (at 2 m x and 2 m y)", unit: "s", min: 0, max: 600, def: 15, group: "Waypoint test (profile 1)", step: 1 },
-  { key: "stop_altitude", id: null, field: null, label: "Stop altitude", unit: "m", min: 1, max: Infinity, def: 20, group: "Vehicle settings", step: 0.5, action: "SET_STOP_ALTITUDE" },
 ];
 export const rowAction = (row) => row.action || ACTION;
 const TOL = 0.0005; // f32 readback
@@ -32,7 +39,7 @@ const finite = (x) => typeof x === "number" && Number.isFinite(x);
 /** The field text as a number within the row's range, else null. */
 export function parseValue(text, row) {
   const t = String(text).trim();
-  if (!/^\d+(\.\d+)?$/.test(t)) return null;
+  if (!/^-?\d+(\.\d+)?$/.test(t)) return null;
   const v = Number(t);
   return v >= row.min && v <= row.max ? v : null;
 }
@@ -80,6 +87,12 @@ export const defaultInputs = () => Object.fromEntries(ROWS.map((r) => [r.key, St
 export function apogeeWarning(text) {
   const t = String(text).trim();
   return /^\d+(\.\d+)?$/.test(t) && Number(t) < APOGEE_WARN_M ? APOGEE_WARNING : "";
+}
+
+/** Warning when |X| or |Y| of the apogee position (field texts) exceeds 0.5 m. */
+export function lateralWarning(xText, yText) {
+  const big = (t) => /^-?\d+(\.\d+)?$/.test(String(t).trim()) && Math.abs(Number(t)) > LATERAL_WARN_M;
+  return big(xText) || big(yText) ? LATERAL_WARNING : "";
 }
 
 /** Plain-word result of one request of a row. `r` = request state from the core (null while sending the call). */

@@ -277,6 +277,50 @@ arg_f_default = 15.0
 arg_f_name = "waypoint hold 3, s"
 
 [[requests.action]]
+action = "SET_MISSION_PARAM"
+label = "Ascent acceleration"
+group = "Mission parameters"
+target = 1
+arg_i = 7
+arg_f_min = 0.2
+arg_f_max = 20.0
+arg_f_default = 3.0
+arg_f_name = "ascent acceleration, m/s^2"
+
+[[requests.action]]
+action = "SET_MISSION_PARAM"
+label = "Ascent deceleration"
+group = "Mission parameters"
+target = 1
+arg_i = 8
+arg_f_min = 0.2
+arg_f_max = 20.0
+arg_f_default = 2.0
+arg_f_name = "ascent deceleration, m/s^2"
+
+[[requests.action]]
+action = "SET_MISSION_PARAM"
+label = "Apogee position X (north)"
+group = "Mission parameters"
+target = 1
+arg_i = 9
+arg_f_min = -2000.0
+arg_f_max = 2000.0
+arg_f_default = 0.0
+arg_f_name = "apogee X (north), m"
+
+[[requests.action]]
+action = "SET_MISSION_PARAM"
+label = "Apogee position Y (west)"
+group = "Mission parameters"
+target = 1
+arg_i = 10
+arg_f_min = -2000.0
+arg_f_max = 2000.0
+arg_f_default = 0.0
+arg_f_name = "apogee Y (west), m"
+
+[[requests.action]]
 action = "GET_HOME_POSITION"
 label = "Request home position"
 group = "Vehicle"

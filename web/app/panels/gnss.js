@@ -1,11 +1,11 @@
-// Vehicle group: GNSS, compact. Latitude, longitude, absolute altitude, NED velocity, satellites, fix type and the
+// Vehicle group: GNSS, compact. Latitude, longitude, absolute altitude, NWU velocity, satellites, fix type and the
 // receiver's accuracy estimates (Gps, from the radio's AIR_GNSS plus AIR_GNSS_INFO or from USB GNSS), and one line
 // with the altitude cross-check of the estimated altitude against the GNSS altitude (gnss/gnss_logic.js). Display
 // only: the cross-check compares two reported values and sends nothing. The home position is not shown here.
 import { registerPanel } from "./registry.js";
 import { Bindings, h, section, tiles } from "../ui.js";
 import { describe, fmtNum } from "../fmt.js";
-import { ALTCHECK_DEFAULTS, AltCheck, deg, fixName, nwuToNed } from "../gnss/gnss_logic.js";
+import { ALTCHECK_DEFAULTS, AltCheck, deg, fixName, gnssVelNwu } from "../gnss/gnss_logic.js";
 
 const G = "Gps";
 const finite = (x) => typeof x === "number" && Number.isFinite(x);
@@ -38,7 +38,7 @@ registerPanel({
     pos.append(h("div", { class: "row gnss-ll", "data-key": "gnss-lat" }, h("span", { class: "lbl", text: "Lat / Lon" }), ll("lat"), ll("lon")));
     b.row(pos, "Altitude (absolute)", { type: G, field: "alt", unit: "m", digits: 1 }, { key: "gnss-alt", title: "receiver altitude, u-blox: height above the WGS-84 ellipsoid, not above sea level" });
 
-    b.vecTable(el, ["N", "E", "D"], [{ label: "Velocity NED", type: G, key: "gnss-vel-ned", unit: "m/s", vec: (e) => (e && e.f && e.f.vel !== undefined ? nwuToNed(e.f.vel) : undefined) }]);
+    b.vecTable(el, ["N", "W", "U"], [{ label: "Velocity NWU", type: G, key: "gnss-vel-nwu", unit: "m/s", vec: (e) => (e && e.f && e.f.vel !== undefined ? gnssVelNwu(e.f.vel) : undefined) }]);
 
     const t = tiles(el, "gnss-tiles"); // one row of six tiles (wide Bench column)
     b.tile(t, "Sats", { type: G, kind: "num", digits: 0, derive: num("num_sats") }, { key: "gnss-sats" });

@@ -116,6 +116,10 @@ MISSION_PARAM_IDS: dict[int, tuple[str, float, float, float]] = {
     4: ("p1_hold_1_s", 10.0, 0.0, 600.0),
     5: ("p1_hold_2_s", 15.0, 0.0, 600.0),
     6: ("p1_hold_3_s", 15.0, 0.0, 600.0),
+    7: ("ascent_accel", 3.0, 0.2, 20.0),
+    8: ("ascent_decel", 2.0, 0.2, 20.0),
+    9: ("apogee_x", 0.0, -2000.0, 2000.0),
+    10: ("apogee_y", 0.0, -2000.0, 2000.0),
 }
 
 

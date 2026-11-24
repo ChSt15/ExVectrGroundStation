@@ -3,7 +3,7 @@
 // confirmation; the state shown comes from the vehicle's REQUEST_ACK and the echoed MissionState only.
 import { h } from "../ui.js";
 import { reportedSimulation, sendState } from "../requests/requests_logic.js";
-import { NOTE, ROWS, TARGET, apogeeWarning, changedRows, describeRow, findById, parseValue, rowAction, runSequence, summarize, validationText, vehicleText, vehicleValue } from "./missionparams_logic.js";
+import { NOTE, ROWS, TARGET, apogeeWarning, lateralWarning, changedRows, describeRow, findById, parseValue, rowAction, runSequence, summarize, validationText, vehicleText, vehicleValue } from "./missionparams_logic.js";
 
 export function createVehiclePanel(el, ctx) {
   let reqs = null; // last `requests` push
@@ -14,7 +14,7 @@ export function createVehiclePanel(el, ctx) {
     sim, msg,
   );
 
-  // One table: the six SET_MISSION_PARAM parameters and the stop altitude (SET_STOP_ALTITUDE) as the 7th row. ONE Send
+  // One table: the ten SET_MISSION_PARAM parameters and the stop altitude (SET_STOP_ALTITUDE, in the Flight group). ONE Send
   // sends every changed field, one request at a time, each waiting for its ACK (docs/requests.md). State shown comes
   // from the vehicle's REQUEST_ACK and its MISSION_PARAMS / MissionState readback only.
   const nowS = () => performance.now() / 1000;
@@ -28,6 +28,7 @@ export function createVehiclePanel(el, ctx) {
   const sendBtn = h("button", { class: "rq-btn", "data-testid": "mp-send" }, "Send");
   const resetLink = h("a", { href: "#", class: "hint", "data-testid": "mp-reset", text: "Reset to defaults" });
   const apogeeWarn = h("div", { class: "tc-warn", "data-testid": "mp-apogee-warning" });
+  const lateralWarn = h("div", { class: "tc-warn", "data-testid": "mp-lateral-warning" });
   const host = h("section", { class: "rq-group", "data-testid": "mission-params" }, h("h4", { text: "Mission parameters" }),
     h("div", { class: "hint", text: NOTE }));
   let group = null;
@@ -45,8 +46,8 @@ export function createVehiclePanel(el, ctx) {
       delete results[row.key];
       render();
     });
-    host.append(h("div", { class: "rq-row tc-row" }, h("span", { text: `${row.label} (${row.unit})` }), inp, cells[row.key].veh, cells[row.key].state, cells[row.key].bad));
-    if (row.key === "apogee_altitude") host.append(apogeeWarn);
+    host.append(h("div", { class: "rq-row tc-row" }, h("span", { text: row.fullLabel || `${row.label} (${row.unit})` }), inp, cells[row.key].veh, cells[row.key].state, cells[row.key].bad));
+    if (row.key === "apogee_altitude") host.append(apogeeWarn, lateralWarn);
   }
   resetLink.addEventListener("click", (ev) => {
     ev.preventDefault();
@@ -138,6 +139,7 @@ export function createVehiclePanel(el, ctx) {
       c.state.dataset.tone = d.tone;
     }
     apogeeWarn.textContent = apogeeWarning(inputs.apogee_altitude.value);
+    lateralWarn.textContent = lateralWarning(inputs.apogee_x.value, inputs.apogee_y.value);
     const { changed, invalid } = changedRows(texts(), veh, dirty);
     const s = sendState({ apiState: ctx.api.state, view: ctx.view(), canControl, inflight: running, route, argOk: invalid.length === 0 });
     sendBtn.disabled = !s.enabled || changed.length === 0;

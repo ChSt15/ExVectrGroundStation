@@ -1,14 +1,35 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ROWS, GAP_MS, apogeeWarning, changedRows, defaultInputs, describeRow, parseValue, runSequence, summarize, validationText, vehicleText, vehicleValue } from "../app/vehicle/missionparams_logic.js";
+import { ROWS, GAP_MS, apogeeWarning, lateralWarning, changedRows, defaultInputs, describeRow, parseValue, runSequence, summarize, validationText, vehicleText, vehicleValue } from "../app/vehicle/missionparams_logic.js";
 
 const row = (k) => ROWS.find((r) => r.key === k);
 const vehicleAll = (over = {}) => ({ ...Object.fromEntries(ROWS.map((r) => [r.key, r.def])), ...over });
 
-test("rows: ids 1..6 and the stop altitude as the 7th", () => {
-  assert.deepEqual(ROWS.slice(0, 6).map((r) => r.id), [1, 2, 3, 4, 5, 6]);
-  assert.equal(ROWS[6].action, "SET_STOP_ALTITUDE");
-  assert.deepEqual(ROWS.map((r) => r.group), ["Flight (profile 2)", "Flight (profile 2)", "Hover test (profile 0)", "Waypoint test (profile 1)", "Waypoint test (profile 1)", "Waypoint test (profile 1)", "Vehicle settings"]);
+test("rows: Flight group (speed, accel, decel, X, Y, Z, stop altitude), then hover and waypoint groups", () => {
+  assert.deepEqual(ROWS.map((r) => r.key), ["ascent_speed", "ascent_accel", "ascent_decel", "apogee_x", "apogee_y", "apogee_altitude", "stop_altitude", "hover_hold_s", "p1_hold_1_s", "p1_hold_2_s", "p1_hold_3_s"]);
+  assert.deepEqual(ROWS.map((r) => r.id), [1, 7, 8, 9, 10, 2, null, 3, 4, 5, 6]);
+  assert.equal(row("stop_altitude").action, "SET_STOP_ALTITUDE");
+  const F = "Flight (profile 2)";
+  assert.deepEqual(ROWS.map((r) => r.group), [F, F, F, F, F, F, F, "Hover test (profile 0)", "Waypoint test (profile 1)", "Waypoint test (profile 1)", "Waypoint test (profile 1)"]);
+  assert.deepEqual(["apogee_x", "apogee_y", "apogee_altitude"].map((k) => row(k).fullLabel), ["Apogee position X (north) m", "Apogee position Y (west) m", "Apogee altitude Z (up) m"]);
+  assert.deepEqual(["ascent_accel", "ascent_decel", "apogee_x", "apogee_y"].map((k) => [row(k).min, row(k).max, row(k).def]), [[0.2, 20, 3], [0.2, 20, 2], [-2000, 2000, 0], [-2000, 2000, 0]]);
+});
+
+test("apogee X and Y accept negative numbers within +-2000", () => {
+  assert.equal(parseValue("-12.5", row("apogee_y")), -12.5);
+  assert.equal(parseValue("2000", row("apogee_x")), 2000);
+  assert.equal(parseValue("-2000.5", row("apogee_x")), null);
+  assert.equal(parseValue("-1", row("ascent_accel")), null);
+  assert.equal(validationText("5000", row("apogee_x")), "allowed: -2000 to 2000 m");
+});
+
+test("lateral warning when |X| or |Y| > 0.5 m", () => {
+  const W = "apogee not above home: the descent flies a lateral transfer to home";
+  assert.equal(lateralWarning("0", "0"), "");
+  assert.equal(lateralWarning("0.5", "-0.5"), "");
+  assert.equal(lateralWarning("0.6", "0"), W);
+  assert.equal(lateralWarning("0", "-30"), W);
+  assert.equal(lateralWarning("", "abc"), "");
 });
 
 test("parse and validation text follow the allowed range", () => {

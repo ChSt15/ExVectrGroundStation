@@ -281,6 +281,10 @@ def _mission_params(p: xp.MissionParams, t: int, src: str, meta: dict) -> list[P
             p1_hold_1_s=_nn(p.p1_hold_1_s),
             p1_hold_2_s=_nn(p.p1_hold_2_s),
             p1_hold_3_s=_nn(p.p1_hold_3_s),
+            ascent_accel=_nn(p.ascent_accel),
+            ascent_decel=_nn(p.ascent_decel),
+            apogee_x=_nn(p.apogee_x),
+            apogee_y=_nn(p.apogee_y),
         )
     ]
 

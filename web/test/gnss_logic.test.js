@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ALTCHECK_DEFAULTS, AltCheck, fixName, gnssUsable, groundSpeed, nwuToNed, plotGnssAltitude } from "../app/gnss/gnss_logic.js";
+import { ALTCHECK_DEFAULTS, AltCheck, fixName, gnssUsable, groundSpeed, gnssVelNwu, plotGnssAltitude } from "../app/gnss/gnss_logic.js";
 import { CalloutEngine } from "../app/callouts/engine.js";
 import { DEFAULTS, mergeSettings } from "../app/callouts/settings.js";
 import { SIGNAL_BY_ID, SignalFeeder } from "../app/plot/catalogue.js";
@@ -10,10 +10,11 @@ const pos = (z, t) => ({ type: "Position", src: "radio", t, f: { pos: [0, 0, z],
 const home = (alt, epoch = 1, extra = {}) => ({ type: "HomePosition", src: "radio", t: 1, f: { alt_valid: true, alt, epoch, ...extra } });
 const status = (epoch, t = 1) => ({ type: "VehicleStatus", src: "usb", t, f: { home_epoch: epoch } });
 
-test("helpers: NED from NWU, ground speed, fix names, usable altitude", () => {
-  assert.deepEqual(nwuToNed([1, 2, 3]), [1, -2, -3]);
-  assert.equal(nwuToNed([1, null, 3]), null);
-  assert.equal(nwuToNed(undefined), null);
+test("helpers: NWU velocity, ground speed, fix names, usable altitude", () => {
+  assert.deepEqual(gnssVelNwu([1, 2, 3]), [1, 2, 3]);
+  assert.deepEqual(gnssVelNwu([0, -5, -2]), [0, -5, -2]); // moving east: W negative; descending: U negative
+  assert.equal(gnssVelNwu([1, null, 3]), null);
+  assert.equal(gnssVelNwu(undefined), null);
   assert.equal(groundSpeed([3, 4, 9]), 5);
   assert.equal(groundSpeed(undefined), null);
   assert.equal(fixName(3), "3D");

@@ -200,10 +200,11 @@ class FakeVehiclePty:
         self.request_calib_refuse = request_calib_refuse
         self.request_no_home = request_no_home
         self.stop_altitude = 20.0
-        # SET_MISSION_PARAM (24) ids 1..6 -> (default, min, max); `mission_params` = current values by id
+        # SET_MISSION_PARAM (24) ids 1..10 -> (default, min, max); `mission_params` = current values by id
         self.mission_param_spec = {
             1: (7.0, 0.5, 10.0), 2: (120.0, 2.0, 1000.0), 3: (30.0, 0.0, 600.0),
             4: (10.0, 0.0, 600.0), 5: (15.0, 0.0, 600.0), 6: (15.0, 0.0, 600.0),
+            7: (3.0, 0.2, 20.0), 8: (2.0, 0.2, 20.0), 9: (0.0, -2000.0, 2000.0), 10: (0.0, -2000.0, 2000.0),
         }  # fmt: skip
         self.mission_params = {i: v[0] for i, v in self.mission_param_spec.items()}
         self.received_requests: list[dict] = []
@@ -414,7 +415,7 @@ class FakeVehiclePty:
         if name == "AIR_GNSS_INFO":
             return self._data(src, 0, net.PORT_AIR_GNSS_INFO, net.pack_air_gnss_info(t_us, gps))
         if name == "MISSION_PARAMS":
-            vals = [self.mission_params[i] for i in range(1, 7)]
+            vals = [self.mission_params[i] for i in range(1, 11)]
             return self._data(src, 0, net.PORT_MISSION_PARAMS, net.pack_mission_params(vals))
         if name == "HOME_POSITION":  # the real vehicle answers a request; the fake repeats it for GUI testing
             return self._data(src, 0, net.PORT_HOME_POSITION, net.pack_home_position(sc.fields("HomePosition", t)))
