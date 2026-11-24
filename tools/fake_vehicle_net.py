@@ -247,8 +247,9 @@ def pack_air_gnss_info(t_us: int, g: dict) -> bytes:
 
 
 def pack_mission_params(values) -> bytes:
-    """MISSION_PARAMS (24 B): six f32 (ascent_speed, apogee_altitude, hover_hold_s, p1_hold_1_s ... p1_hold_3_s)."""
-    return struct.pack("<6f", *values)
+    """MISSION_PARAMS (40 B): ten f32 (ascent_speed, apogee_altitude, hover_hold_s, p1_hold_1_s ... p1_hold_3_s,
+    ascent_accel, ascent_decel, apogee_x, apogee_y)."""
+    return struct.pack("<10f", *values)
 
 
 def pack_home_position(h: dict) -> bytes:

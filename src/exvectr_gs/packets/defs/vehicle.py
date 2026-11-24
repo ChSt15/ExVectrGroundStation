@@ -333,6 +333,10 @@ class MissionParams(Packet):
     p1_hold_1_s: float | None = f(unit="s", desc="profile 1 hold at 1 m")
     p1_hold_2_s: float | None = f(unit="s", desc="profile 1 hold at 2 m x")
     p1_hold_3_s: float | None = f(unit="s", desc="profile 1 hold at 2 m x and 2 m y")
+    ascent_accel: float | None = f(unit="m/s^2", desc="waypoint acceleration toward the apogee; None = unknown")
+    ascent_decel: float | None = f(unit="m/s^2", desc="waypoint deceleration at the apogee; None = unknown")
+    apogee_x: float | None = f(unit="m", desc="apogee position X, north of the position reference (NWU +X)")
+    apogee_y: float | None = f(unit="m", desc="apogee position Y, WEST of the position reference (NWU +Y)")
 
 
 @packet(

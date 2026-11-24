@@ -218,6 +218,10 @@ Version 1, direction `down`, nominal rate n/a, history: no.
 | `p1_hold_1_s` | float | s | profile 1 hold at 1 m |
 | `p1_hold_2_s` | float | s | profile 1 hold at 2 m x |
 | `p1_hold_3_s` | float | s | profile 1 hold at 2 m x and 2 m y |
+| `ascent_accel` | float | m/s^2 | waypoint acceleration toward the apogee; None = unknown |
+| `ascent_decel` | float | m/s^2 | waypoint deceleration at the apogee; None = unknown |
+| `apogee_x` | float | m | apogee position X, north of the position reference (NWU +X) |
+| `apogee_y` | float | m | apogee position Y, WEST of the position reference (NWU +Y) |
 
 ## Actuators
 
