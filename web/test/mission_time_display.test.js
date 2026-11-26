@@ -41,3 +41,17 @@ test("feedAll sorts, reset clears", () => {
   f.reset();
   assert.equal(f.missionTime({ t: 1002 }), null);
 });
+
+test("mission 2 resets the Mission panel clock, also without Completed (mode and countdown rules)", () => {
+  const f = new MissionTimeFeed();
+  const p = (t, tm, phase, mode) => ({ type: "MissionState", src: "usb", t, f: { t_mission: tm, mission_phase: phase, mission_mode: mode } });
+  for (let i = 0; i <= 12; i++) f.feed(p(1000 + i, -5 + i, "Hover", "Startup")); // T0 at 1005
+  for (let i = 0; i < 20; i++) f.feed(p(1012 + i, i, "Ascent", "Running")); // reads T+26 at 1031, mission never completes
+  assert.ok(Math.abs(f.missionTime({ t: 1031 }) - 26) < 1e-9);
+  assert.equal(f.feed(p(1032, 3, "Ascent", "Finished")), true, "a mode change is always taken");
+  f.feed(p(1033, 3, "Ascent", "Initialisation"));
+  f.feed(p(1034, -10, "Hover", "Initialisation"));
+  f.feed(p(1035, -9, "Hover", "Startup"));
+  assert.ok(Math.abs(f.missionTime({ t: 1035 }) - -9) < 1e-9, "new T-minus countdown, not T+30");
+  assert.equal(f.clock.missions.length, 2);
+});

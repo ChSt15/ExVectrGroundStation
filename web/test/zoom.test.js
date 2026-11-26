@@ -143,3 +143,18 @@ test("box zoom also maps the same pixel box on a right y axis", () => {
   assert.equal(t.yr, null);
   assert.equal("yr" in boxToRanges({ x0: 100, y0: 10, x1: 200, y1: 60 }, rect, view), false);
 });
+
+test("missionAxis: a window with two missions uses the clock of the mission that fills most of it", () => {
+  const c = new MissionClock();
+  for (let i = 0; i < 20; i++) c.add(100 + i, -10 + i, "Hover", "Running"); // T0 = 110
+  c.add(120, 9, "Completed", "Finished");
+  for (let i = 0; i < 40; i++) c.add(200 + i, -10 + i, "Hover", "Startup"); // mission 2, T0 = 210
+  assert.equal(c.missions.length, 2);
+  const ax = missionAxis(c, 150, 250, 5);
+  assert.equal(ax.mode, "mission");
+  assert.equal(ax.label(210), "T0");
+  assert.equal(ax.label(215, 0), "T+5");
+  assert.ok(ax.ticks.length > 0 && ax.ticks.every((k) => k.t >= 150 && k.t <= 250));
+  const k0 = ax.ticks.find((k) => k.label === "T0");
+  assert.ok(k0 && Math.abs(k0.t - 210) < 1e-9, "T0 tick sits at mission 2's T0");
+});

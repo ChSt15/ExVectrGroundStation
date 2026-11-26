@@ -22,10 +22,13 @@ export const MISSION_TIP = "x axis: mission time in seconds from T0 = mission be
  */
 export function missionAxis(clock, t0, t1, wantTicks = 6) {
   if (!clock.covers(t0, t1)) return { mode: "relative" };
-  const m0 = clock.missionTime(t0);
-  const m1 = clock.missionTime(t1);
+  // a window with two missions uses the clock of the mission that fills most of it (one T0 for the whole axis)
+  const dom = clock.dominant ? clock.dominant(t0, t1) : null;
+  const at = (t) => (dom ? t - dom.t0 : clock.missionTime(t));
+  const m0 = at(t0);
+  const m1 = at(t1);
   const label = (t, digits = 2) => {
-    const tm = clock.missionTime(t);
+    const tm = at(t);
     return tm === null ? "—" : fmtT(tm, digits);
   };
   const raw = niceTicks(Math.min(m0, m1), Math.max(m0, m1), wantTicks);
@@ -33,7 +36,7 @@ export function missionAxis(clock, t0, t1, wantTicks = 6) {
   const mid = (t0 + t1) / 2;
   const ticks = [];
   for (const tm of raw) {
-    const t = clock.toSample(tm, mid);
+    const t = dom ? tm + dom.t0 : clock.toSample(tm, mid);
     if (t !== null && t >= t0 && t <= t1) ticks.push({ t, label: fmtT(tm, digits) });
   }
   return { mode: "mission", ticks, title: MISSION_TITLE, tip: MISSION_TIP, label };

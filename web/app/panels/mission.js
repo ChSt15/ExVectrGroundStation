@@ -58,7 +58,7 @@ registerPanel({
         feed.reset();
         feed.feedAll((res.packets || []).filter((p) => p.type === M));
         const upto = feed.lastSample;
-        for (const s of keep) if (s.t > upto) feed.clock.add(s.t, s.tm, s.phase);
+        for (const s of keep) if (s.t > upto) feed.clock.add(s.t, s.tm, s.phase, s.mode);
       } catch (e) {
         if (my === gen) loadedKey = null; // retry on the next tick
       }

@@ -16,15 +16,18 @@ export class MissionTimeFeed {
     this.clock.clear();
     this.lastSample = -Infinity;
     this.lastPhase = undefined;
+    this.lastMode = undefined;
   }
 
   /** One MissionState packet ({t, f}); other types are ignored. Returns true when the clock took a sample. */
   feed(pkt) {
     if (!pkt || pkt.type !== "MissionState" || !pkt.f || typeof pkt.t !== "number") return false;
     const phase = pkt.f.mission_phase;
-    if (pkt.t - this.lastSample < SAMPLE_GAP_S && phase === this.lastPhase) return false;
+    const mode = pkt.f.mission_mode;
+    if (pkt.t - this.lastSample < SAMPLE_GAP_S && phase === this.lastPhase && mode === this.lastMode) return false;
     this.lastPhase = phase;
-    if (!this.clock.add(pkt.t, pkt.f.t_mission ?? null, phase)) return false;
+    this.lastMode = mode;
+    if (!this.clock.add(pkt.t, pkt.f.t_mission ?? null, phase, mode)) return false;
     this.lastSample = pkt.t;
     return true;
   }

@@ -258,3 +258,24 @@ test("clear cutoff hides events up to it, keeps the mission header of later even
   assert.equal(none.rows.length, 0, "an empty section loses its header");
   assert.equal(none.hidden, evs.length);
 });
+
+test("a restart without Completed gives a new section 'Mission 2' with its own mission time and an end reason", () => {
+  const ms = (t, tm, phase, mode) => ({ type: "MissionState", src: "usb", t, f: { t_mission: tm, mission_phase: phase, mission_mode: mode } });
+  const pk = [];
+  for (let i = 0; i < 8; i++) pk.push(ms(1000 + i, -3 + i, "Hover", "Startup"));
+  for (let i = 0; i < 20; i++) pk.push(ms(1008 + i, i, "Ascent", "Running"));
+  pk.push(ms(1028, 20, "Ascent", "Finished"));
+  pk.push(ms(1029, -4, "Hover", "Initialisation"));
+  pk.push(ms(1032, -1, "Hover", "Startup"));
+  pk.push(ms(1034, 1, "Hover", "Running"));
+  const r = deriveEvents(pk);
+  const heads = r.rows.filter((x) => x.kind === "header");
+  assert.equal(heads.length, 2);
+  assert.match(heads[1].text, /^Mission 2, begun at/);
+  assert.equal(r.missions[0].endReason, "restarted");
+  assert.ok(r.events.some((e) => e.text === "Mission end: a new mission started"));
+  const begins = r.events.filter((e) => e.text === "Mission begin (T0)");
+  assert.equal(begins.length, 2);
+  near(begins[1].tm, 0);
+  assert.equal(begins[1].section, 1);
+});
