@@ -359,7 +359,7 @@ Changed from before: left drag no longer pans (it draws the zoom box), panning i
 
 **Missing telemetry for tuning** (to be requested from the flight software; nothing is invented here): attitude setpoint (quaternion or angles) and attitude error; angular-rate setpoint; controller terms per axis (P, I, D contributions, integrator states, output saturation flags); commanded vs achieved thrust and torque (it is not documented whether `Actuators` is command or feedback); flap commands (`FlapState.cmd` is not sent by the vehicle); acceleration setpoint; estimator innovations / residuals (GNSS, baro, magnetometer) and covariance diagonals beyond att/vel/pos σ (gyro and accel bias σ); estimated linear acceleration; barometric altitude; task names and valid `max` values for `TaskTiming` (all NaN on the bench), loop period and jitter; battery voltage and current; motor RPM / ESC feedback; the mission plan (list of upcoming points, time to the next phase).
 
-## Mission events (panel `events`, Bench Mission column and Tuning view; `status/mission_events.js`, `panels/events.js`)
+## Mission events (panel `events`, Bench Mission column; `status/mission_events.js`, `panels/events.js`)
 
 A timestamp list of what happened when, display only (nothing is sent; the click-to-seek in replay moves the viewer, not the vehicle). Each row: **mission time** (the continuous mission clock of `status/mission_clock.js`: `T-` before T0, `T+` after, not the per-phase `t_mission`; `—` before the first mission started; after a mission's end it keeps counting from that mission's T0 until the next countdown), **wall time** (local, full date and time in the tooltip), a category icon, the text (`xN` = identical console/GS lines folded within 60 s) and the source packet type (tooltip). A new mission starts a section header `Mission N, begun at <time>` in the same list.
 
@@ -379,7 +379,7 @@ Events and their sources (one stateful deriver, the same code for the whole reco
 | link | source up / down, ship-node / Router link warnings and the vehicle losing the GS (`gs_present`, degraded bits 1 and 2) | `GsEvent`, `VehicleStatus` |
 | log | recording start / stop, operator notes, vehicle console lines: bellyflop kick started / finished, RTH descent starts, landing declared, and everything `callouts/log_patterns.js` classifies (WARNING / ERROR lines, refusals, calibration, countdown abort) | `GsEvent`, `Note`, `ConsoleText` |
 
-Limits: the telemetry carries the current mission step only, so "waypoint reached" is the reported waypoint or index changing, nothing more. `CmdApplied` exists on USB only. The core reduces the packets (`core/event_history.py`, a data reduction, not an interpretation); a recording with more than 100000 kept packets is cut and the status line says so. To show the panel elsewhere add `{"panel": "events"}` to a group of `config/layout.default.json` (a panel can be in one place per view only).
+Limits: the telemetry carries the current mission step only, so "waypoint reached" is the reported waypoint or index changing, nothing more. `CmdApplied` exists on USB only. The core reduces the packets (`core/event_history.py`, a data reduction, not an interpretation); a recording with more than 100000 kept packets is cut and the status line says so. To show the panel elsewhere add `{"panel": "events"}` to a group of the layout (for example a second group of the Tuning view; a panel can be in one place per view only, and not in a group and the dock at once). It is not in the shipped Tuning view or the dock.
 
 ## Known gaps
 

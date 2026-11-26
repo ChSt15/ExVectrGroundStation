@@ -138,7 +138,7 @@
     "tuning": {
       "label": "Tuning",
       "hint": "time-series graphs for filter and control tuning",
-      "columns": "minmax(0, 1fr) minmax(300px, 0.32fr)",
+      "columns": "minmax(0, 1fr)",
       "dock": "rail",
       "groups": [
         {
@@ -147,18 +147,6 @@
           "panels": [
             {
               "panel": "tuning"
-            }
-          ]
-        },
-        {
-          "id": "events",
-          "title": "Events",
-          "panels": [
-            {
-              "panel": "events",
-              "options": {
-                "height": "fill"
-              }
             }
           ]
         }
