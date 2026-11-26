@@ -140,7 +140,7 @@ registerPanel({
       status.textContent = loading ? "loading…" : `${n} event${n === 1 ? "" : "s"}${m ? `, ${m} mission${m === 1 ? "" : "s"}` : ""}${rows.length < model.rows.length ? ` (${model.rows.length - rows.length} hidden)` : ""}${note ? ` · ${note}` : ""}`;
     }
 
-    const pos = () => (ctx.view() === "replay" ? ctx.now() : null);
+    const pos = () => (ctx.view() === "replay" ? ctx.replayPos() ?? ctx.now() : null);
     function renderWindow(force) {
       const top = list.scrollTop;
       const first = Math.max(0, Math.floor(top / ROW_H) - OVERSCAN);
@@ -185,7 +185,7 @@ registerPanel({
     list.addEventListener("scroll", () => renderWindow(false));
 
     function seek(t) {
-      ctx.api.request("replay.seek", { t }).catch(() => {});
+      ctx.replaySeek(t, true);
     }
 
     async function load(key) {

@@ -3,11 +3,14 @@
 // right drag = selection box zoom (Shift time only, Ctrl y only), wheel / + / - = zoom, double click = reset,
 // Backspace / Escape = back. In replay (`replay: true` args) the cursor is the replay position bar: a click seeks, a
 // drag on the bar scrubs (onSeek). The math is in zoom.js, axes.js and replayview.js. Colours come from CSS tokens
-// (--s1..--s8, --grid, --axis, --dim, --fg) so both themes work.
+// (--s1..--s8, --grid, --axis, --dim, --fg) so both themes work. Two layers (docs/gui.md "Replay smoothness"): the grid,
+// axes and series are drawn to an offscreen canvas only when their key changes (layercache.js: data, window, axes, size,
+// theme), the cursor / bar and the selection box are drawn on top every paint, so moving the bar costs one blit.
 import { MIN_DRAG_PX, dragAction } from "./zoom.js";
 import { axisRange, hasRight, padsFor, sideOf } from "./axes.js";
 import { decimate, niceTicks, tickDigits } from "./series.js";
 import { nearBar } from "./replayview.js";
+import { LayerCache, layerKey } from "./layercache.js";
 
 const PAD = { l: 50, r: 10, t: 6, b: 20 };
 
@@ -26,6 +29,9 @@ export function createPlot(container, { onCursor, onPan, onZoom, onBox, onReset,
   let hgt = 0;
   let dpr = 1;
   let last = null; // last draw args, for hit testing and the PNG export
+  const layer = document.createElement("canvas"); // the cached series layer
+  const cache = new LayerCache();
+  let layerDraws = 0; // how often the layer was really drawn (tests, debug)
   const ro = new ResizeObserver(() => resize());
   ro.observe(container);
 
@@ -38,6 +44,9 @@ export function createPlot(container, { onCursor, onPan, onZoom, onBox, onReset,
     canvas.height = Math.floor(hgt * dpr);
     canvas.style.width = `${w}px`;
     canvas.style.height = `${hgt}px`;
+    layer.width = canvas.width;
+    layer.height = canvas.height;
+    cache.invalidate();
   }
   resize();
 
@@ -45,8 +54,32 @@ export function createPlot(container, { onCursor, onPan, onZoom, onBox, onReset,
   const xOf = (t, a) => pad.l + ((t - a.t0) / (a.t1 - a.t0)) * (w - pad.l - pad.r);
   const tOf = (x, a) => a.t0 + ((x - pad.l) / (w - pad.l - pad.r)) * (a.t1 - a.t0);
 
+  const themeKey = () => ["--fg", "--grid", "--axis", "--dim", "--s1", "--s2", "--s3", "--s4", "--s5", "--s6", "--s7", "--s8"].map((n) => css(container, n, "")).join("|");
+
+  /** Draw (or reuse) the series layer, then paint the overlay. Returns { yRange, yRangeR, points }. */
   function draw(args) {
-    const ctx = canvas.getContext("2d");
+    const key = layerKey({ w, h: hgt, dpr, t0: args.t0, t1: args.t1, yRange: args.yRange, yRangeR: args.yRangeR, series: args.series, axes: args.axes, xTicks: args.xTicks, xTitle: args.xTitle, colors: themeKey() });
+    if (!cache.valid(key)) {
+      cache.store(key, renderLayer(args));
+      layerDraws++;
+    }
+    const c = cache.value;
+    pad = c.pad;
+    last = { ...args, yRange: c.yr, yRangeR: c.yrR, barX: null };
+    paint();
+    return { yRange: c.yr, yRangeR: c.yrR, points: c.points };
+  }
+
+  /** Move the cursor / bar and hover cursor without redrawing the series (one blit plus the overlay). */
+  function setCursor(cursorT, hoverT) {
+    if (!last) return;
+    last.cursorT = cursorT;
+    last.hoverT = hoverT;
+    paint();
+  }
+
+  function renderLayer(args) {
+    const ctx = layer.getContext("2d");
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, hgt);
     const dual = hasRight(args.series);
@@ -158,6 +191,32 @@ export function createPlot(container, { onCursor, onPan, onZoom, onBox, onReset,
     });
     ctx.setLineDash([]);
     ctx.restore();
+    if (args.xTitle) {
+      ctx.textAlign = "right";
+      ctx.textBaseline = "top";
+      ctx.fillStyle = dim;
+      ctx.globalAlpha = 0.8;
+      ctx.fillText(args.xTitle, w - pad.r - 2, PAD.t + 2);
+      ctx.globalAlpha = 1;
+    }
+    // frame
+    ctx.strokeStyle = axis;
+    ctx.strokeRect(pad.l + 0.5, PAD.t + 0.5, w - pad.l - pad.r - 1, plotH - 1);
+    return { pad: { ...pad }, yr, yrR, points };
+  }
+
+  /** Blit the cached layer, then the cursors (live: one cursor; replay: the position bar and a thin hover cursor). */
+  function paint() {
+    if (!last) return;
+    const args = last;
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(layer, 0, 0);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const fg = css(container, "--fg", "#e6edf3");
+    const axis = css(container, "--axis", "rgba(128,128,128,.5)");
+    const plotH = hgt - PAD.t - PAD.b;
     // cursors: hover (live) / replay position bar (replay, thick) plus a thin dashed hover cursor
     let barX = null;
     const vline = (t, width, alpha, dash) => {
@@ -184,21 +243,9 @@ export function createPlot(container, { onCursor, onPan, onZoom, onBox, onReset,
         ctx.fillRect(barX - 4, PAD.t, 8, 4);
       }
     } else vline(args.cursorT, 1, 0.55, []);
-    if (args.xTitle) {
-      ctx.textAlign = "right";
-      ctx.textBaseline = "top";
-      ctx.fillStyle = dim;
-      ctx.globalAlpha = 0.8;
-      ctx.fillText(args.xTitle, w - pad.r - 2, PAD.t + 2);
-      ctx.globalAlpha = 1;
-    }
     // selection box
     if (sel) drawSel(ctx, axis);
-    // frame
-    ctx.strokeStyle = axis;
-    ctx.strokeRect(pad.l + 0.5, PAD.t + 0.5, w - pad.l - pad.r - 1, plotH - 1);
-    last = { ...args, yRange: yr, yRangeR: yrR, barX };
-    return { yRange: yr, yRangeR: yrR, points };
+    last.barX = barX;
   }
 
   const rect = () => ({ left: pad.l, top: PAD.t, width: w - pad.l - pad.r, height: hgt - PAD.t - PAD.b });
@@ -232,7 +279,7 @@ export function createPlot(container, { onCursor, onPan, onZoom, onBox, onReset,
   let sel = null; // { x0, y0, x1, y1, mode }
   let pan = null; // { x, y, x0, y0, moved }
   let scrub = false;
-  const redraw = () => last && draw(last);
+  const redraw = () => paint();
   const inPlotX = (x) => x >= pad.l && x <= w - pad.r;
   canvas.addEventListener("contextmenu", (e) => e.preventDefault());
   canvas.addEventListener("pointermove", (e) => {
@@ -377,6 +424,8 @@ export function createPlot(container, { onCursor, onPan, onZoom, onBox, onReset,
   return {
     canvas,
     draw,
+    setCursor,
+    layerDraws: () => layerDraws,
     toPng,
     destroy() {
       ro.disconnect();

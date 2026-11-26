@@ -26,7 +26,9 @@ const WINDOWS = [["10 s", 10], ["30 s", 30], ["2 min", 120], ["all", Infinity]];
 const LIVE_HISTORY_S = 130; // the core keeps about this much (PLOT_WINDOW_S)
 const RING = 16384; // > 130 s at 100 Hz
 const RING_REPLAY = REPLAY_MAX_POINTS + 4096; // the whole recording, thinned by the core to REPLAY_MAX_POINTS
-const FRAME_MS = 66; // about 15 redraws per second
+const FRAME_MS = 66; // about 15 full redraws per second
+const LEGEND_MS = 50; // replay: legend values at the bar, at most 20 per second
+const fmtV = (p, unit) => `${Number.isFinite(p.v) ? fmtNum(p.v, Math.abs(p.v) >= 100 ? 1 : Math.abs(p.v) >= 1 ? 2 : 3) : "NaN"} ${unit}`;
 const STORE_KEY = "exgs.tuning.graphs";
 const WIN_KEY = "exgs.tuning.window";
 
@@ -73,8 +75,6 @@ registerPanel({
     let presetS = windowS; // the selected window preset, what a reset returns to
     let loadedKey = null; // replay: the recording whose whole log is loaded
     let hoverT = null;
-    let seekTimer = 0;
-    let seekLast = 0;
     const mclock = new MissionClock();
     const zstack = new ZoomStack();
     let viewT = [0, 1]; // the time window drawn last
@@ -366,19 +366,13 @@ registerPanel({
       if (type === "MissionState") mclock.add(t, f.t_mission ?? null, f.mission_phase);
       feeder.push(type, t, f);
     }
-    // replay: seek the replay (display only: moves the viewer). Throttled while dragging, the last one is sent at once.
+    // replay: seek the replay (display only: moves the viewer). The bar shows the new position at once; the requests are
+    // throttled and coalesced, the last one is sent at once when the drag ends (ctx.replaySeek, main.js).
     function seekTo(t, final) {
       const range = replayRange();
       if (!range || !isReplay()) return;
-      const tt = clampToLog(t, range);
       cursorT = null;
-      const send = () => {
-        seekLast = performance.now();
-        ctx.api.request("replay.seek", { t: tt }).catch(() => {});
-      };
-      clearTimeout(seekTimer);
-      if (final || performance.now() - seekLast > 80) send();
-      else seekTimer = setTimeout(send, 80);
+      ctx.replaySeek(clampToLog(t, range), final);
     }
     async function loadHistory() {
       const gen = ++histGen;
@@ -439,9 +433,42 @@ registerPanel({
     let raf = 0;
     let points = 0;
     let frameMs = 0;
+    // replay: between the full frames (FRAME_MS) every animation frame only moves the bar (cached series layer, one blit
+    // plus the overlay), the legend values at the bar follow at most every LEGEND_MS (docs/gui.md "Replay smoothness")
+    let lastCur = null;
+    let lastHov = null;
+    let lastLegend = 0;
+    let nearMaxNow = 0.5;
+    function barFrame(ts) {
+      const cur = ctx.replayPos();
+      if (cur === null) return;
+      if (cur !== lastCur || cursorT !== lastHov) {
+        lastCur = cur;
+        lastHov = cursorT;
+        for (const c of cards) c.plot.setCursor(cur, cursorT);
+      }
+      if (ts - lastLegend >= LEGEND_MS) {
+        lastLegend = ts;
+        for (const c of cards) legendValues(c, cur, cursorT, nearMaxNow);
+      }
+    }
+    function legendValues(c, cur, hov, nearMax) {
+      for (const it of c.items) {
+        const ring = feeder.ring(it.x.sig);
+        const p = cur != null ? ring.nearest(cur, nearMax) : ring.length ? { t: ring.lastT, v: ring.vAt(ring.length - 1) } : null;
+        it.val.textContent = p ? ` ${fmtV(p, it.s.unit)}` : feeder.supplied.has(it.x.sig) ? " —" : " not received";
+        const ph = hov != null ? ring.nearest(hov, nearMax) : null;
+        it.hov.textContent = ph ? ` @ ${fmtV(ph, it.s.unit)}` : "";
+        it.el.dataset.missing = String(!feeder.supplied.has(it.x.sig));
+      }
+    }
     function frame(ts) {
       raf = requestAnimationFrame(frame);
-      if (ts - lastFrame < FRAME_MS || el.offsetParent === null || document.hidden) return;
+      if (el.offsetParent === null || document.hidden) return;
+      if (ts - lastFrame < FRAME_MS) {
+        if (isReplay() && !loading) barFrame(ts);
+        return;
+      }
       lastFrame = ts;
       const t0p = performance.now();
       const now = ctx.now();
@@ -455,7 +482,7 @@ registerPanel({
         if (!loading && loadedKey !== logKey(rs) && ctx.api.state === "open") loadHistory(); // a log opened or changed
       }
       const [t0, t1] = replay
-        ? replayWindow({ range, pos: now, windowS, frozen: paused && endT != null ? [endT - windowS, endT] : null })
+        ? replayWindow({ range, pos: ctx.replayPos() ?? now, windowS, frozen: paused && endT != null ? [endT - windowS, endT] : null })
         : viewWindow({ now, windowS, follow: !paused, endT, firstT: dataFirst() });
       viewT = [t0, t1];
       const ax = missionAxis(mclock, t0, t1, Math.max(3, Math.floor(el.clientWidth / 140)));
@@ -467,11 +494,14 @@ registerPanel({
       // live: the cursor is the hover (legends show the latest values without hover). Replay: the cursor is the
       // replay position bar (the legends show the values at the bar) and the hover is a second, thinner cursor whose
       // values are shown dimmed in the legends after "@".
-      const barT = replay && rs && rs.t != null ? rs.t : null;
+      const barT = replay && rs && rs.t != null ? ctx.replayPos() ?? rs.t : null;
       const cur = replay ? barT : cursorT;
       const hov = replay ? cursorT : null;
       const nearMax = replay ? Math.max(0.5, (t1 - t0) / 400) : 0.5;
-      const fmtV = (p, unit) => `${Number.isFinite(p.v) ? fmtNum(p.v, Math.abs(p.v) >= 100 ? 1 : Math.abs(p.v) >= 1 ? 2 : 3) : "NaN"} ${unit}`;
+      nearMaxNow = nearMax;
+      lastCur = cur;
+      lastHov = hov;
+      lastLegend = ts;
       points = 0;
       cards.forEach((c, gi) => {
         const g = graphs[gi];
@@ -481,7 +511,7 @@ registerPanel({
           return slots.size === 1 ? seriesColor(c.card, [...slots][0]) : null;
         };
         const r = c.plot.draw({
-          t0, t1, series: g.series.map((x) => ({ rs: feeder.ring(x.sig), slot: x.slot, dash: x.dash, axis: x.axis })),
+          t0, t1, series: g.series.map((x) => ({ id: x.sig, rs: feeder.ring(x.sig), slot: x.slot, dash: x.dash, axis: x.axis })),
           yRange: manualRange(c.ax.L.auto.checked, c.ax.L.min.value, c.ax.L.max.value),
           yRangeR: dual ? manualRange(c.ax.R.auto.checked, c.ax.R.min.value, c.ax.R.max.value) : null,
           axes: dual ? { L: { label: axisTitle(g, "L"), color: colorOf("L") }, R: { label: axisTitle(g, "R"), color: colorOf("R") } } : null,
@@ -490,14 +520,7 @@ registerPanel({
         c.ax.L.lastY = c.lastY = r.yRange;
         c.ax.R.lastY = r.yRangeR;
         points += r.points;
-        for (const it of c.items) {
-          const ring = feeder.ring(it.x.sig);
-          const p = cur != null ? ring.nearest(cur, nearMax) : ring.length ? { t: ring.lastT, v: ring.vAt(ring.length - 1) } : null;
-          it.val.textContent = p ? ` ${fmtV(p, it.s.unit)}` : feeder.supplied.has(it.x.sig) ? " —" : " not received";
-          const ph = hov != null ? ring.nearest(hov, nearMax) : null;
-          it.hov.textContent = ph ? ` @ ${fmtV(ph, it.s.unit)}` : "";
-          it.el.dataset.missing = String(!feeder.supplied.has(it.x.sig));
-        }
+        legendValues(c, cur, hov, nearMax);
       });
       frameMs = performance.now() - t0p;
       const span = t1 - t0;
@@ -542,7 +565,7 @@ registerPanel({
           rings[k] = r.length;
           if (r.length) ranges[k] = [r.firstT, r.lastT];
         }
-        return { ranges, graphs: graphs.map((g) => ({ title: g.title, series: g.series.map((x) => x.sig) })), windowS: Number.isFinite(windowS) ? windowS : "all", paused, viewT, axisMode, zoomDepth: zstack.length, ys: cards.map((c) => (c.yAuto.checked ? "auto" : [Number(c.yMin.value), Number(c.yMax.value)])), ysR: cards.map((c, i) => (hasRight(graphs[i].series) ? (c.ax.R.auto.checked ? "auto" : [Number(c.ax.R.min.value), Number(c.ax.R.max.value)]) : null)), axes: graphs.map((g) => g.series.map((x) => sideOf(x))), replayKey: loadedKey, replayT: ctx.status()?.replay?.t ?? null, points, frameMs, rings, supplied: [...feeder.supplied], status };
+        return { ranges, graphs: graphs.map((g) => ({ title: g.title, series: g.series.map((x) => x.sig) })), windowS: Number.isFinite(windowS) ? windowS : "all", paused, viewT, axisMode, zoomDepth: zstack.length, ys: cards.map((c) => (c.yAuto.checked ? "auto" : [Number(c.yMin.value), Number(c.yMax.value)])), ysR: cards.map((c, i) => (hasRight(graphs[i].series) ? (c.ax.R.auto.checked ? "auto" : [Number(c.ax.R.min.value), Number(c.ax.R.max.value)]) : null)), axes: graphs.map((g) => g.series.map((x) => sideOf(x))), replayKey: loadedKey, replayT: ctx.replayPos() ?? ctx.status()?.replay?.t ?? null, replayStatusT: ctx.status()?.replay?.t ?? null, layerDraws: cards.map((c) => c.plot.layerDraws()), points, frameMs, rings, supplied: [...feeder.supplied], status };
       },
     };
     (window.exgs ??= {}).tuning = inst;

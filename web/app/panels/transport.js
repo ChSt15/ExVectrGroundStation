@@ -3,7 +3,6 @@ import { h } from "../ui.js";
 import { fmtClock } from "../fmt.js";
 
 const SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
-const SEEK_THROTTLE_MS = 100; // at most 10 seeks per second while dragging
 
 registerPanel({
   id: "transport",
@@ -22,8 +21,6 @@ registerPanel({
     el.append(h("div", { class: "toolbar transport" }, play, back, slider, time, fwd, speed), msg);
 
     let dragging = false;
-    let lastSeek = 0;
-    let pendingTimer = null;
 
     const st = () => ctx.status()?.replay || { state: "closed" };
     const span = () => {
@@ -45,31 +42,29 @@ registerPanel({
       send(r.state === "playing" ? "replay.pause" : "replay.play");
     }
     function jump(dt) {
-      const r = st();
-      if (r.t == null) return;
-      send("replay.seek", { t: Math.min(r.t_end, Math.max(r.t_start, r.t + dt)) });
+      const p = ctx.replayPos();
+      if (p == null) return;
+      ctx.replaySeek(p + dt, true);
     }
     function seekFromSlider() {
       const r = st();
       if (r.t_start == null) return;
       const t = r.t_start + (Number(slider.value) / 1000) * span();
-      const now = performance.now();
-      clearTimeout(pendingTimer);
-      if (now - lastSeek >= SEEK_THROTTLE_MS) {
-        lastSeek = now;
-        send("replay.seek", { t });
-      } else {
-        pendingTimer = setTimeout(() => {
-          lastSeek = performance.now();
-          send("replay.seek", { t });
-        }, SEEK_THROTTLE_MS - (now - lastSeek));
-      }
+      ctx.replaySeek(t, false); // shown at once, the request is throttled (main.js)
     }
     slider.addEventListener("pointerdown", () => (dragging = true));
     slider.addEventListener("input", seekFromSlider);
-    const endDrag = () => (dragging = false);
+    const endDrag = () => {
+      if (!dragging) return;
+      dragging = false;
+      const r = st();
+      if (r.t_start != null) ctx.replaySeek(r.t_start + (Number(slider.value) / 1000) * span(), true); // the final position, sent at once
+    };
     slider.addEventListener("pointerup", endDrag);
-    slider.addEventListener("change", endDrag);
+    slider.addEventListener("change", () => {
+      dragging = true; // also a keyboard change: always end with a final seek
+      endDrag();
+    });
 
     function onKey(e) {
       if (ctx.view() !== "replay") return;
@@ -100,7 +95,8 @@ registerPanel({
         time.textContent = "--:-- / --:--";
         return;
       }
-      const t = r.t - r.t_start;
+      const p = ctx.replayPos();
+      const t = (p ?? r.t) - r.t_start;
       if (!dragging) slider.value = String(span() > 0 ? Math.round((t / span()) * 1000) : 0);
       time.textContent = `${fmtClock(t)} / ${fmtClock(span())}${r.state === "ended" ? " (end)" : ""}`;
       if (document.activeElement !== speed) speed.value = String(r.speed);

@@ -1,5 +1,6 @@
 // GUI shell (design section 5, redesign 2026-11-20): connections, store, top area (data-source banner, header,
 // status bar), the view's groups and the Operations dock. docs/gui.md describes the structure.
+import { Playhead, createCoalescer } from "./status/replay_playhead.js";
 import { Api } from "./ws.js";
 import { Store } from "./store.js";
 import * as fmt from "./fmt.js";
@@ -27,7 +28,11 @@ document.addEventListener("contextmenu", (e) => {
 });
 
 const TICK_MS = 100;
+const SEEK_MIN_MS = 70; // replay.seek requests while dragging: at most one per 70 ms, the last one is always sent
 const store = new Store();
+const playhead = new Playhead(); // replay position shown by the GUI, extrapolated between status pushes
+// replay.seek requests of the transport, the graphs' bar and the events list: throttled and coalesced
+const seeker = createCoalescer((t) => api.request("replay.seek", { t }).catch(() => {}), SEEK_MIN_MS);
 let view = "live"; // data view: live or replay (the core's views)
 let status = null;
 let layout = null;
@@ -117,8 +122,8 @@ function onMainMessage(msg) {
       status = msg;
       store.setClock("live", msg.clock);
       if (msg.replay && typeof msg.replay.t === "number") {
-        store.setClock("replay", msg.replay.t, msg.replay.state === "playing" ? msg.replay.speed : 0);
-      }
+        if (playhead.push(msg.replay, performance.now())) store.setClock("replay", msg.replay.t, msg.replay.state === "playing" ? msg.replay.speed : 0);
+      } else playhead.push(null, performance.now());
       for (const m of mounted) m.inst.onStatus?.(status);
       renderTop();
       break;
@@ -191,6 +196,18 @@ function makeCtx(entry, getM) {
     options: (entry && entry.options) || {},
     view: () => view,
     status: () => status,
+    /** Replay position (log seconds), smooth between status pushes; null while no log is open. */
+    replayPos: () => playhead.position(performance.now()),
+    /** True while the user drags a replay scrubber (panels may postpone heavy refetches). */
+    replayDragging: () => playhead.isDragging(performance.now()),
+    /** Seek the replay to t (log seconds): the position shows at once, the request is throttled while `final` is false. */
+    replaySeek(t, final = true) {
+      const rs = status?.replay;
+      if (!rs || rs.t_start == null) return;
+      const tt = Math.max(rs.t_start, Math.min(rs.t_end, t));
+      playhead.set(tt, final, performance.now());
+      seeker.call(tt, final);
+    },
     rc: () => rcState,
     rates: () => ratesData,
     requests: () => reqPush,

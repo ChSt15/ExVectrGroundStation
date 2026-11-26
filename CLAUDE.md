@@ -45,6 +45,8 @@ Status: `feature/home-display` (owner issue 2026-11-26): home position and the G
 
 Status: `feature/gnss-display` (user request 2026-11-21): GNSS panel (`gnss`, Bench view), estimated-vs-GNSS altitude cross-check (display and optional `Altitude mismatch` callout, `altcheck` settings), merged `Gps` from `AIR_GNSS` / `AIR_GNSS_INFO` / USB `GNSS`, `HomePosition` and `VehicleStatus.home_epoch` decoded (no home request path yet). **Pin `425ed9c` (schema hash 0x365B8308) is LOCAL ONLY (workspace `ExVectrPackets` branch `feature/gnss-home`, not on GitHub): do not deploy this branch while the vehicle, Router or ship radio node still run 0xBFF82392** (`docs/wire-profiles.md`).
 
+Status: `feature/replay-smooth` (owner report 2026-11-26): replay playhead extrapolated between the 2 Hz status pushes (`web/app/status/replay_playhead.js`), cached series layer so a moving bar only blits and draws the overlay (`web/app/plot/layercache.js`), optimistic scrubbing with throttled `replay.seek` (70 ms, last always sent), 3D path refetch debounced; GUI only, no core change (`docs/gui.md` "Replay smoothness").
+
 ## Setup and commands
 
 ```bash
