@@ -11,6 +11,7 @@ The vehicle's USB telemetry (`usb`, full set, 50 to 100 Hz) and the Router's rad
 | Attitude | `q` | U | L | |
 | Attitude | `omega` | U | - | radio `AIR_POSE` has no body rates |
 | Position | `pos`, `vel` | U | L | |
+| MissionState | `mission_elapsed` | U | L | whole-mission clock of the vehicle (schema 0xF49ACD01), None when absent; the GUI falls back to a derived clock |
 | Position | `ground_distance` | U | L | moved here from Actuators (schema 0x93EF9C5F); both sets carry it |
 | Actuators | `flaps`, `tvc`, `thrust` | U | L | |
 | Actuators | `roll_torque` | U | L | gap filled by schema 0x414DE27A (USB `ACTUATORS` carries it; older sender: `None`) |

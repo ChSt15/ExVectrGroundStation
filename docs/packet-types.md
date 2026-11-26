@@ -94,6 +94,7 @@ Version 1, direction `down`, nominal rate 2 Hz, history: yes.
 | `mission_mode` | enum (MissionMode: Idle=0, Initialisation=1, Startup=2, Running=3, Finished=4) | - |  |
 | `mission_phase` | enum (MissionPhase: Idle=0, Hover=1, Ascent=2, Descent=3, Deceleration=4, RTH=5, Landing=6, Completed=7) | - |  |
 | `t_mission` | time_ns | ns | mission time, negative during countdown |
+| `mission_elapsed` | float | s | seconds since the mission's T0 as the vehicle counts them (MISSION 0x82, AIR_MISSION 0x23, schema 0xF49ACD01): negative during the countdown, 0 at T0, continuous across all mission steps (t_mission restarts per step), reset by the next mission begin, the final value held after the mission chain ends. None = no mission begun since boot / after a reset to Idle, or an older sender or link without the field |
 | `mission_index` | int | - |  |
 | `waypoint` | int | - | current waypoint of the waypoint mission; only AIR_MISSION carries it, None = not that mission |
 | `flip_start_altitude` | float | m | altitude (NWU up) at which the vehicle begins the upright flip = its getStopAltitude(); sent only during the bellyflop freefall, None = not sent / older sender |

@@ -3,19 +3,17 @@
 // grows past `maxPoints`, the OLD part is decimated (every second point of the older half), never dropped. The
 // `windowS` of the config (`trail_window_s`) only sets the colour fade (newest bright, older dimmer, floor 20 %).
 
-export const NEW_MISSION_MODES = ["Initialisation", "Startup", "Running"];
+import { NEW_MISSION_MODES, restartKind } from "../status/mission_clock.js";
+export { NEW_MISSION_MODES };
 
 /**
- * New mission detection, the ONE place that decides it (to be swapped for a shared mission clock module later).
- * prev / cur: { mode, tMission } from MissionState (mission_mode string, t_mission seconds), same source.
- * A new mission begins when the mode leaves Idle or Finished for Initialisation / Startup / Running (the same rule as
- * the "Mission beginning" callout, plus Finished), or the mission time jumps from >= 0 back into a countdown (< 0).
+ * New mission detection: the shared rules of status/mission_clock.js `restartKind` (mode leaves Idle or Finished for
+ * Initialisation / Startup / Running, or t_mission jumps from >= 0 back into a countdown, or the phase goes back to the
+ * first phase). prev / cur: { mode, tMission, phase? } from MissionState.
  */
 export function isNewMission(prev, cur) {
   if (!prev || !cur) return false;
-  const began = (prev.mode === "Idle" || prev.mode === "Finished") && NEW_MISSION_MODES.includes(cur.mode);
-  const countdown = Number.isFinite(prev.tMission) && Number.isFinite(cur.tMission) && prev.tMission >= 0 && cur.tMission < 0;
-  return began || countdown;
+  return restartKind({ mode: prev.mode, tm: prev.tMission, phase: prev.phase }, { mode: cur.mode, tm: cur.tMission, phase: cur.phase }) !== null;
 }
 
 const okPoint = (t, p) => Number.isFinite(t) && Array.isArray(p) && p.length === 3 && p.every(Number.isFinite);

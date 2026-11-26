@@ -179,12 +179,18 @@ def _sp_q(m: dict) -> list[float]:
     return list(m.get("sp_q") or [0.0, 0.0, 0.0, 0.0])  # all zero = no attitude setpoint
 
 
+def _elapsed(m: dict) -> int:
+    """mission_elapsed (fixed i32 at 0.001 s, INT32_MIN = NaN / None)."""
+    x = m.get("mission_elapsed")
+    return _fx(math.nan if x is None else x, 0.001, -(2**31) + 1, 2**31 - 1, -(2**31))
+
+
 def pack_air_mission(t_us: int, m: dict, waypoint: int = 255) -> bytes:
     ms = _fx(m["t_mission"] / 1e9, 0.001, -(2**31) + 1, 2**31 - 1, -(2**31))
     pos = [_fx(x, 0.001, -(2**31) + 1, 2**31 - 1, -(2**31)) for x in m["sp_pos"]]
     vel = [i16(x, 0.01) for x in m["sp_vel"]]
     return struct.pack(
-        "<IiBBBB3i3h4h2h",
+        "<IiBBBB3i3h4h2hi",
         t_us,
         ms,
         int(m["mission_mode"]),
@@ -195,11 +201,12 @@ def pack_air_mission(t_us: int, m: dict, waypoint: int = 255) -> bytes:
         *vel,
         *(i16(x, 1 / 32768) for x in _sp_q(m)),
         *(_fx(m.get(k, math.nan), 0.1, -32767, 32767, -32768) for k in ("flip_start_altitude", "stop_altitude")),
+        _elapsed(m),
     )
 
 
 def pack_mission(t_us: int, m: dict, with_mode: bool = True) -> bytes:
-    """MISSION (60 B): mission_mode and waypoint (255 = not the waypoint mission) are appended; `with_mode` False =
+    """MISSION (64 B): mission_mode and waypoint (255 = not the waypoint mission) are appended; `with_mode` False =
     older 50 B sender."""
     ms = _fx(m["t_mission"] / 1e9, 0.001, -(2**31) + 1, 2**31 - 1, -(2**31))
     pl = struct.pack(
@@ -209,7 +216,8 @@ def pack_mission(t_us: int, m: dict, with_mode: bool = True) -> bytes:
     if not with_mode:
         return pl
     pl += bytes([int(m["mission_mode"]), 255 if wp is None else wp])
-    return pl + struct.pack("<2f", m.get("flip_start_altitude", math.nan), m.get("stop_altitude", math.nan))
+    pl += struct.pack("<2f", m.get("flip_start_altitude", math.nan), m.get("stop_altitude", math.nan))
+    return pl + struct.pack("<i", _elapsed(m))
 
 
 def pack_gnss(t_us: int, g: dict, fix_type: int = 3) -> bytes:

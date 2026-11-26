@@ -44,7 +44,7 @@ def test_mirror_has_the_new_action_ids_and_matches_the_generated_enum():
         assert RequestAction[name] == value == xp.RequestAction[name]
     assert RequestAction.CALIB_APPLY == 7 and RequestAction.SAVE_CONFIG == 8
     assert {m.name: m.value for m in RequestAction} == {m.name: m.value for m in xp.RequestAction}
-    assert xp.SCHEMA_HASH == 0x93EF9C5F
+    assert xp.SCHEMA_HASH == 0xF49ACD01
 
 
 # ---------------------------------------------------------------- config

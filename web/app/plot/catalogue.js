@@ -283,7 +283,7 @@ export const HISTORY_FIELDS = {
   Attitude: ["q", "omega"],
   Position: ["pos", "vel"],
   Gps: ["alt", "fix_type", "lat", "lon"],
-  MissionState: ["sp_pos", "sp_vel", "t_mission", "mission_phase"],
+  MissionState: ["sp_pos", "sp_vel", "t_mission", "mission_phase", "mission_mode", "mission_elapsed"],
   Actuators: ["flaps", "tvc", "thrust", "roll_torque"],
   FlapState: ["angle", "cmd"],
   TvcState: ["vane", "motor"],

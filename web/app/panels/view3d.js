@@ -281,7 +281,7 @@ registerPanel({
         } else if (pkt.type === "MissionState" && pkt.f.mission_mode !== undefined) {
           const src = lookup("MissionState")?.src;
           if (!src || pkt.src === src) {
-            const cur = { mode: pkt.f.mission_mode, tMission: pkt.f.t_mission };
+            const cur = { mode: pkt.f.mission_mode, tMission: pkt.f.t_mission, phase: pkt.f.mission_phase };
             if (isNewMission(prevMission, cur)) {
               clearT = pkt.t;
               trail.clear();

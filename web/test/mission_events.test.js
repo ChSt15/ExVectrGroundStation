@@ -258,3 +258,39 @@ test("clear cutoff hides events up to it, keeps the mission header of later even
   assert.equal(none.rows.length, 0, "an empty section loses its header");
   assert.equal(none.hidden, evs.length);
 });
+
+test("a restart without Completed gives a new section 'Mission 2' with its own mission time and an end reason", () => {
+  const ms = (t, tm, phase, mode) => ({ type: "MissionState", src: "usb", t, f: { t_mission: tm, mission_phase: phase, mission_mode: mode } });
+  const pk = [];
+  for (let i = 0; i < 8; i++) pk.push(ms(1000 + i, -3 + i, "Hover", "Startup"));
+  for (let i = 0; i < 20; i++) pk.push(ms(1008 + i, i, "Ascent", "Running"));
+  pk.push(ms(1028, 20, "Ascent", "Finished"));
+  pk.push(ms(1029, -4, "Hover", "Initialisation"));
+  pk.push(ms(1032, -1, "Hover", "Startup"));
+  pk.push(ms(1034, 1, "Hover", "Running"));
+  const r = deriveEvents(pk);
+  const heads = r.rows.filter((x) => x.kind === "header");
+  assert.equal(heads.length, 2);
+  assert.match(heads[1].text, /^Mission 2, begun at/);
+  assert.equal(r.missions[0].endReason, "restarted");
+  assert.ok(r.events.some((e) => e.text === "Mission end: a new mission started"));
+  const begins = r.events.filter((e) => e.text === "Mission begin (T0)");
+  assert.equal(begins.length, 2);
+  near(begins[1].tm, 0);
+  assert.equal(begins[1].section, 1);
+});
+
+test("telemetry primary: mission_elapsed resets give the sections; times come from it, not from t_mission or the phase", () => {
+  const ms = (t, el) => ({ type: "MissionState", src: "usb", t, f: { t_mission: 3, mission_phase: "Ascent", mission_mode: "Running", mission_elapsed: el } });
+  const pk = [];
+  for (let i = 0; i < 15; i++) pk.push(ms(1000 + i, -4 + i)); // T0 at 1004
+  for (let i = 0; i < 10; i++) pk.push(ms(1020 + i, -6 + i)); // reset, same phase and mode
+  const r = deriveEvents(pk);
+  assert.equal(r.rows.filter((x) => x.kind === "header").length, 2);
+  assert.equal(r.missions[0].endReason, "restarted");
+  const begins = r.events.filter((e) => e.text === "Mission begin (T0)");
+  assert.equal(begins.length, 2);
+  near(begins[0].t, 1004);
+  near(begins[1].t, 1026);
+  near(r.events.find((e) => e.text === "Mission countdown started" && e.section === 1).tm, -6);
+});

@@ -363,7 +363,7 @@ registerPanel({
 
     // ---------------------------------------------------------------- data
     function feed(type, t, f) {
-      if (type === "MissionState") mclock.add(t, f.t_mission ?? null, f.mission_phase);
+      if (type === "MissionState") mclock.add(t, f.t_mission ?? null, f.mission_phase, f.mission_mode, f.mission_elapsed);
       feeder.push(type, t, f);
     }
     // replay: seek the replay (display only: moves the viewer). The bar shows the new position at once; the requests are

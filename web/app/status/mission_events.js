@@ -78,6 +78,7 @@ export class MissionEvents {
     this.lastText = new Map(); // `${type}|${text}` -> event, for the repeat folding
     this.lastSample = -Infinity;
     this.lastPhase = undefined;
+    this.lastMode = undefined;
     this.maxT = -Infinity;
   }
 
@@ -175,9 +176,10 @@ export class MissionEvents {
   _missionState(pkt, f) {
     const t = pkt.t;
     const tm = f.t_mission;
-    if (t - this.lastSample >= SAMPLE_GAP_S || f.mission_phase !== this.lastPhase) {
-      if (this.clock.add(t, num(tm) ? tm : null, f.mission_phase)) this.lastSample = t;
+    if (t - this.lastSample >= SAMPLE_GAP_S || f.mission_phase !== this.lastPhase || f.mission_mode !== this.lastMode) {
+      if (this.clock.add(t, num(tm) ? tm : null, f.mission_phase, f.mission_mode, f.mission_elapsed)) this.lastSample = t;
       this.lastPhase = f.mission_phase;
+      this.lastMode = f.mission_mode;
     }
     const type = "MissionState";
     const phase = this._change("mission_phase", pkt.src, f.mission_phase, t);
@@ -305,10 +307,10 @@ export class MissionEvents {
     const out = [];
     this.clock.missions.forEach((m, i) => {
       const mk = (t, text, tone, seq) => ({ t, tm: null, wall: t, cat: "mission", tone, text, type: "MissionState", count: 1, section: -1, seq: seq === 2 ? 1e12 + i : -1000 + seq + i * 10 });
-      out.push(mk(m.start, m.partial ? "Mission already running when the data begins (T0 not known)" : "Mission countdown started", "info", 0));
+      out.push(mk(m.start, m.partial ? `Mission already running when the data begins${m.t0Known ? "" : " (T0 not known)"}` : "Mission countdown started", "info", 0));
       if (m.t0Known && !m.partial) out.push(mk(m.t0, "Mission begin (T0)", "ok", 1));
       if (m.end !== null) {
-        const why = { completed: "Mission end: Completed", reset: "Mission end: reset to Idle", "clock lost": "Mission end: mission clock lost (no MissionState)" }[m.endReason] || "Mission end";
+        const why = { completed: "Mission end: Completed", reset: "Mission end: reset to Idle", "clock lost": "Mission end: mission clock lost (no MissionState)", restarted: "Mission end: a new mission started", held: "Mission end: mission time stopped (final value held)" }[m.endReason] || "Mission end";
         out.push(mk(m.end, why, m.endReason === "completed" ? "ok" : "warn", 2));
       }
     });
@@ -333,7 +335,7 @@ export class MissionEvents {
         rows.push({ kind: "header", t: m.start, n: sec + 1, mission: m, text: `Mission ${sec + 1}, begun at ${fmtWall(m.start)}${m.partial ? " (already running at start of data)" : ""}` });
       }
       e.section = sec;
-      e.tm = sec >= 0 ? e.t - missions[sec].t0 : null;
+      e.tm = sec >= 0 ? this.clock.timeIn(missions[sec], e.t) : null;
       rows.push({ kind: "event", ...e });
     }
     return { rows, events: all, missions };
