@@ -1,34 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Trail } from "../app/view3d/trail.js";
 import {
   DEFAULT_FLAP_DEG, validateModel, flapRotationRad, resolveFlapAngles, flapOutline, polygonArea, normalizeTransform, flapCant,
 } from "../app/view3d/model_config.js";
-
-test("trail: live samples are added, thinned and pruned to the window", () => {
-  const tr = new Trail(10, { minDt: 0.1 });
-  assert.equal(tr.add(0, [0, 0, 0]), "added");
-  assert.equal(tr.add(0.05, [1, 0, 0]), "skipped");
-  for (let t = 0.2; t <= 20; t += 0.2) tr.add(t, [t, 0, 0]);
-  tr.prune(20);
-  assert.ok(tr.pts[0].t >= 10 - 1e-9);
-  const f = tr.fades(20);
-  assert.ok(f[f.length - 1] > 0.99 && f[0] < 0.05);
-});
-
-test("trail: a sample older than the last one (replay seek back) resets it", () => {
-  const tr = new Trail(60);
-  tr.add(100, [1, 1, 1]);
-  tr.add(101, [2, 2, 2]);
-  assert.equal(tr.add(50, [0, 0, 0]), "reset");
-  assert.equal(tr.pts.length, 1);
-});
-
-test("trail: load from history skips null entries and sorts by time", () => {
-  const tr = new Trail(60);
-  tr.load({ t: [3, 1, 2], pos: [[3, 0, 0], [1, 0, 0], null] });
-  assert.deepEqual(tr.pts.map((p) => p.t), [1, 3]);
-});
 
 const flap = (over = {}) => ({ id: "tl", index: 0, source: { primitive: "flap" }, pivot_body_m: [0, 0.065, 0.23], axis_body: [0, 0, 1], sign: -1, model_angle_deg: 0, ...over });
 

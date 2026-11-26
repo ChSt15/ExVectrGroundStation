@@ -148,7 +148,7 @@ class VehicleState(Packet):
     version=1,
     direction=Direction.DOWN,
     nominal_rate_hz=2,
-    history=False,
+    history=True,  # 2 Hz: the 3D path finds mission starts from it (get_history buffer "trail")
     desc="Mission progress and guidance setpoints.",
 )
 class MissionState(Packet):
