@@ -31,6 +31,7 @@ Version 1, direction `down`, nominal rate 10 Hz, history: yes.
 | `vel` | float_array[3] | m/s | velocity, NWU Elements: x, y, z. |
 | `h_acc` | float | - | horizontal accuracy. Legacy value has no physical unit (known issue) |
 | `v_acc` | float | - | vertical accuracy. Legacy value has no physical unit (known issue) |
+| `ground_distance` | float | m | downward lidar distance to the ground (POSE 0x80, AIR_POSE 0x21, schema 0x93EF9C5F). None = unavailable (NaN on the wire: out of the useful range 0.4 to 1.5 m, or an older sender). Moved from Actuators. |
 
 ## Gps
 
@@ -225,7 +226,7 @@ Version 1, direction `down`, nominal rate n/a, history: no.
 
 ## Actuators
 
-exvectr_packets ACTUATORS: flap angles, TVC deflection, thrust, ground distance.
+exvectr_packets ACTUATORS: flap angles, TVC deflection, thrust (ground distance moved to Position).
 
 Version 1, direction `down`, nominal rate 10 Hz, history: yes.
 
@@ -234,7 +235,6 @@ Version 1, direction `down`, nominal rate 10 Hz, history: yes.
 | `flaps` | float_array[4] | rad | 0 = extended, increasing = folded Elements: tl, tr, bl, br. |
 | `tvc` | float_array[2] | rad | thrust vector deflection Elements: x, y. |
 | `thrust` | float | N |  |
-| `ground_distance` | float | m | NaN if unavailable |
 | `roll_torque` | float | N*m | TVC twist (roll) torque about body Z (AIR_ACTUATORS and USB ACTUATORS); None = unknown |
 
 ## HandsetTelem

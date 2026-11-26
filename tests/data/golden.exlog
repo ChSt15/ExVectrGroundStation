@@ -2,7 +2,7 @@
 #meta started=2026-11-18T14:03:12.481+01:00 gs=0.1.0 host=fieldpc profile=provisional-1 label=hover-test
 1763471000100000000 gs GsEvent kind=rec_start detail="manual"
 1763471000123456789 link Attitude omega=[0.0123,-0.0041,0.0007] q=[0.99981,0.0102,-0.0163,0.0021] tilt_acc=0.0035 north_acc=0.021
-1763471000125001000 link Position pos=[0.12,-0.31,2.47] vel=[0.02,-0.01,0.85] h_acc=0.4 v_acc=0.2
+1763471000125001000 link Position pos=[0.12,-0.31,2.47] vel=[0.02,-0.01,0.85] h_acc=0.4 v_acc=0.2 ground_distance=1.234
 1763471000130000000 link Gps lat=0.8996 lon=0.0 alt=102.47 vel=[0.02,-0.01,0.85] num_sats=12 pos_acc=1.5 alt_acc=2.0 vel_acc=0.1
 1763471000140220000 link VehicleState mode=Running sensor_gnss=Ready sensor_imu=Ready sensor_baro=Ready sensor_mag=Ready sensor_att_kf=Ready sensor_pos_kf=Ready fail_sensor=false fail_radio_loss=false sim=false armed=true tvc_thrust=[0.12,-0.05,11.8] tvc_torque=0.01
 1763471000150000000 link MissionState sp_vel=[0.0,0.0,0.5] sp_pos=[0.0,0.0,3.0] mission_mode=Running mission_phase=Ascent t_mission=4250000000 mission_index=0 waypoint=3
@@ -17,7 +17,7 @@
 1763471000412000000 link RawFrame channel=77 len=4 hex="0a1f00c8" err="unknown channel"
 1763471001000000000 gs Note text="gusts from the west, ~3 m/s"
 1763471001100000000 usb VehicleStatus vehicle_time=123456789012 mode=Running mission_mode=Running mission_phase=Ascent ctrl_source=GS armed=true simulation=true motors_enabled=false gs_present=true incompatible=false failsafe=false failure_bits=0 sensor_state=5 last_req_id=7 last_req_status=0 rc_age=0.04 home_epoch=2 calib_state=23 calib_gyro_ok=true calib_accel_ok=true calib_mag_ok=true calib_session=false ready_to_arm=true
-1763471001100001000 usb Actuators flaps=[0.1,0.2,0.3,0.4] tvc=[0.01,-0.02] thrust=11.8 ground_distance=nan roll_torque=0.012
+1763471001100001000 usb Actuators flaps=[0.1,0.2,0.3,0.4] tvc=[0.01,-0.02] thrust=11.8 roll_torque=0.012 ground_distance=nan
 1763471001100002000 link HandsetTelem armed=true failure=false simulation=true gnss_fix=true mode_text="RUN" latitude=0.8996 longitude=0.0 ground_speed=1.5 heading=1.2 altitude=102.0 satellites=12 vertical_speed=0.5 pitch=0.01 roll=-0.02 yaw=1.2 battery=nan
 1763471001100003000 usb ImuRaw gyro=[0.01,0.02,0.03] accel=[0.0,0.1,9.81] mag=[2e-05,0.0,4e-05] pressure=101325.0 temperature=293.15
 1763471001100004000 usb Estimator att_std=[0.01,0.01,0.02] vel_std=[0.1,0.1,0.1] pos_std=[0.5,0.5,0.8]

@@ -131,21 +131,24 @@ def i16(v: float, scale: float) -> int:
 
 
 def pack_pose(t_us: int, a: dict, p: dict) -> bytes:
-    return struct.pack("<I3f4f3f3f", t_us, *a["omega"], *a["q"], *p["vel"], *p["pos"])
+    gd = p.get("ground_distance")
+    gd = float("nan") if gd is None else gd  # lidar unavailable = NaN
+    return struct.pack("<I3f4f3f3ff", t_us, *a["omega"], *a["q"], *p["vel"], *p["pos"], gd)
 
 
 def pack_air_pose(t_us: int, a: dict, p: dict) -> bytes:
     q = [i16(x, 1 / 32767) for x in a["q"]]
     pos = [round(x * 1000) for x in p["pos"]]  # i32, 1 mm
     vel = [i16(x, 0.01) for x in p["vel"]]
-    return struct.pack("<I4h3i3h", t_us, *q, *pos, *vel)
+    gd = p.get("ground_distance")
+    return struct.pack("<I4h3i3hH", t_us, *q, *pos, *vel, u16(float("nan") if gd is None else gd, 0.001))
 
 
 def pack_actuators(
-    t_us: int, flaps: list[float], tvc: list[float], thrust: float, ground: float, roll_torque: float | None = None
+    t_us: int, flaps: list[float], tvc: list[float], thrust: float, roll_torque: float | None = None
 ) -> bytes:
-    """ACTUATORS (40 B). `roll_torque` None = older 36 B sender (field absent)."""
-    pl = struct.pack("<I4f2fff", t_us, *flaps, *tvc, thrust, ground)
+    """ACTUATORS (36 B; ground distance moved to POSE/AIR_POSE). `roll_torque` None = older 32 B sender."""
+    pl = struct.pack("<I4f2ff", t_us, *flaps, *tvc, thrust)
     return pl if roll_torque is None else pl + struct.pack("<f", roll_torque)
 
 

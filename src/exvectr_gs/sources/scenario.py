@@ -131,8 +131,13 @@ class Scenario:
             "north_acc": 0.021,
         }
 
+    def _lidar(self, t: float) -> float | None:
+        """Fake downward lidar: valid only in its useful range (0.4 to 1.5 m, like the vehicle), else None (NaN)."""
+        z = self.pos(t)[2]
+        return z if 0.4 <= z <= 1.5 else None
+
     def _f_Position(self, t: float) -> dict[str, Any]:
-        return {"pos": self.pos(t), "vel": self.vel(t), "h_acc": 0.4, "v_acc": 0.2}
+        return {"pos": self.pos(t), "vel": self.vel(t), "h_acc": 0.4, "v_acc": 0.2, "ground_distance": self._lidar(t)}
 
     def _f_Gps(self, t: float) -> dict[str, Any]:
         """Position around the fake home point, following the fake NWU position (x north, y west, z up)."""
@@ -269,7 +274,6 @@ class Scenario:
             "flaps": self._f_FlapState(t + 0.1)["angle"],
             "tvc": [0.05 * math.sin(1.1 * t), 0.04 * math.cos(0.9 * t)] if running else [0.0, 0.0],
             "thrust": (G + az * 10) * 0.9 if running else 0.0,
-            "ground_distance": min(self.pos(t)[2], 2.0),
             "roll_torque": 0.02 * math.sin(0.5 * t) if running else 0.0,
         }
 

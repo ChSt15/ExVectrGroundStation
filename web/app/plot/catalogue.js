@@ -52,10 +52,10 @@ function build() {
     }, "target minus the latest velocity (display only)"));
   });
   s.push(sig("vel.h", "Horizontal speed", "Velocity", "m/s", "Position", (f) => (Array.isArray(f.vel) && typeof f.vel[0] === "number" && typeof f.vel[1] === "number" ? Math.hypot(f.vel[0], f.vel[1]) : undefined)));
+  s.push(sig("pos.ground_distance", "Ground distance", "Position", "m", "Position", (f) => num(f.ground_distance), "downward lidar (Position.ground_distance); NaN gaps when it has no valid reading (out of range, stale)"));
   // Actuators (commanded outputs of the vehicle)
   FLAPS.forEach((n, i) => s.push(sig(`act.flap.${n}`, `Flap ${n} (Actuators)`, "Actuators", "deg", "Actuators", (f) => at(f.flaps, i, D))));
   ["x", "y"].forEach((a, i) => s.push(sig(`act.tvc.${a}`, `TVC ${a}`, "Actuators", "deg", "Actuators", (f) => at(f.tvc, i, D))));
-  s.push(sig("act.ground_distance", "Ground distance", "Actuators", "m", "Actuators", (f) => num(f.ground_distance), "downward lidar; NaN gaps when it has no valid reading (out of range, stale)"));
   s.push(sig("act.thrust", "Thrust", "Actuators", "N", "Actuators", (f) => num(f.thrust)));
   s.push(sig("act.roll_torque", "Roll torque (air set only)", "Actuators", "N*m", "Actuators", (f) => num(f.roll_torque)));
   FLAPS.forEach((n, i) => {
@@ -124,6 +124,8 @@ function build() {
 }
 
 export const SIGNALS = build();
+/** Renamed signal ids that saved graph configs may still hold (ground distance moved from Actuators to Position 2026-11-26). */
+export const SIGNAL_ALIASES = { "act.ground_distance": "pos.ground_distance" };
 export const SIGNAL_BY_ID = new Map(SIGNALS.map((x) => [x.id, x]));
 /** Packet types needed by the catalogue (subscription and history). Calibration is only an input. */
 export const SIGNAL_TYPES = [...new Set([...SIGNALS.map((x) => x.type), "Calibration", "HomePosition", "Position"])].sort();
@@ -171,6 +173,7 @@ export function sanitizeGraphs(raw) {
   for (const g of raw) {
     if (!g || typeof g !== "object" || !Array.isArray(g.series)) continue;
     const series = g.series
+      .map((x) => (x && typeof x === "object" && SIGNAL_ALIASES[x.sig] ? { ...x, sig: SIGNAL_ALIASES[x.sig] } : x))
       .filter((x) => x && SIGNAL_BY_ID.has(x.sig))
       .slice(0, MAX_SERIES)
       .map((x) => ({ sig: x.sig, slot: Number.isInteger(x.slot) ? ((x.slot % MAX_SERIES) + MAX_SERIES) % MAX_SERIES : 0, dash: !!x.dash }));

@@ -124,12 +124,15 @@ def _vehicle_status(p: xp.VehicleStatus, t: int, src: str, meta: dict) -> list[P
 def _pose(p: xp.Pose, t: int, src: str, meta: dict) -> list[Packet]:
     return [
         V.Attitude(t=t, src=src, omega=_fl(p.omega), q=_fl(p.q)),
-        V.Position(t=t, src=src, pos=_fl(p.pos), vel=_fl(p.vel)),
+        V.Position(t=t, src=src, pos=_fl(p.pos), vel=_fl(p.vel), ground_distance=_nn(p.ground_distance)),
     ]
 
 
 def _air_pose(p: xp.AirPose, t: int, src: str, meta: dict) -> list[Packet]:
-    return [V.Attitude(t=t, src=src, q=_fl(p.q)), V.Position(t=t, src=src, pos=_fl(p.pos), vel=_fl(p.vel))]
+    return [
+        V.Attitude(t=t, src=src, q=_fl(p.q)),
+        V.Position(t=t, src=src, pos=_fl(p.pos), vel=_fl(p.vel), ground_distance=_nn(p.ground_distance)),
+    ]
 
 
 def _actuators(p: xp.Actuators, t: int, src: str, meta: dict) -> list[Packet]:
@@ -140,7 +143,6 @@ def _actuators(p: xp.Actuators, t: int, src: str, meta: dict) -> list[Packet]:
             flaps=_fl(p.flaps),
             tvc=_fl(p.tvc),
             thrust=p.thrust,
-            ground_distance=p.ground_distance,
             roll_torque=_nn(p.roll_torque),
         ),
         V.FlapState(t=t, src=src, angle=_fl(p.flaps)),

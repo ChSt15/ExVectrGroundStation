@@ -166,7 +166,7 @@ async def test_radio_path_air_actuators_and_air_mission_give_two_samples_per_fra
             )
         acts = [p for p in pkts if p.TYPE == "Actuators"]
         flaps = [p for p in pkts if p.TYPE == "FlapState"]
-        assert len(acts) == len(flaps) and all(a.roll_torque is not None and a.ground_distance is None for a in acts)
+        assert len(acts) == len(flaps) and all(a.roll_torque is not None for a in acts)
         assert all(len(a.tvc) == 2 and len(a.flaps) == 4 and math.isfinite(a.thrust) for a in acts)
         # each frame gives (previous, newest) 20 ms apart; the previous sample of one frame is older than the next
         # frame's previous sample: the stream is time ordered with 50 samples per second

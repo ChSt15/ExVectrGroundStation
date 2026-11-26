@@ -106,11 +106,10 @@ def test_snapshot_and_reset():
 # ---- field-level merge over sources (get_merged)
 
 from exvectr_gs.api.protocol import item_to_json  # noqa: E402
-from exvectr_gs.packets.defs.vehicle import Actuators  # noqa: E402
 
 
 def act(t_s, src, **kw):
-    return Actuators(t=int(t_s * S), src=src, flaps=[0, 0, 0, 0], tvc=[0, 0], thrust=0.0, **kw)
+    return Position(t=int(t_s * S), src=src, pos=[0, 0, 0], vel=[0, 0, 0], **kw)
 
 
 def mstore():
@@ -120,17 +119,17 @@ def mstore():
 
 def test_merge_fills_a_field_only_one_source_carries():
     s = mstore()
-    for i in range(10):  # usb 50 Hz with ground_distance, link 25 Hz with roll_torque, alternating
-        s.update(act(i * 0.02, "usb", ground_distance=0.5))
+    for i in range(10):  # usb 50 Hz with h_acc, link 25 Hz with ground_distance, alternating
+        s.update(act(i * 0.02, "usb", h_acc=0.5))
         if i % 2:
-            s.update(act(i * 0.02 + 0.005, "link", roll_torque=0.1))
-    m = s.get_merged("Actuators", now=int(0.2 * S))
+            s.update(act(i * 0.02 + 0.005, "link", ground_distance=0.1))
+    m = s.get_merged("Position", now=int(0.2 * S))
     assert m.entry.packet.src == "usb"  # priority
-    assert m.entry.packet.ground_distance == 0.5 and m.entry.packet.roll_torque == 0.1
-    assert m.fields["roll_torque"].src == "link" and m.fields["ground_distance"].src == "usb"
-    assert m.fields["roll_torque"].t == int(0.185 * S)  # the field's own packet time, not usb's
-    assert s.get("Actuators").packet.roll_torque is None  # the plain get is unchanged
-    assert s.get("Actuators", "usb").packet.roll_torque is None  # per-source access unchanged
+    assert m.entry.packet.h_acc == 0.5 and m.entry.packet.ground_distance == 0.1
+    assert m.fields["ground_distance"].src == "link" and m.fields["h_acc"].src == "usb"
+    assert m.fields["ground_distance"].t == int(0.185 * S)  # the field's own packet time, not usb's
+    assert s.get("Position").packet.ground_distance is None  # the plain get is unchanged
+    assert s.get("Position", "usb").packet.ground_distance is None  # per-source access unchanged
 
 
 def test_merge_stable_across_alternating_arrivals():
@@ -138,51 +137,51 @@ def test_merge_stable_across_alternating_arrivals():
     seen = set()
     for i in range(40):
         t = i * 0.01
-        s.update(act(t, "usb", ground_distance=0.5) if i % 2 == 0 else act(t, "link", roll_torque=0.1))
-        m = s.get_merged("Actuators", now=int(t * S))
+        s.update(act(t, "usb", h_acc=0.5) if i % 2 == 0 else act(t, "link", ground_distance=0.1))
+        m = s.get_merged("Position", now=int(t * S))
         if i >= 3:
-            seen.add((m.entry.packet.ground_distance, m.entry.packet.roll_torque))
+            seen.add((m.entry.packet.h_acc, m.entry.packet.ground_distance))
     assert seen == {(0.5, 0.1)}
 
 
 def test_merge_priority_when_both_carry_a_field():
     s = mstore()
-    s.update(act(0.0, "link", roll_torque=0.1))
-    s.update(Actuators(t=0, src="usb", flaps=[1, 1, 1, 1], tvc=[0, 0], thrust=0.7))
-    m = s.get_merged("Actuators", now=0)
-    assert m.entry.packet.flaps == [1, 1, 1, 1] and m.fields["flaps"].src == "usb"
+    s.update(act(0.0, "link", ground_distance=0.1))
+    s.update(Position(t=0, src="usb", pos=[1, 1, 1], vel=[0, 0, 0]))
+    m = s.get_merged("Position", now=0)
+    assert m.entry.packet.pos == [1, 1, 1] and m.fields["pos"].src == "usb"
 
 
 def test_merge_freshness_expiry_falls_back_per_field():
     s = mstore()
-    s.update(act(0.0, "usb", ground_distance=0.5))
-    s.update(Actuators(t=int(5 * S), src="link", flaps=[2, 2, 2, 2], tvc=[0, 0], thrust=0.1, roll_torque=0.3))
-    m = s.get_merged("Actuators", now=int(5.01 * S))
+    s.update(act(0.0, "usb", h_acc=0.5))
+    s.update(Position(t=int(5 * S), src="link", pos=[2, 2, 2], vel=[0, 0, 0], ground_distance=0.3))
+    m = s.get_merged("Position", now=int(5.01 * S))
     assert m.entry.packet.src == "link"  # usb is stale
-    assert m.entry.packet.flaps == [2, 2, 2, 2]  # fresh link wins over stale usb
-    assert m.entry.packet.ground_distance == 0.5  # only the stale usb has it: kept, with its own old time
-    assert m.fields["ground_distance"].t == 0
+    assert m.entry.packet.pos == [2, 2, 2]  # fresh link wins over stale usb
+    assert m.entry.packet.h_acc == 0.5  # only the stale usb has it: kept, with its own old time
+    assert m.fields["h_acc"].t == 0
     assert freshness(Entry_of(s, "usb"), int(5.01 * S)) == "stale"
 
 
 def Entry_of(s, src):  # noqa: N802
-    return s.get("Actuators", src)
+    return s.get("Position", src)
 
 
 def test_merge_single_source_equals_get():
     s = mstore()
-    s.update(act(0.0, "usb", ground_distance=0.5))
-    m = s.get_merged("Actuators", now=0)
-    assert m.entry is s.get("Actuators")
-    assert set(m.fields) == {"flaps", "tvc", "thrust", "ground_distance"}
-    assert s.get_merged("Position") is None
+    s.update(act(0.0, "usb", h_acc=0.5))
+    m = s.get_merged("Position", now=0)
+    assert m.entry is s.get("Position")
+    assert set(m.fields) == {"pos", "vel", "h_acc"}
+    assert s.get_merged("Actuators") is None
 
 
 def test_item_json_carries_per_field_source_only_for_filled_fields():
     s = mstore()
-    s.update(act(0.0, "usb", ground_distance=0.5))
-    s.update(act(0.0, "link", roll_torque=0.1))
-    m = s.get_merged("Actuators", now=0)
+    s.update(act(0.0, "usb", h_acc=0.5))
+    s.update(act(0.0, "link", ground_distance=0.1))
+    m = s.get_merged("Position", now=0)
     d = item_to_json(m.entry.packet, m.entry.interval_s, m.entry.stale_after_s, m.fields)
-    assert d["src"] == "usb" and d["f"]["roll_torque"] == 0.1
-    assert list(d["fs"]) == ["roll_torque"] and d["fs"]["roll_torque"]["src"] == "link"
+    assert d["src"] == "usb" and d["f"]["ground_distance"] == 0.1
+    assert list(d["fs"]) == ["ground_distance"] and d["fs"]["ground_distance"]["src"] == "link"

@@ -159,7 +159,7 @@ def test_air_actuators_maps_to_two_samples_with_their_own_timestamps():
     assert new.flaps == pytest.approx(dec["flaps"][:4]) and old.flaps == pytest.approx(dec["flaps"][4:])
     assert (new.thrust, old.thrust) == pytest.approx((12.5, 0.0))
     assert (new.roll_torque, old.roll_torque) == pytest.approx(tuple(dec["roll_torque"]))
-    assert new.ground_distance is None and flaps[1].angle == new.flaps and flaps[0].cmd is None
+    assert not hasattr(new, "ground_distance") and flaps[1].angle == new.flaps and flaps[0].cmd is None
     assert new.src == "radio" and new.t - old.t == round(vals["prev_age"] * 1e9)
     for p in acts + flaps:
         assert decode_line(encode_line(p)).t == p.t  # logs stay readable
@@ -242,11 +242,10 @@ def test_air_pose_has_no_omega():
 
 
 def test_actuators_mission_gnss():
-    vals, pl = case_payload("actuators_no_ground")
+    vals, pl = case_payload("actuators")
     d = by_type(PROFILE.decode_many(frame(0x81, pl), "usb"))
     assert d["Actuators"].flaps == pytest.approx(vals["flaps"]) and d["Actuators"].tvc == pytest.approx(vals["tvc"])
     assert d["FlapState"].angle == d["Actuators"].flaps and d["FlapState"].cmd is None
-    assert math.isnan(d["Actuators"].ground_distance)
     vals, pl = case_payload("mission")
     m = by_type(PROFILE.decode_many(frame(0x82, pl), "usb"))["MissionState"]
     assert m.t_mission == round(vals["mission_time"] * 1e9) and m.mission_index == vals["index"]
@@ -561,6 +560,9 @@ def test_independent_packers_decode_with_the_generated_module():
             pos["pos"], rel=1e-6
         )
         a = xp.AirPose.decode(net.pack_air_pose(5, att, pos))
+        gd = pos["ground_distance"]  # the fake lidar: valid only in 0.4 to 1.5 m, else NaN on the wire
+        for w in (p, a):
+            assert math.isnan(w.ground_distance) if gd is None else w.ground_distance == pytest.approx(gd, abs=1e-3)
         assert list(a.q) == pytest.approx(att["q"], abs=1e-4) and list(a.pos) == pytest.approx(pos["pos"], abs=0.001)
         g = xp.Gnss.decode(net.pack_gnss(5, gps))
         assert (g.latitude, g.satellites, g.fix_type) == (gps["lat"], gps["num_sats"], 3)
@@ -574,8 +576,8 @@ def test_independent_packers_decode_with_the_generated_module():
             and h.satellites == gps["num_sats"]
             and h.latitude == pytest.approx(gps["lat"], abs=1e-6)
         )
-        k = xp.Actuators.decode(net.pack_actuators(5, [0.1] * 4, [0.2, 0.3], 4.0, float("nan")))
-        assert list(k.tvc) == pytest.approx([0.2, 0.3]) and math.isnan(k.ground_distance)
+        k = xp.Actuators.decode(net.pack_actuators(5, [0.1] * 4, [0.2, 0.3], 4.0))
+        assert list(k.tvc) == pytest.approx([0.2, 0.3])
     ls = xp.LinkStats.decode(net.pack_link_stats(2500, 3, 97, -70, 9, 0x11, 70000))
     assert (ls.uptime, ls.rx_lq, ls.rssi, ls.antenna, ls.air_rx_ok) == (2.5, 97, -70, 0x11, 70000 & 0xFFFF)
     assert xp.ImuRaw.decode(net.pack_imu(1, 0.5)).pressure == pytest.approx(101325.0 - 5)
@@ -713,7 +715,7 @@ def decode_vector(name, port, via="usb"):
 
 
 def test_schema_hash_is_the_pinned_one():
-    assert xp.SCHEMA_HASH == 0xC2061E5D
+    assert xp.SCHEMA_HASH == 0x93EF9C5F
 
 
 def test_calib_state_decodes_into_booleans():
@@ -753,8 +755,8 @@ def test_calib_state_zero_or_absent_is_unknown():
 
 
 def test_usb_actuators_carries_roll_torque_and_older_sender_is_unknown():
-    a = decode_vector("actuators_no_ground", 0x81)["Actuators"]
-    assert a.roll_torque == pytest.approx(-0.0625) and math.isnan(a.ground_distance)
+    a = decode_vector("actuators", 0x81)["Actuators"]
+    assert a.roll_torque == pytest.approx(-0.0625)
     old = decode_vector("actuators_older_sender_no_roll_torque", 0x81)["Actuators"]
     assert old.roll_torque is None
 
@@ -789,7 +791,7 @@ def test_fake_packers_match_the_new_fields():
         )
     )
     assert s.calib_state == st["calib_state"] == 0b10111
-    k = xp.Actuators.decode(net.pack_actuators(5, [0.1] * 4, [0.2, 0.3], 4.0, 1.0, ac["roll_torque"]))
+    k = xp.Actuators.decode(net.pack_actuators(5, [0.1] * 4, [0.2, 0.3], 4.0, ac["roll_torque"]))
     assert k.roll_torque == pytest.approx(ac["roll_torque"], abs=1e-6)
     m = xp.Mission.decode(net.pack_mission(5, ms))
     assert m.mission_mode == int(ms["mission_mode"]) and m.waypoint == 255
@@ -882,3 +884,29 @@ def test_both_directions_separate_packets():
     rx = by_type(PROFILE.decode_many(frame(0x01, pl, src=3), "link"))
     assert "TxModuleStats" in tx and "RxModuleStats" not in tx
     assert "RxModuleStats" in rx and "TxModuleStats" not in rx
+
+
+def test_pose_and_air_pose_carry_ground_distance_into_position():
+    vals, pl = case_payload("pose")
+    pos = by_type(PROFILE.decode_many(frame(0x80, pl), "usb"))["Position"]
+    assert pos.ground_distance == pytest.approx(vals["ground_distance"])
+    assert (
+        by_type(PROFILE.decode_many(frame(0x80, case_payload("pose_no_ground_distance")[1]), "usb"))[
+            "Position"
+        ].ground_distance
+        is None
+    )  # NaN: unavailable
+    vals, pl = case_payload("air_pose_ground_distance")
+    pos = by_type(PROFILE.decode_many(frame(0x21, pl), "radio"))["Position"]
+    assert pos.ground_distance == pytest.approx(1.234, abs=1e-9) and pos.src == "radio"
+    assert decode_line(encode_line(pos)).ground_distance == pytest.approx(1.234)  # logged and read back
+    assert (
+        by_type(PROFILE.decode_many(frame(0x21, case_payload("air_pose")[1]), "radio"))["Position"].ground_distance
+        is None
+    )
+    # an older sender (short payload) decodes as unavailable
+    for name, port in (
+        ("pose_older_sender_no_ground_distance", 0x80),
+        ("air_pose_older_sender_no_ground_distance", 0x21),
+    ):
+        assert decode_vector(name, port)["Position"].ground_distance is None

@@ -64,7 +64,6 @@ RADIO_UNSUPPLIED: dict[str, set[str]] = {
     "Attitude": {"tilt_acc", "north_acc"},
     "Position": {"h_acc", "v_acc"},
     "VehicleState": {"tvc_thrust", "tvc_torque", "ground_dist", "ground_dist_cov"},
-    "Actuators": {"ground_distance"},
     "Gps": {"vel_acc", "info_t"},
     "FlapState": {"cmd", "enabled"},
 }
