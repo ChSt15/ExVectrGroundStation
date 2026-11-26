@@ -279,3 +279,18 @@ test("a restart without Completed gives a new section 'Mission 2' with its own m
   near(begins[1].tm, 0);
   assert.equal(begins[1].section, 1);
 });
+
+test("telemetry primary: mission_elapsed resets give the sections; times come from it, not from t_mission or the phase", () => {
+  const ms = (t, el) => ({ type: "MissionState", src: "usb", t, f: { t_mission: 3, mission_phase: "Ascent", mission_mode: "Running", mission_elapsed: el } });
+  const pk = [];
+  for (let i = 0; i < 15; i++) pk.push(ms(1000 + i, -4 + i)); // T0 at 1004
+  for (let i = 0; i < 10; i++) pk.push(ms(1020 + i, -6 + i)); // reset, same phase and mode
+  const r = deriveEvents(pk);
+  assert.equal(r.rows.filter((x) => x.kind === "header").length, 2);
+  assert.equal(r.missions[0].endReason, "restarted");
+  const begins = r.events.filter((e) => e.text === "Mission begin (T0)");
+  assert.equal(begins.length, 2);
+  near(begins[0].t, 1004);
+  near(begins[1].t, 1026);
+  near(r.events.find((e) => e.text === "Mission countdown started" && e.section === 1).tm, -6);
+});

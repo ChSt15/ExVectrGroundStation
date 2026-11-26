@@ -55,3 +55,28 @@ test("mission 2 resets the Mission panel clock, also without Completed (mode and
   assert.ok(Math.abs(f.missionTime({ t: 1035 }) - -9) < 1e-9, "new T-minus countdown, not T+30");
   assert.equal(f.clock.missions.length, 2);
 });
+
+test("telemetry primary: Mission panel value from mission_elapsed (smooth live, interpolated in replay, derived tooltip source)", () => {
+  const f = new MissionTimeFeed();
+  const p = (t, el, phase = "Hover", mode = "Running") => ({ type: "MissionState", src: "usb", t, f: { t_mission: 99, mission_phase: phase, mission_mode: mode, mission_elapsed: el } });
+  assert.equal(f.source, "derived");
+  for (let i = 0; i < 12; i++) {
+    const pk = p(1000 + i, -5 + i);
+    f.feed(pk);
+    f.live(pk, i * 1000);
+  }
+  assert.equal(f.source, "telemetry");
+  assert.ok(Math.abs(f.displayTime({ t: 1011 }, { live: true, nowMs: 11300 }) - 6.3) < 1e-9, "smooth live: 1 s/s between samples");
+  assert.ok(Math.abs(f.displayTime({ t: 1011 }, { live: false, replayT: 1003.5 }) - -1.5) < 1e-9, "replay: interpolated at the replay position");
+  // new mission = reset of mission_elapsed
+  const pk = p(1012, -9);
+  f.feed(pk);
+  f.live(pk, 12000);
+  assert.ok(Math.abs(f.displayTime({ t: 1012 }, { live: true, nowMs: 12000 }) - -9) < 1e-9, "snaps to the new countdown");
+  assert.equal(f.clock.missions.length, 2);
+  // derived data: no smoothing, the mission time at the entry's sample time
+  const g = new MissionTimeFeed();
+  g.feed(ms(1000, -2, "Idle"));
+  assert.equal(g.source, "derived");
+  assert.ok(Math.abs(g.displayTime({ t: 1000 }, { live: true, nowMs: 5 }) - -2) < 1e-9);
+});

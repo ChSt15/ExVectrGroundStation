@@ -215,6 +215,8 @@ class Scenario:
             "mission_mode": mmode,
             "mission_phase": phase,
             "t_mission": int((t - T_START) * 1e9),
+            # whole-mission clock: T-minus before T0, continuous over all steps, final value held after the mission
+            "mission_elapsed": min(t, T_DONE) - T_START,
             "mission_index": 0,
             "waypoint": None,  # not the waypoint mission
         }

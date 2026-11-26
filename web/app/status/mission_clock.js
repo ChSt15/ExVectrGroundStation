@@ -49,12 +49,113 @@ export function restartKind(prev, cur) {
   return null;
 }
 
+export const RESET_JUMP_S = 1.0; // mission_elapsed going back by more than this = a new mission
+export const EXTRAP_S = 1.0; // missionTime extrapolates at most this far beyond the newest telemetry sample of a running mission
+const HOLD_S = 1.0; // mission_elapsed unchanged for longer than this = the final value is held (the mission chain ended)
+
 /**
- * Missions from time-ordered samples. Returns [{ start, t0, t0Known, end, endReason, partial }]: start = time of the first
+ * TELEMETRY clock (primary): the vehicle's own whole-mission time `mission_elapsed` (s, NaN/None = no mission), carried in
+ * samples as `el`. A new mission is exactly when it resets: it jumps back by more than RESET_JUMP_S, or goes from the
+ * held final value / a NaN (reset to Idle) to a negative value. T-minus, T0 and the continuity over all steps are the
+ * vehicle's. A mission = { start, t0, t0Known, end, endReason, partial, telemetry: true, pts: [{ t, el }] }; t0 = the
+ * sample time at which mission_elapsed crosses 0 (interpolated), projected from the latest sample (t - el) before that.
+ * endReason: "held" (the final value stopped changing), "reset" (NaN again), "restarted", or null while running.
+ * `partial` marks data that begins inside a running mission (T0 is still known: it comes from the value itself).
+ */
+export function buildTelemetryMissions(samples) {
+  const missions = [];
+  let cur = null;
+  let prev = null; // last sample with a finite el: { t, el }
+  let moveT = null; // sample time of the last change of el
+  for (const s of samples) {
+    if (!finite(s.el)) {
+      if (cur && cur.end === null) {
+        cur.end = s.t;
+        cur.endReason = "reset";
+      }
+      continue;
+    }
+    const back = prev !== null && s.el < prev.el - RESET_JUMP_S;
+    const afterReset = cur && cur.endReason === "reset" && s.el < 0;
+    if (!cur || back || afterReset) {
+      if (cur && cur.end === null) {
+        cur.end = s.t;
+        cur.endReason = "restarted";
+      }
+      cur = { start: s.t, t0: s.t - s.el, t0Known: false, end: null, endReason: null, partial: !cur && s.el >= 0, telemetry: true, pts: [] };
+      missions.push(cur);
+      moveT = s.t;
+    } else if (s.el > prev.el + 1e-6) {
+      if (cur.end !== null) {
+        cur.end = null; // the "held" value moved again: not the end after all
+        cur.endReason = null;
+      }
+      moveT = s.t;
+    } else if (cur.end === null && s.el >= 0 && s.t - moveT > HOLD_S) {
+      cur.end = moveT;
+      cur.endReason = "held";
+    }
+    cur.pts.push({ t: s.t, el: s.el });
+    if (!cur.t0Known) {
+      cur.t0 = s.t - s.el; // projected until a sample reaches 0
+      if (s.el >= 0) {
+        const k = cur.pts.length - 2;
+        cur.t0 = k >= 0 && cur.pts[k].el < 0 ? cur.pts[k].t + ((0 - cur.pts[k].el) * (s.t - cur.pts[k].t)) / (s.el - cur.pts[k].el) : s.t - s.el;
+        cur.t0Known = true;
+      }
+    }
+    prev = { t: s.t, el: s.el };
+  }
+  return missions;
+}
+
+/** Interpolated mission time (s) of mission `m` at sample time t (derived missions: t - t0). */
+function timeIn(m, t) {
+  if (!m.pts) return t - m.t0;
+  const p = m.pts;
+  if (t <= p[0].t) return p[0].el + (t - p[0].t);
+  const last = p[p.length - 1];
+  if (t >= last.t) return m.end !== null && m.endReason !== "restarted" ? last.el : last.el + Math.min(t - last.t, EXTRAP_S);
+  let lo = 0, hi = p.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (p[mid].t <= t) lo = mid;
+    else hi = mid;
+  }
+  const dt = p[hi].t - p[lo].t;
+  return dt > 0 ? p[lo].el + ((p[hi].el - p[lo].el) * (t - p[lo].t)) / dt : p[hi].el;
+}
+
+/** Sample time at which mission `m` reads mission time tm (the first one on a held plateau). */
+function sampleIn(m, tm) {
+  if (!m.pts) return tm + m.t0;
+  const p = m.pts;
+  if (tm <= p[0].el) return p[0].t + (tm - p[0].el);
+  const last = p[p.length - 1];
+  if (tm >= last.el) return last.t + (tm - last.el);
+  let lo = 0, hi = p.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (p[mid].el < tm) lo = mid;
+    else hi = mid;
+  }
+  const de = p[hi].el - p[lo].el;
+  return de > 0 ? p[lo].t + ((p[hi].t - p[lo].t) * (tm - p[lo].el)) / de : p[hi].t;
+}
+
+/**
+ * Missions from time-ordered samples: the telemetry clock when any sample carries a finite mission_elapsed (`el`),
+ * else the DERIVED clock below (old recordings, old senders). Returns [{ start, t0, t0Known, end, endReason, partial }]: start = time of the first
  * sample, t0 = sample time of mission time 0 (projected until t0Known), end = null while running, endReason
  * "completed" | "reset" | "restarted" | "clock lost" | null.
  */
 export function buildMissions(samples) {
+  if (samples.some((s) => finite(s.el))) return buildTelemetryMissions(samples);
+  return buildDerivedMissions(samples);
+}
+
+/** The derived clock: missions inferred from t_mission, phase and mode (restartKind). */
+export function buildDerivedMissions(samples) {
   const missions = [];
   let cur = null; // running mission
   let lastGood = null; // time of the last sample with a clock
@@ -135,10 +236,10 @@ export class MissionClock {
   }
 
   /** One MissionState sample in time order (older ones are dropped): t seconds, tm = t_mission or null, phase and mode names. */
-  add(t, tm, phase, mode) {
+  add(t, tm, phase, mode, el) {
     const n = this.samples.length;
     if (n && t < this.samples[n - 1].t) return false;
-    this.samples.push({ t, tm: finite(tm) ? tm : null, phase: typeof phase === "string" ? phase : undefined, mode: typeof mode === "string" ? mode : undefined });
+    this.samples.push({ t, tm: finite(tm) ? tm : null, phase: typeof phase === "string" ? phase : undefined, mode: typeof mode === "string" ? mode : undefined, el: finite(el) ? el : null });
     if (this.samples.length > this.cap) this.samples.splice(0, this.samples.length - this.cap);
     this._missions = null;
     return true;
@@ -147,6 +248,27 @@ export class MissionClock {
   /** [{ start, t0, t0Known, end, endReason, partial }], see buildMissions. */
   get missions() {
     return (this._missions ??= buildMissions(this.samples));
+  }
+
+  /** "telemetry" when the vehicle's mission_elapsed is in the data (primary), else "derived" (inferred, old data). */
+  get source() {
+    return this.samples.some((s) => finite(s.el)) ? "telemetry" : "derived";
+  }
+
+  /** Mission time (s) of mission `m` (from `missions`) at sample time t: interpolated telemetry, or t - T0 when derived. */
+  timeIn(m, t) {
+    return timeIn(m, t);
+  }
+
+  /** Sample time at which mission `m` reads mission time tm. */
+  sampleIn(m, tm) {
+    return sampleIn(m, tm);
+  }
+
+  /** True while the latest mission is running (not ended); false when none or ended (a held final value is frozen). */
+  running() {
+    const ms = this.missions;
+    return ms.length > 0 && ms[ms.length - 1].end === null;
   }
 
   /** Mission starts: [{ t0, end, endReason, partial, known }] (T0 times with their ends; end null = running). */
@@ -164,7 +286,7 @@ export class MissionClock {
   /** Mission time (s, negative before T0) at sample time t, or null when there is no mission. */
   missionTime(t) {
     const m = this._of(t);
-    return m ? t - m.t0 : null;
+    return m ? timeIn(m, t) : null;
   }
 
   /**
@@ -194,7 +316,7 @@ export class MissionClock {
     for (let k = 0; k < 3; k++) {
       const m = this._of(t);
       if (!m) return null;
-      t = tm + m.t0;
+      t = sampleIn(m, tm);
     }
     return t;
   }

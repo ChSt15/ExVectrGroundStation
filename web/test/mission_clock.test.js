@@ -261,3 +261,136 @@ test("live feed sample by sample equals the whole history (restart cases)", () =
   assert.deepEqual(live.missions, whole);
   assert.equal(whole.length, 3);
 });
+
+// ---------------------------------------------------------------- telemetry clock (mission_elapsed, primary)
+import { buildTelemetryMissions } from "../app/status/mission_clock.js";
+
+/** Telemetry samples every 0.5 s from t: el from `from` to `to` (also the phase / mode / step clock, which must not matter). */
+function tel(c, t, from, to, phase = "Hover", mode = "Running") {
+  let i = 0;
+  for (let v = from; v <= to + 1e-9; v += 0.5, i++) c.add(t + i * 0.5, ((v * 7) % 5) - 9, phase, mode, v);
+  return t + i * 0.5;
+}
+
+test("telemetry: countdown, T0 and continuity over all steps come from mission_elapsed", () => {
+  const c = new MissionClock();
+  let t = tel(c, 1000, -5, 0);
+  t = tel(c, t, 0.5, 6, "Ascent"); // step clock garbage: never used
+  assert.equal(c.source, "telemetry");
+  const m = c.missions;
+  assert.equal(m.length, 1);
+  assert.equal(m[0].t0Known, true);
+  near(m[0].t0, 1005);
+  near(c.missionTime(1000), -5);
+  near(c.missionTime(1005), 0);
+  near(c.missionTime(1008), 3);
+  near(c.toSample(3, 1003), 1008);
+});
+
+test("telemetry: nothing before a mission (NaN / null), no mission, clock null", () => {
+  const c = new MissionClock();
+  for (let i = 0; i < 6; i++) c.add(1000 + i, null, "Idle", "Idle", null);
+  assert.equal(c.source, "derived");
+  assert.equal(c.missions.length, 0);
+  assert.equal(c.missionTime(1003), null);
+  tel(c, 1010, -2, 1);
+  assert.equal(c.missions.length, 1);
+  near(c.missionTime(1010), -2);
+});
+
+test("telemetry: values between samples are interpolated, a bit beyond the newest extrapolated, then capped", () => {
+  const c = new MissionClock();
+  c.add(100, null, "Hover", "Running", 10);
+  c.add(100.4, null, "Hover", "Running", 10.4);
+  c.add(101.4, null, "Hover", "Running", 11.4);
+  near(c.missionTime(100.2), 10.2);
+  near(c.missionTime(100.9), 10.9);
+  near(c.missionTime(101.9), 11.9, 1e-9); // 0.5 s beyond
+  near(c.missionTime(110), 12.4); // capped at EXTRAP_S
+  near(c.missionTime(99), 9); // before the first sample: backwards at 1 s/s
+});
+
+test("telemetry: a reset (jump back > 1 s) starts mission 2 with its own T0, no phase or mode inference needed", () => {
+  const c = new MissionClock();
+  let t = tel(c, 1000, -5, 20);
+  tel(c, t, -8, 3); // vehicle restarted its mission clock, same phase and mode, no Idle between
+  const m = c.missions;
+  assert.equal(m.length, 2);
+  assert.equal(m[0].endReason, "restarted");
+  near(m[1].t0, t + 8);
+  near(c.missionTime(t), -8);
+  near(c.missionTime(t + 4), -4);
+  near(c.missionTime(t - 1), 19.5); // still mission 1
+  // a jump back of less than a second is not a reset
+  const d = new MissionClock();
+  d.add(0, null, "Hover", "Running", 10);
+  d.add(0.5, null, "Hover", "Running", 9.6);
+  assert.equal(d.missions.length, 1);
+});
+
+test("telemetry: the held final value freezes (mission ends), then a negative value starts the next mission", () => {
+  const c = new MissionClock();
+  let t = tel(c, 1000, -3, 12);
+  for (let i = 0; i < 8; i++) c.add(t + i * 0.5, 0, "Completed", "Finished", 12); // held
+  let m = c.missions;
+  assert.equal(m.length, 1);
+  assert.equal(m[0].endReason, "held");
+  near(m[0].end, t - 0.5);
+  near(c.missionTime(t + 100), 12); // frozen, not counting on
+  near(c.missionTime(t + 2), 12);
+  c.add(t + 10, 0, "Hover", "Startup", -9.5); // next mission: from the held value to a negative one
+  m = c.missions;
+  assert.equal(m.length, 2);
+  near(c.missionTime(t + 10), -9.5);
+  near(c.missionTime(t + 11), -8.5);
+});
+
+test("telemetry: NaN after a mission (reset to Idle) ends it; a negative value afterwards is a new mission even when close", () => {
+  const c = new MissionClock();
+  tel(c, 1000, -2, 0.5);
+  c.add(1010, null, "Idle", "Idle", null);
+  assert.equal(c.missions[0].endReason, "reset");
+  c.add(1020, null, "Hover", "Startup", -1);
+  assert.equal(c.missions.length, 2);
+  near(c.missions[1].t0, 1021);
+});
+
+test("telemetry: data that begins mid-mission is partial but T0 is known; a replay seek window with two missions uses the dominant one", () => {
+  const c = new MissionClock();
+  let t = tel(c, 500, 40, 45);
+  assert.equal(c.missions[0].partial, true);
+  assert.equal(c.missions[0].t0Known, true);
+  near(c.missions[0].t0, 460);
+  const t2 = tel(c, t + 20, -4, 10);
+  assert.equal(c.missions.length, 2);
+  near(c.dominant(t + 10, t2).t0, c.missions[1].t0);
+  near(c.timeIn(c.missions[1], c.missions[1].t0 + 3), 3);
+  near(c.sampleIn(c.missions[1], 3), c.missions[1].t0 + 3);
+});
+
+test("telemetry: live feed sample by sample equals the whole history; samples without the field fall back to derived", () => {
+  const rows = [];
+  let t = 1000;
+  const push = (el, ph, mo) => {
+    rows.push([t, null, ph, mo, el]);
+    t += 0.5;
+  };
+  for (let v = -3; v <= 6; v += 0.5) push(v, "Hover", "Running");
+  for (let i = 0; i < 6; i++) push(6, "Completed", "Finished");
+  for (let v = -5; v <= 1; v += 0.5) push(v, "Hover", "Startup");
+  const live = new MissionClock();
+  for (const r of rows) {
+    live.add(...r);
+    live.missions;
+  }
+  const whole = buildMissions(rows.map(([t, tm, phase, mode, el]) => ({ t, tm, phase, mode, el })));
+  assert.deepEqual(live.missions, whole);
+  assert.equal(whole.length, 2);
+  // old data: no el anywhere -> the derived clock with the restart rules
+  const old = new MissionClock();
+  addAll(old, run(1000));
+  addAll(old, run(1200));
+  assert.equal(old.source, "derived");
+  assert.equal(old.missions.length, 2);
+  assert.equal(buildTelemetryMissions([]).length, 0);
+});

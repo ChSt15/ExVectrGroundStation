@@ -162,6 +162,13 @@ class MissionState(Packet):
     mission_mode: MissionMode = f()
     mission_phase: MissionPhase = f()
     t_mission: int = f(unit="ns", kind="time_ns", desc="mission time, negative during countdown")
+    mission_elapsed: float | None = f(
+        unit="s",
+        desc="seconds since the mission's T0 as the vehicle counts them (MISSION 0x82, AIR_MISSION 0x23, schema "
+        "0xF49ACD01): negative during the countdown, 0 at T0, continuous across all mission steps (t_mission restarts "
+        "per step), reset by the next mission begin, the final value held after the mission chain ends. None = no "
+        "mission begun since boot / after a reset to Idle, or an older sender or link without the field",
+    )
     mission_index: int = f()
     waypoint: int = f(
         desc="current waypoint of the waypoint mission; only AIR_MISSION carries it, None = not that mission"

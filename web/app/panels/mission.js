@@ -22,7 +22,7 @@ registerPanel({
     const one = (v) => fmtMissionTime(v).replace(/\.(\d)\d s$/, ".$1 s");
     const feed = new MissionTimeFeed();
     // Continuous mission clock (T- countdown, T0, then over all phases); an em dash until a mission has been seen.
-    b.tile(t, "Mission time", { type: M, kind: "time", derive: (e) => feed.missionTime(e), format: one }, { key: "mission-time" });
+    b.tile(t, "Mission time", { type: M, kind: "time", derive: (e) => feed.displayTime(e, { live: ctx.view() === "live", nowMs: performance.now(), replayT: ctx.replayPos?.() }), format: one }, { key: "mission-time" });
     b.tile(t, "Phase time", { type: M, field: "t_mission", kind: "time", format: one }, { class: "small", tileClass: "tile-small", key: "phase-time" });
     b.tile(t, "Mission", { type: M, field: "mission_mode", kind: "enum" });
     const s = section(el, "Current target point");
@@ -58,7 +58,7 @@ registerPanel({
         feed.reset();
         feed.feedAll((res.packets || []).filter((p) => p.type === M));
         const upto = feed.lastSample;
-        for (const s of keep) if (s.t > upto) feed.clock.add(s.t, s.tm, s.phase, s.mode);
+        for (const s of keep) if (s.t > upto) feed.clock.add(s.t, s.tm, s.phase, s.mode, s.el);
       } catch (e) {
         if (my === gen) loadedKey = null; // retry on the next tick
       }
@@ -76,7 +76,10 @@ registerPanel({
     return {
       onPacket(pkt) {
         if (pkt.type !== M) return;
-        if (ctx.view() === "live") feed.feed(pkt); // replay: the clock comes from the whole log (loadReplay)
+        if (ctx.view() === "live") {
+          feed.feed(pkt);
+          feed.live(pkt, performance.now());
+        } // replay: the clock comes from the whole log (loadReplay)
         if (pkt.f.mission_phase === undefined) return;
         if (lastPhase !== undefined && pkt.f.mission_phase !== lastPhase) {
           entries.push({ phase: `${lastPhase} → ${pkt.f.mission_phase}`, tm: feed.missionTime(pkt) === null ? "" : one(feed.missionTime(pkt)) });
@@ -91,6 +94,8 @@ registerPanel({
         b.update();
       },
       onTick() {
+        const tile = el.querySelector('[data-key="mission-time"]');
+        if (tile) tile.title = feed.source === "telemetry" ? "mission time: the vehicle's mission_elapsed" : "mission time: derived (inferred from the step clock, phase and mode; older recording or sender without mission_elapsed)";
         if (ctx.api.state === "open") {
           const key = viewKey();
           if (key !== loadedKey) {

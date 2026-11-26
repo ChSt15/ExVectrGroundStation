@@ -184,8 +184,9 @@ def test_independent_fake_vehicle_encoder_matches_the_air_vectors():
     m = {"t_mission": -9.5e9, "mission_mode": 1, "mission_phase": 1, "mission_index": 1}
     m |= {"sp_pos": v["setpoint_pos"], "sp_vel": v["setpoint_vel"]}
     m |= {"flip_start_altitude": v["flip_start_altitude"], "stop_altitude": v["stop_altitude"]}
+    m |= {"mission_elapsed": v.get("mission_elapsed")}
     assert net.pack_air_mission(77, m) == pl
-    assert net.pack_air_mission(77, m | {"sp_q": [0.5, -0.5, 0.5, -0.5]})[-12:-4] == struct.pack(
+    assert net.pack_air_mission(77, m | {"sp_q": [0.5, -0.5, 0.5, -0.5]})[-16:-8] == struct.pack(
         "<4h", 16384, -16384, 16384, -16384
     )
 
@@ -204,7 +205,7 @@ def test_air_mission_maps_to_mission_state_and_waypoint_255_is_none():
     assert m.sp_pos == pytest.approx(vals["setpoint_pos"]) and m.sp_vel == pytest.approx(vals["setpoint_vel"])
     assert m.waypoint is None and m.sp_q is None  # vector has all four zero
     q = [0.5, -0.5, 0.5, -0.5]
-    pl2 = pl[:-12] + struct.pack("<4h", *(round(x * 32768) for x in q)) + pl[-4:]
+    pl2 = pl[:-16] + struct.pack("<4h", *(round(x * 32768) for x in q)) + pl[-8:]
     m2 = PROFILE.decode_many(frame(0x23, pl2), "radio")[0]
     assert m2.sp_q == pytest.approx(q, abs=1e-4)
     pl = bytearray(pl)
@@ -253,7 +254,7 @@ def test_actuators_mission_gnss():
     assert m.sp_q == pytest.approx(vals["setpoint_q"])
     # all four zero = no attitude setpoint; NaN (older sender) = none as well
     for q in ([0.0] * 4, [math.nan] * 4):
-        pl2 = pl[:-26] + struct.pack("<4f", *q) + pl[-10:]
+        pl2 = pl[:-30] + struct.pack("<4f", *q) + pl[-14:]
         assert by_type(PROFILE.decode_many(frame(0x82, pl2), "usb"))["MissionState"].sp_q is None
     vals, pl = case_payload("gnss")
     g = by_type(PROFILE.decode_many(frame(0x83, pl), "usb"))["Gps"]
@@ -715,7 +716,7 @@ def decode_vector(name, port, via="usb"):
 
 
 def test_schema_hash_is_the_pinned_one():
-    assert xp.SCHEMA_HASH == 0x93EF9C5F
+    assert xp.SCHEMA_HASH == 0xF49ACD01
 
 
 def test_calib_state_decodes_into_booleans():
@@ -844,12 +845,12 @@ def test_mission_state_flip_start_and_stop_altitude_from_air_mission():
     m = _mission_state(0x23, pl)
     assert m.flip_start_altitude == pytest.approx(123.4, abs=0.05) and m.stop_altitude == pytest.approx(20.0, abs=0.05)
     # sentinel -32768 = NaN on the wire = None (flip start only sent during freefall)
-    m = _mission_state(0x23, pl[:-4] + struct.pack("<2h", -32768, 200))
+    m = _mission_state(0x23, pl[:-8] + struct.pack("<2h", -32768, 200) + pl[-4:])
     assert m.flip_start_altitude is None and m.stop_altitude == pytest.approx(20.0)
-    m = _mission_state(0x23, pl[:-4] + struct.pack("<2h", 1234, -32768))
+    m = _mission_state(0x23, pl[:-8] + struct.pack("<2h", 1234, -32768) + pl[-4:])
     assert m.flip_start_altitude == pytest.approx(123.4) and m.stop_altitude is None
     # older sender: short payload, fields missing -> unknown
-    m = _mission_state(0x23, pl[:-4])
+    m = _mission_state(0x23, pl[:-8])
     assert m.flip_start_altitude is None and m.stop_altitude is None
 
 
@@ -858,11 +859,11 @@ def test_mission_state_flip_start_and_stop_altitude_from_mission():
     m = _mission_state(0x82, pl)
     assert m.flip_start_altitude == pytest.approx(vals["flip_start_altitude"], abs=1e-3)
     assert m.stop_altitude == pytest.approx(vals["stop_altitude"])
-    m = _mission_state(0x82, pl[:-8] + struct.pack("<2f", math.nan, 35.5))
+    m = _mission_state(0x82, pl[:-12] + struct.pack("<2f", math.nan, 35.5) + pl[-4:])
     assert m.flip_start_altitude is None and m.stop_altitude == pytest.approx(35.5)
-    m = _mission_state(0x82, pl[:-8] + struct.pack("<2f", 50.0, math.nan))
+    m = _mission_state(0x82, pl[:-12] + struct.pack("<2f", 50.0, math.nan) + pl[-4:])
     assert m.flip_start_altitude == pytest.approx(50.0) and m.stop_altitude is None
-    for cut in (8, 10):  # older sender without the two fields (with and without mode/waypoint)
+    for cut in (12, 14):  # older sender without the two fields (with and without mode/waypoint)
         m = _mission_state(0x82, pl[:-cut])
         assert m.flip_start_altitude is None and m.stop_altitude is None
 
@@ -910,3 +911,27 @@ def test_pose_and_air_pose_carry_ground_distance_into_position():
         ("air_pose_older_sender_no_ground_distance", 0x21),
     ):
         assert decode_vector(name, port)["Position"].ground_distance is None
+
+
+def test_mission_elapsed_decodes_from_mission_and_air_mission():
+    for port, via, name in ((0x82, "usb", "mission"), (0x23, "radio", "air_mission")):
+        vals, pl = case_payload(name)
+        m = by_type(PROFILE.decode_many(frame(port, pl), via))["MissionState"]
+        assert m.mission_elapsed == pytest.approx(vals["mission_elapsed"], abs=1e-3)
+        # NaN on the wire (INT32_MIN) = no mission begun / after reset = None
+        nan = by_type(PROFILE.decode_many(frame(port, pl[:-4] + struct.pack("<i", -(2**31))), via))["MissionState"]
+        assert nan.mission_elapsed is None
+        # older sender without the field: shorter payload = None, the rest still decodes
+        old = by_type(PROFILE.decode_many(frame(port, pl[:-4]), via))["MissionState"]
+        assert old.mission_elapsed is None and old.mission_index == m.mission_index
+        assert decode_line(encode_line(m)) == m
+
+
+def test_fake_vehicle_mission_elapsed_is_continuous_and_held():
+    from exvectr_gs.sources.scenario import Scenario
+
+    sc = Scenario(1)
+    assert sc.fields("MissionState", 1.0)["mission_elapsed"] == pytest.approx(-3.0)  # countdown to T0 at 4 s
+    assert sc.fields("MissionState", 4.0)["mission_elapsed"] == pytest.approx(0.0)
+    assert sc.fields("MissionState", 20.0)["mission_elapsed"] == pytest.approx(16.0)  # across the steps
+    assert sc.fields("MissionState", 40.0)["mission_elapsed"] == pytest.approx(26.0)  # final value held
