@@ -161,21 +161,41 @@ export class Scene3D {
   }
 
   // ------------------------------------------------------------------ trail
-  buildTrail(max = 4000) {
+  buildTrail(max = 4096) {
     const geo = new THREE.BufferGeometry();
+    this.trailLine = new THREE.Line(geo, new THREE.LineBasicMaterial({ vertexColors: true }));
+    this.trailLine.frustumCulled = false;
+    this.trailMax = 0;
+    this._allocTrail(max);
+    this.trailBg = parseColor(css("--panel", "#1a2027"));
+    this.root.add(this.trailLine);
+    // marker of the current position in the "entire path" replay mode
+    this.pathMarker = new THREE.Mesh(new THREE.SphereGeometry(0.05, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffd33d }));
+    this.pathMarker.visible = false;
+    this.root.add(this.pathMarker);
+  }
+
+  /** The trail has no fixed size: the buffers grow (doubling) with the number of points. */
+  _allocTrail(n) {
+    const max = Math.max(n, this.trailMax * 2, 4096);
+    const geo = this.trailLine.geometry;
     geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(max * 3), 3));
     geo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(max * 3), 3));
     geo.setDrawRange(0, 0);
-    this.trailLine = new THREE.Line(geo, new THREE.LineBasicMaterial({ vertexColors: true }));
-    this.trailLine.frustumCulled = false;
     this.trailMax = max;
-    this.trailBg = parseColor(css("--panel", "#1a2027"));
-    this.root.add(this.trailLine);
+  }
+
+  /** Marker at a position (NWU) or hidden with null. */
+  setPathMarker(p) {
+    this.pathMarker.visible = !!p;
+    if (p) this.pathMarker.position.set(...p);
+    this.dirty = true;
   }
 
   /** points: [{t, p:[x,y,z]}], fades: 0..1 per point (1 newest). */
   setTrail(points, fades) {
-    const n = Math.min(points.length, this.trailMax);
+    const n = points.length;
+    if (n > this.trailMax) this._allocTrail(n);
     const pos = this.trailLine.geometry.attributes.position, col = this.trailLine.geometry.attributes.color;
     const fg = parseColor(css("--info", "#58a6ff"));
     const bg = this.trailBg;

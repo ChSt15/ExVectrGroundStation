@@ -247,6 +247,48 @@ async def test_browser_trail_is_rebuilt_from_history_after_a_replay_seek():
             assert not [m for m in b.console if "EXCEPTION" in m], b.console
 
 
+@needs_browser
+async def test_browser_replay_entire_path_clear_button_and_setting_survive_a_reload():
+    from tests.integration.test_api import Client
+    from tests.support_logs import T0_NS, make_log
+
+    app = make_app()
+    log = make_log(Path(app.library.directory), "dropouts", 45.0)
+    t0 = T0_NS / 1e9
+    async with running(app, sources=False) as rig:
+        async with browser_check.Browser(1500, 1000, 9356) as b:
+            await b.goto(rig.url() + "/")
+            await b.sleep(1.0)
+            await b.eval(
+                "[...document.querySelectorAll('header.top .toggle button')].find(x => x.textContent === 'REPLAY').click()"  # noqa: E501
+            )
+            c = await Client.connect(rig)
+            await c.ok("replay.open", name=log.name)
+            await c.ok("replay.seek", t=t0 + 5)
+            await b.sleep(1.2)
+            upto = json.loads(await b.eval(DEBUG))
+            assert upto["trail"]["mode"] == "upto" and not upto["trail"]["marker"]
+            await b.eval("document.querySelector('[data-testid=v3d-clear-path]').click()")
+            await b.sleep(0.3)
+            assert json.loads(await b.eval(DEBUG))["trail"]["points"] <= 2
+            await b.eval(
+                "(() => { const s = document.querySelector('[data-testid=v3d-path-mode]'); "
+                "s.value = 'entire'; s.dispatchEvent(new Event('change')); })()"
+            )
+            await b.sleep(1.5)
+            entire = json.loads(await b.eval(DEBUG))
+            assert entire["trail"]["mode"] == "entire" and entire["trail"]["marker"], entire["trail"]
+            assert entire["trail_points"] > 3 * max(upto["trail_points"], 1), (
+                entire["trail_points"],
+                upto["trail_points"],
+            )
+            await c.ok("replay.seek", t=t0 + 30)
+            await b.sleep(1.5)
+            assert json.loads(await b.eval(DEBUG))["trail_points"] == entire["trail_points"]  # independent of position
+            assert await b.eval("localStorage.getItem('exgs.trail')") == '{"replayMode":"entire"}'
+            assert not [m for m in b.console if "EXCEPTION" in m], b.console
+
+
 def test_every_flap_of_the_placeholder_has_its_chamfer_on_the_top():
     """User decision 2026-11-20: the bottom flaps were drawn upside down. The chamfer is on the top (nose side) of every
     flap, set by `chamfer_corner = "out_top"` in the model config."""

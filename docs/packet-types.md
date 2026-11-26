@@ -84,7 +84,7 @@ Version 1, direction `down`, nominal rate 5 Hz, history: no.
 
 Mission progress and guidance setpoints.
 
-Version 1, direction `down`, nominal rate 2 Hz, history: no.
+Version 1, direction `down`, nominal rate 2 Hz, history: yes.
 
 | Field | Kind | Unit | Description |
 |---|---|---|---|
