@@ -38,5 +38,49 @@ async def test_gnss_panel_shows_position_fix_accuracy_and_a_passing_altitude_cro
         # accuracy tiles: horizontal and vertical come with the radio's GNSS info
         for k in ("gnss-acc-h", "gnss-acc-v"):
             assert await b.eval(txt(f"[data-key={k}] .v")) not in ("", "—")
-        assert await b.eval(f"document.querySelector({(P + ' [data-testid=home-pos]')!r})") is None
+        # the home as reported (the fake repeats HOME_POSITION) and the GNSS position relative to it (NWU, metres)
+        await until(lambda: b.eval(f"/epoch 1/.test({txt('[data-testid=home-pos]')})"), timeout=8, what="home line")
+        assert "(simulation)" in await b.eval(txt("[data-testid=home-pos]")) and "51.5" in await b.eval(
+            txt("[data-testid=home-pos]")
+        )
+        row = await b.eval(
+            f"[...document.querySelectorAll({(P + ' [data-row=gnss-pos-home] td')!r})].map((c) => c.textContent)"
+        )
+        assert len(row) == 4 and all(c.strip() not in ("", "—", "n/s") for c in row[:3]), row
+        assert not [m for m in b.console if "EXCEPTION" in m], b.console
+
+
+@needs_browser
+async def test_gnss_panel_in_replay_recomputes_metres_relative_to_home_from_the_recording(tmp_path):
+    """Open a recording in REPLAY: home and the metres come from the logged HomePosition and Gps, so they agree with the
+    NWU position the fake vehicle logged at the same time (to the earth model of the fake and the 0.1 s alignment)."""
+    from tests.integration.test_api import make_app, running
+    from tests.support_logs import make_log
+    from tests.unit.test_home_replay import nwu_from_home
+
+    app = make_app(speed=1.0)
+    make_log(Path(app.library.directory), "dropouts", 30.0)
+    async with running(app) as rig, browser_check.Browser(1500, 1500, 9393) as b:
+        await b.goto(rig.url() + "/")
+        await b.sleep(1.0)
+        await b.eval("window.exgs.dock.open('recording')")
+        await b.eval("document.querySelector('[data-panel=recording] .sect-title button').click()")
+        await b.sleep(0.8)
+        await b.eval("[...document.querySelectorAll('[data-panel=recording] .loglist button')][0].click()")
+        await b.sleep(1.5)
+        assert await b.eval("document.body.dataset.view") == "replay"
+        await b.eval("document.querySelector('[data-panel=transport] .play').click()")
+        await until(
+            lambda: b.eval(f"/epoch 1/.test({txt('[data-testid=home-pos]')})"), timeout=12, what="replayed home"
+        )
+        await b.eval("document.querySelector('[data-panel=transport] .play').click()")  # pause
+        await b.sleep(0.5)
+        sel = P + " [data-row=gnss-pos-home] td"
+        js = f"[...document.querySelectorAll({sel!r})].slice(0, 3).map((c) => parseFloat(c.textContent))"
+        row = await b.eval(js)
+        latest = {e.packet.TYPE: e.packet for e in app.replay_store.snapshot()}
+        want = nwu_from_home(latest["Gps"], latest["HomePosition"])  # independent Python reference of the formula
+        assert len(row) == 3 and all(abs(a - w) < 0.06 for a, w in zip(row, want, strict=True)), (row, want)
+        pos = latest["Position"].pos  # and the fake's own NWU position at about the same time
+        assert all(abs(a - p) < 1.0 + 0.01 * abs(p) for a, p in zip(row, pos, strict=True)), (row, pos)
         assert not [m for m in b.console if "EXCEPTION" in m], b.console

@@ -1,11 +1,13 @@
 // Vehicle group: GNSS, compact. Latitude, longitude, absolute altitude, NWU velocity, satellites, fix type and the
 // receiver's accuracy estimates (Gps, from the radio's AIR_GNSS plus AIR_GNSS_INFO or from USB GNSS), and one line
 // with the altitude cross-check of the estimated altitude against the GNSS altitude (gnss/gnss_logic.js). Display
-// only: the cross-check compares two reported values and sends nothing. The home position is not shown here.
+// only: the cross-check compares two reported values and sends nothing. The home position (HOME_POSITION, as
+// reported) is shown above the GNSS position, and the GNSS position in metres relative to home (NWU) is derived
+// here from home + GNSS lat/lon/alt (gnss/gnss_logic.js gnssNwuFromHome); nothing is derived without a home.
 import { registerPanel } from "./registry.js";
 import { Bindings, h, section, tiles } from "../ui.js";
 import { describe, fmtNum } from "../fmt.js";
-import { ALTCHECK_DEFAULTS, AltCheck, deg, fixName, gnssVelNwu } from "../gnss/gnss_logic.js";
+import { ALTCHECK_DEFAULTS, AltCheck, deg, fixName, gnssNwuFromHome, gnssVelNwu, homeLine } from "../gnss/gnss_logic.js";
 
 const G = "Gps";
 const finite = (x) => typeof x === "number" && Number.isFinite(x);
@@ -38,7 +40,19 @@ registerPanel({
     pos.append(h("div", { class: "row gnss-ll", "data-key": "gnss-lat" }, h("span", { class: "lbl", text: "Lat / Lon" }), ll("lat"), ll("lon")));
     b.row(pos, "Altitude (absolute)", { type: G, field: "alt", unit: "m", digits: 1 }, { key: "gnss-alt", title: "receiver altitude, u-blox: height above the WGS-84 ellipsoid, not above sea level" });
 
-    b.vecTable(el, ["N", "W", "U"], [{ label: "Velocity NWU", type: G, key: "gnss-vel-nwu", unit: "m/s", vec: (e) => (e && e.f && e.f.vel !== undefined ? gnssVelNwu(e.f.vel) : undefined) }]);
+    // Home as the vehicle reported it (never marked stale: it is a fixed reference, requested once at T-5), then the
+    // GNSS position relative to it, derived here.
+    const homeEl = h("div", { class: "row", "data-key": "gnss-home", "data-testid": "home-pos" }, h("span", { class: "lbl", text: "Home" }), h("span", { class: "val", "data-state": "missing", text: "—" }));
+    pos.append(homeEl);
+    // freshness follows the GNSS fix only: the home is a fixed reference sent once, so it must not make the row stale
+    const posHome = (e) => {
+      const hm = ctx.store.get(ctx.view(), "HomePosition");
+      const v = e && e.f && hm && hm.f ? gnssNwuFromHome(e.f, hm.f) : null;
+      return v ? v.map((x) => (finite(x) ? x : undefined)) : undefined;
+    };
+    b.vecTable(el, ["N", "W", "U"], [
+      { label: "Position vs home", type: G, key: "gnss-pos-home", unit: "m", digits: 1, vec: posHome },
+      { label: "Velocity NWU", type: G, key: "gnss-vel-nwu", unit: "m/s", vec: (e) => (e && e.f && e.f.vel !== undefined ? gnssVelNwu(e.f.vel) : undefined) }]);
 
     const t = tiles(el, "gnss-tiles"); // one row of six tiles (wide Bench column)
     b.tile(t, "Sats", { type: G, kind: "num", digits: 0, derive: num("num_sats") }, { key: "gnss-sats" });
@@ -55,6 +69,10 @@ registerPanel({
       const last = check.update({ now: ctx.store.now(v), position: lk("Position"), gps: lk(G), home: lk("HomePosition"), status: lk("VehicleStatus") });
       ccText = last.state === "over" && finite(last.diff) ? `${fmtNum(Math.abs(last.diff), 1)} m, warning` : STATE_TEXT[last.state];
       b.update();
+      const hl = homeLine(lk("HomePosition") && lk("HomePosition").f);
+      const hv = homeEl.querySelector(".val");
+      hv.textContent = hl.text;
+      hv.dataset.state = hl.tone === "dim" ? "missing" : "fresh";
       const cc = t.querySelector("[data-key=gnss-cc-line]");
       if (cc) cc.dataset.tone = STATE_TONE[last.state];
     };

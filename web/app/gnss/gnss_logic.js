@@ -37,6 +37,43 @@ export function groundSpeed(v) {
 
 export const deg = (rad) => (finite(rad) ? rad * R2D : null);
 
+// WGS-84 ellipsoid, for the local tangent-plane conversion below.
+const WGS84_A = 6378137.0;
+const WGS84_E2 = 0.00669437999014;
+
+/** Home reference usable for a horizontal position: a HOME_POSITION with valid, finite lat/lon (radians). */
+export const homeHasLatLon = (home) => !!home && home.latlon_valid !== false && finite(home.lat) && finite(home.lon);
+export const homeHasAlt = (home) => !!home && home.alt_valid === true && finite(home.alt);
+
+/**
+ * GNSS position in metres relative to home, NWU (X north, Y west, Z up), derived in the ground station from the vehicle's
+ * HOME_POSITION and the GNSS latitude / longitude / altitude (display only). Local tangent plane at the home latitude
+ * on the WGS-84 ellipsoid: N = dlat * M, E = dlon * N' * cos(lat0) (M meridian, N' prime-vertical radius), W = -E,
+ * U = alt - alt_home (same datum: the home altitude is "same datum as the GNSS altitude"). Valid within a few km, far
+ * beyond the model's range. Returns [N, W, U] where U is NaN when no altitude is valid, or null when there is no
+ * usable GNSS horizontal position (no fix, fix type below 3-D when known) or no home lat/lon. `gps`/`home`: decoded fields.
+ */
+export function gnssNwuFromHome(gps, home) {
+  if (!gps || !finite(gps.lat) || !finite(gps.lon) || !homeHasLatLon(home)) return null;
+  if (finite(gps.fix_type) && gps.fix_type < MIN_FIX_TYPE) return null;
+  const s = Math.sin(home.lat);
+  const w = Math.sqrt(1 - WGS84_E2 * s * s);
+  const M = (WGS84_A * (1 - WGS84_E2)) / (w * w * w);
+  const Np = WGS84_A / w;
+  const n = (gps.lat - home.lat) * M;
+  const e = (gps.lon - home.lon) * Np * Math.cos(home.lat);
+  const u = homeHasAlt(home) && finite(gps.alt) ? gps.alt - home.alt : NaN;
+  return [n, -e, u];
+}
+
+/** The home position as one line for the GNSS panel (display only): degrees, altitude, flags and epoch as reported. */
+export function homeLine(home) {
+  if (!home) return { tone: "dim", text: "no home position received yet" };
+  const ll = homeHasLatLon(home) ? `${(home.lat * R2D).toFixed(7)}°, ${(home.lon * R2D).toFixed(7)}°` : "no lat/lon";
+  const alt = homeHasAlt(home) ? `${home.alt.toFixed(1)} m` : "no altitude";
+  return { tone: "info", text: `${ll}, ${alt}${home.simulation ? " (simulation)" : ""}, epoch ${home.epoch ?? "?"}` };
+}
+
 /**
  * Altitude cross-check: the vehicle's estimated altitude (Position.pos[2], relative to its origin) against the GNSS
  * altitude relative to the start. Reference of the GNSS altitude, in this order:
@@ -181,4 +218,11 @@ export function plotGnssAltitude(f, last) {
     ref = m.n ? m.sum / m.n : undefined;
   }
   return { rel: ref === undefined ? undefined : f.alt - ref, est };
+}
+
+/** Graph helper: the NWU component `i` (0 N, 1 W, 2 U) of the GNSS position relative to the latest HomePosition. */
+export function plotGnssFromHome(f, last, i) {
+  const v = gnssNwuFromHome(f, last.HomePosition);
+  if (v === null) return undefined;
+  return v[i];
 }

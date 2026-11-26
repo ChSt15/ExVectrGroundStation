@@ -15,6 +15,12 @@ SAFETY-RELEVANT. It widens the uplink beyond RC state. Rules this module enforce
   flight per (action, target). No queueing: with no suitable connected source the send is refused.
 - Control hosts only (checked here and in the API), at most one new request per 500 ms per client host
   (keyed by the peer address, so reconnecting does not reset it).
+- The one automatic request: `[requests] auto_home` (default true) sends GET_HOME_POSITION to the vehicle (target 1,
+  whitelisted) on live data only: when the mission time is first seen in [-5, 0) s (T-5), at the first mission
+  state when the GS joined a mission already running, and when `VehicleStatus.home_epoch` changes. It is queued by
+  the bus callback and sent by `tick`, through the same in-flight, retry and ACK machinery; it needs a connected
+  source (else only an event line), is never queued, and the GS does not retry it beyond the transport retries.
+  Replay publishes on its own bus, so it never reaches this module. The result is display data only.
 - Nothing is persisted. Request and ACK events are recorded as `GsEvent`s (info for the log, never state).
 """
 
@@ -45,6 +51,9 @@ MAX_ATTEMPTS = 5
 MIN_INTERVAL_S = 0.5  # per client
 RECENT_KEPT = 20
 TICK_S = 0.05
+AUTO_HOME_ACTION = "GET_HOME_POSITION"
+AUTO_CLIENT = "auto"
+T5_WINDOW_S = 5.0
 NODE_NAMES = {1: "vehicle", 2: "Router", 3: "ship radio node"}
 CODES = (
     "control_denied",
@@ -125,6 +134,12 @@ class RequestController:
         self.session_fn: Callable[[], int] | None = None
         self.sent_count = 0  # attempts handed to a source
         bus.subscribe(self._on_packet, {"RequestAck"})
+        # automatic home request (see the module docstring): triggers are noted by the callback, sent by `tick`
+        self._auto_pending: str | None = None
+        self._auto_mission_fired = False  # the T-5 request of the current countdown was triggered
+        self._auto_seen_mission = False
+        self._auto_epoch: int | None = None
+        bus.subscribe(self._on_auto_packet, {"MissionState", "VehicleStatus"})
 
     # ------------------------------------------------------------ helpers
 
@@ -367,9 +382,76 @@ class RequestController:
 
     # ------------------------------------------------------------ retry and ACK
 
+    def _on_auto_packet(self, pkt: Packet) -> None:
+        """Note an auto-home trigger (design 8.1). Only the live bus feeds this; nothing is sent from here."""
+        if not self.cfg.auto_home:
+            return
+        if pkt.TYPE == "VehicleStatus":
+            epoch = getattr(pkt, "home_epoch", None)
+            if epoch is not None:
+                if self._auto_epoch is not None and epoch != self._auto_epoch and epoch != 0:
+                    self._auto_pending = "home epoch changed"
+                self._auto_epoch = epoch
+            return
+        t_mission = getattr(pkt, "t_mission", None)
+        phase = getattr(pkt, "mission_phase", None)
+        first = not self._auto_seen_mission
+        self._auto_seen_mission = True
+        if t_mission is None:
+            return
+        t_s = t_mission / 1e9
+        if -T5_WINDOW_S <= t_s < 0:
+            if not self._auto_mission_fired:
+                self._auto_mission_fired = True
+                self._auto_pending = "T-5"
+        elif t_s < -T5_WINDOW_S:
+            self._auto_mission_fired = False  # a countdown still before T-5 (or a new one): re-arm
+        elif first and phase is not None and int(phase) != 0:  # joined with the mission already running
+            self._auto_mission_fired = True
+            self._auto_pending = "joined a running mission"
+
+    async def _auto_home(self, trigger: str) -> None:
+        """The automatic home request: whitelisted GET_HOME_POSITION to the vehicle, a connected source only."""
+        try:
+            entry = self._entry(AUTO_HOME_ACTION, 1)
+        except RequestError:
+            return  # not whitelisted: nothing is sent
+        key = (entry.action, entry.target, None if entry.arg_i_ranged else entry.arg_i)
+        if key in self._inflight:
+            return
+        if not self.candidates(entry.target):
+            self._event(
+                GsEventKind.link_warning,
+                f"home unknown: automatic home request ({trigger}) not sent, no connected source",
+            )
+            return
+        now = self._clock.now()
+        st = RequestState(
+            req_id=self._new_id(), action=entry.action, target=entry.target, label=entry.label, group=entry.group,
+            confirm=entry.confirm, client=AUTO_CLIENT, state="sending", attempts=1, t_first=now,
+            next_at=now + int(RETRY_PERIOD_S * 1e9), arg_i=int(entry.arg_i),
+        )  # fmt: skip
+        self._inflight[key] = st
+        src = await self._transmit(st)
+        if src is None:
+            self._inflight.pop(key, None)
+            self._event(
+                GsEventKind.link_warning, f"home unknown: automatic home request ({trigger}) not accepted by a source"
+            )
+            return
+        st.source = src
+        self._event(
+            GsEventKind.request_sent,
+            f"REQUEST {st.action} target {st.target} id {st.req_id} via {src} (automatic: {trigger})",
+        )
+        self._changed()
+
     async def tick(self) -> None:
         """Retries every RETRY_PERIOD_S, a timeout one period after the last attempt. Run by `run`."""
         now = self._clock.now()
+        if self._auto_pending is not None:
+            trigger, self._auto_pending = self._auto_pending, None
+            await self._auto_home(trigger)
         for key, st in list(self._inflight.items()):
             if st.state != "sending" or now < st.next_at:
                 continue
@@ -433,6 +515,11 @@ class RequestController:
                     f"REQUEST_ACK {st.action} id {rid}: {st.status_name} detail {detail} "
                     f"after {st.attempts} attempt(s) (from {pkt.src})",
                 )
+                if st.client == AUTO_CLIENT and st.status not in (RequestStatus.DONE, RequestStatus.IN_PROGRESS):
+                    self._event(
+                        GsEventKind.link_warning,
+                        f"home unknown: the vehicle answered {st.status_name} detail {detail} to the automatic request",
+                    )
                 self._finish(key, st, "acked")
                 return
         for st in self._recent:  # a later ACK of an already finished request (for example DONE after IN_PROGRESS)

@@ -103,6 +103,10 @@ class RequestsSection:
     # Source ids tried in this order (a source must be connected and able to reach the target). Not set:
     # every vehicle_usb source, then every link_module source, then fake sources, each in config order.
     source_preference: list[str] | None = None
+    # Automatic home request (reliable-transport-design 8.1, rule in CLAUDE.md): GET_HOME_POSITION to the
+    # vehicle at T-5 and on the other triggers in requests/controller.py. It is sent only when this is true AND the
+    # whitelist holds GET_HOME_POSITION for target 1; never in replay, never without a connected source.
+    auto_home: bool = True
     actions: list[RequestEntry] = field(default_factory=list)
 
 
@@ -172,12 +176,15 @@ def _requests(data: dict) -> RequestsSection:
 
     data = dict(data)
     pref = data.pop("source_preference", None)
+    auto_home = data.pop("auto_home", True)
     raw = data.pop("action", [])
     if data:
         raise ConfigError(f"[requests]: unknown key(s) {sorted(data)}")
     if pref is not None and not (isinstance(pref, list) and all(isinstance(x, str) for x in pref)):
         raise ConfigError("[requests] source_preference must be a list of source ids")
-    sec = RequestsSection(source_preference=pref)
+    if not isinstance(auto_home, bool):
+        raise ConfigError("[requests] auto_home must be true or false")
+    sec = RequestsSection(source_preference=pref, auto_home=auto_home)
     if not isinstance(raw, list):
         raise ConfigError("[[requests.action]] must be an array of tables")
     seen: set[tuple[str, int, int | None]] = set()
