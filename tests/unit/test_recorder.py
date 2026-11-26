@@ -12,7 +12,7 @@ import pytest
 from exvectr_gs.core.bus import Bus
 from exvectr_gs.packets import REGISTRY
 from exvectr_gs.packets.defs.host import GsEventKind, Note
-from exvectr_gs.packets.defs.vehicle import Attitude
+from exvectr_gs.packets.defs.vehicle import Actuators, Attitude, Position
 from exvectr_gs.recording import LogReader, Recorder
 
 T0 = 1_763_471_000_000_000_000
@@ -291,3 +291,31 @@ def test_crash_loses_at_most_flush_interval(tmp_path):
     trailer = open(path, "rb").read().rstrip(b"\n").split(b"\n")[-1]
     assert not trailer.startswith(b"#end")  # incomplete, but fully readable
     assert reader.bad_lines == []
+
+
+def test_position_ground_distance_roundtrips_and_old_actuators_field_is_tolerated(tmp_path):
+    rec, bus, now = make(tmp_path)
+    info = rec.start("lidar")
+    sent = [
+        Position(t=T0 + 1000, src="usb", pos=[0, 0, 1], vel=[0, 0, 0], ground_distance=1.234),
+        Position(t=T0 + 2000, src="radio", pos=[0, 0, 3], vel=[0, 0, 0], ground_distance=None),  # NaN on the wire
+    ]
+    for p in sent:
+        bus.publish(p)
+    now[0] = T0 + 10_000_000
+    rec.stop()
+    got = [p for _, p in LogReader(info.path).iter_packets() if isinstance(p, Position)]
+    assert [p.ground_distance for p in got] == [1.234, None]
+    # an OLD recording (made when Actuators carried it): loads without errors, the extra column is kept,
+    # no Position.ground_distance reading
+    old = tmp_path / "old.exlog"
+    old.write_text(
+        "#exlog v=1\n#meta started=2026-11-18T14:03:12.481+01:00 gs=0.1.0 host=h profile=p\n"
+        f"{T0} usb Position pos=[0,0,1] vel=[0,0,0]\n"
+        f"{T0 + 1} usb Actuators flaps=[0,0,0,0] tvc=[0,0] thrust=1.0 ground_distance=0.8 roll_torque=0.1\n"
+    )
+    rd = LogReader(old)
+    pk = [p for _, p in rd.iter_packets()]
+    assert not rd.bad_lines and len(pk) == 2
+    assert pk[0].ground_distance is None
+    assert isinstance(pk[1], Actuators) and pk[1].roll_torque == 0.1 and pk[1].extra == {"ground_distance": "0.8"}

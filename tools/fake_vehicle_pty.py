@@ -400,7 +400,6 @@ class FakeVehiclePty:
                 flaps,
                 [vane[0], vane[2]],
                 vs["tvc_thrust"][2],
-                vs["ground_dist"],
                 sc.fields("Actuators", t)["roll_torque"],
             )
             return self._data(src, 0, net.PORT_ACTUATORS, pl)

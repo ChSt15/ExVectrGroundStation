@@ -79,6 +79,11 @@ class Position(Packet):
     vel: list[float] = f(unit="m/s", labels=("x", "y", "z"), desc="velocity, NWU")
     h_acc: float | None = f(desc="horizontal accuracy. Legacy value has no physical unit (known issue)")
     v_acc: float | None = f(desc="vertical accuracy. Legacy value has no physical unit (known issue)")
+    ground_distance: float | None = f(
+        unit="m",
+        desc="downward lidar distance to the ground (POSE 0x80, AIR_POSE 0x21, schema 0x93EF9C5F). None = unavailable "
+        "(NaN on the wire: out of the useful range 0.4 to 1.5 m, or an older sender). Moved from Actuators.",
+    )
 
 
 @packet(
@@ -345,13 +350,12 @@ class MissionParams(Packet):
     direction=Direction.DOWN,
     nominal_rate_hz=10,
     history=True,
-    desc="exvectr_packets ACTUATORS: flap angles, TVC deflection, thrust, ground distance.",
+    desc="exvectr_packets ACTUATORS: flap angles, TVC deflection, thrust (ground distance moved to Position).",
 )
 class Actuators(Packet):
     flaps: list[float] = f(unit="rad", labels=("tl", "tr", "bl", "br"), desc="0 = extended, increasing = folded")
     tvc: list[float] = f(unit="rad", labels=("x", "y"), desc="thrust vector deflection")
     thrust: float = f(unit="N")
-    ground_distance: float = f(unit="m", desc="NaN if unavailable")
     roll_torque: float | None = f(
         unit="N*m", desc="TVC twist (roll) torque about body Z (AIR_ACTUATORS and USB ACTUATORS); None = unknown"
     )

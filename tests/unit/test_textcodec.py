@@ -136,6 +136,10 @@ def test_golden_file_decodes_to_known_values_and_reencodes_identically():
     vst = by_type["VehicleStatus"]
     assert vst.calib_state == 23 and vst.calib_gyro_ok is True and vst.calib_session is False
     assert vst.ready_to_arm is True and by_type["Actuators"].roll_torque == 0.012
+    assert by_type["Position"].ground_distance == 1.234
+    # an old recording's Actuators.ground_distance is no schema field any more: it is carried as an unknown extra
+    # field (no error, re-encoded unchanged) and shows no ground-distance reading
+    assert by_type["Actuators"].extra == {"ground_distance": "nan"}
     assert by_type["GsEvent"].kind is GsEventKind.rec_start
     assert by_type["RcState"].ch_us[2] == 1000 and by_type["RcState"].seq == 8812
     assert by_type["Note"].text == "gusts from the west, ~3 m/s"

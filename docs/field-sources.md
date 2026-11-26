@@ -11,8 +11,8 @@ The vehicle's USB telemetry (`usb`, full set, 50 to 100 Hz) and the Router's rad
 | Attitude | `q` | U | L | |
 | Attitude | `omega` | U | - | radio `AIR_POSE` has no body rates |
 | Position | `pos`, `vel` | U | L | |
+| Position | `ground_distance` | U | L | moved here from Actuators (schema 0x93EF9C5F); both sets carry it |
 | Actuators | `flaps`, `tvc`, `thrust` | U | L | |
-| Actuators | `ground_distance` | U | - | |
 | Actuators | `roll_torque` | U | L | gap filled by schema 0x414DE27A (USB `ACTUATORS` carries it; older sender: `None`) |
 | FlapState | `angle` | U | L | |
 | MissionState | `sp_vel`, `sp_pos`, `sp_q`, `mission_phase`, `t_mission`, `mission_index` | U | L | |

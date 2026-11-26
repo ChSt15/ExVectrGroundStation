@@ -12,7 +12,7 @@ import { healthSections, systemsStatus, systemsSummary } from "../status/systems
 registerPanel({
   id: "health",
   title: "Health",
-  consumes: ["VehicleStatus", "Estimator", "Attitude", "Actuators", "Gps"],
+  consumes: ["VehicleStatus", "Estimator", "Attitude", "Position", "Gps"],
   create(el, ctx) {
     const issuesEl = h("div", { class: "hl-issues", "data-testid": "health-issues" });
     const goodEl = h("div", { class: "hl-chips hl-good", "data-testid": "health-good" });
@@ -44,7 +44,7 @@ registerPanel({
       const gpsFresh = g && now !== null && !isStale(g, now, sch("Gps"));
       const ev = get("Estimator");
       const at = get("Attitude");
-      const ac = get("Actuators");
+      const pp = get("Position");
       const co = ctx.callouts && ctx.callouts();
       const items = systemsStatus({
         status: e ? e.f : null,
@@ -52,7 +52,7 @@ registerPanel({
         gps: gpsFresh ? g.f : null,
         estimator: ev ? ev.f : null,
         attitude: at ? at.f : null,
-        groundDistance: ac ? ac.f.ground_distance : null,
+        groundDistance: pp ? pp.f.ground_distance : null,
         calib: co ? co.log.calibState() : null,
         lastSet,
         now,

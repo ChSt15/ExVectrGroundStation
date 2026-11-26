@@ -11,7 +11,7 @@ const comp = (field, i) => (e) => (Array.isArray(e.f[field]) ? e.f[field][i] ?? 
 registerPanel({
   id: "position",
   title: "Position & velocity",
-  consumes: [P, G, "Actuators"],
+  consumes: [P, G],
   create(el, ctx) {
     const b = new Bindings(ctx);
     const compact = !!(ctx.options && ctx.options.compact);
@@ -26,12 +26,12 @@ registerPanel({
       derive: (e) => (Array.isArray(e.f.vel) && typeof e.f.vel[0] === "number" && typeof e.f.vel[1] === "number" ? Math.hypot(e.f.vel[0], e.f.vel[1]) : undefined),
     });
     // downward lidar: the vehicle's estimate of the distance to the ground, valid only in the sensor's useful range
-    const gd = h("div", { class: "tile gd", "data-testid": "ground-distance", title: "Downward lidar (Actuators.ground_distance): valid only in the sensor's useful range" }, h("div", { class: "tile-l", text: "Ground distance" }), h("span", { class: "val big" }, h("span", { class: "v" }), h("span", { class: "unit" })));
+    const gd = h("div", { class: "tile gd", "data-testid": "ground-distance", title: "Downward lidar (Position.ground_distance): valid only in the sensor's useful range" }, h("div", { class: "tile-l", text: "Ground distance" }), h("span", { class: "val big" }, h("span", { class: "v" }), h("span", { class: "unit" })));
     t.append(gd);
     const gdUpdate = () => {
       const { store, view } = ctx;
       const now = store.now(view());
-      const d = groundDistanceView(store.get(view(), "Actuators"), now === null ? NaN : now);
+      const d = groundDistanceView(store.get(view(), "Position"), now === null ? NaN : now);
       gd.dataset.state = d.state;
       gd.querySelector(".v").textContent = d.text;
       gd.querySelector(".unit").textContent = d.unit ? ` ${d.unit}` : "";

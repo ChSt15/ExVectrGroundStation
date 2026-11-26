@@ -58,7 +58,7 @@ The old firmware already used the conventions of today's system for everything i
 | TVC thrust | `TVCThrustX/Y/Z` (N, body frame) | `VehicleState.tvc_thrust`; `Actuators.thrust` = magnitude (derived) | none | high (unit, from the source); body frame medium-high (Z carries the thrust) |
 | TVC thrust, one value | `TVCThrust` (layout `tvc-28`) | `Actuators.thrust` | none | medium (assumed magnitude) |
 | TVC torque | `TVCTorque` (N*m) | `VehicleState.tvc_torque`, `Actuators.roll_torque` | none | medium (assumed roll torque about body Z, the only torque in the old struct) |
-| Ground distance | `GroundDistance` (m), `GroundDistanceCov` (m^2) | `VehicleState.ground_dist`, `.ground_dist_cov`, `Actuators.ground_distance` | none | high |
+| Ground distance | `GroundDistance` (m), `GroundDistanceCov` (m^2) | `VehicleState.ground_dist`, `.ground_dist_cov`, `Position.ground_distance` | none | high |
 
 Not in the logs, left None: `Attitude.omega`, `MissionState.sp_vel` and `mission_phase`, sensor and failure states, `armed`, `VehicleStatus.simulation` and `vehicle_time` (the logged clock is the handset's, not the vehicle's). Lat, lon and alt all exactly 0 means no fix: `Gps.lat/lon/alt` None.
 

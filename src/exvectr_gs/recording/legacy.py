@@ -140,7 +140,7 @@ CONVENTIONS = (
     "Gps.vel_acc (m/s: the logger prints velocityAccuracy). TVCThrustX/Y/Z (N, body frame) -> "
     "VehicleState.tvc_thrust; TVCTorque (N*m) -> VehicleState.tvc_torque and Actuators.roll_torque (assumed roll "
     "torque about body Z); Actuators.thrust = |TVCThrust vector| (derived) or TVCThrust (layout tvc-28); "
-    "GroundDistance (m) -> VehicleState.ground_dist and Actuators.ground_distance; GroundDistanceCov (m^2) -> "
+    "GroundDistance (m) -> VehicleState.ground_dist and Position.ground_distance; GroundDistanceCov (m^2) -> "
     "VehicleState.ground_dist_cov. VehicleMode/MissionMode: same enum numbering as the old telemetry.hpp; values "
     "outside the enum -> None. Not in the logs (None): omega, sp_vel, mission_phase, sensor and failure states, "
     "armed, simulation. Lat/lon/alt all exactly 0 -> no fix (Gps lat/lon/alt None). A quaternion with norm < 0.5 "
@@ -249,7 +249,8 @@ def row_packets(row: dict[str, object], t: int, layout: Layout) -> list[Packet]:
     g = row.get
     out: list[Packet] = [
         Position(t=t, src=SRC, pos=_vec(row, "PositionX", "PositionY", "PositionZ"),
-                 vel=_vec(row, "VelocityX", "VelocityY", "VelocityZ")),
+                 vel=_vec(row, "VelocityX", "VelocityY", "VelocityZ"),
+                 ground_distance=g("GroundDistance")),  # type: ignore[arg-type]
     ]  # fmt: skip
     q = _vec(row, "AttitudeQ0", "AttitudeQ1", "AttitudeQ2", "AttitudeQ3")
     if q is not None and math.sqrt(sum(x * x for x in q)) < 0.5:
@@ -299,14 +300,13 @@ def row_packets(row: dict[str, object], t: int, layout: Layout) -> list[Packet]:
     thrust = g("TVCThrust")
     if thrust is None and tvc is not None:
         thrust = math.sqrt(sum(x * x for x in tvc))
-    if thrust is not None or "TVCTorque" in row or "GroundDistance" in row:
+    if thrust is not None or "TVCTorque" in row:
         out.append(
             Actuators(
                 t=t,
                 src=SRC,
                 thrust=thrust,  # type: ignore[arg-type]
                 roll_torque=g("TVCTorque"),  # type: ignore[arg-type]
-                ground_distance=g("GroundDistance"),  # type: ignore[arg-type]
             )
         )
     names = {fl.name for fl in dataclasses.fields(LegacyRow)}

@@ -106,14 +106,14 @@ def test_tvc31_vector_thrust_and_bad_row():
     assert len(pf.rows) == 2
     assert p["VehicleState"].tvc_thrust == [3.0, 0.0, 4.0] and p["VehicleState"].tvc_torque == 0.01
     assert p["Actuators"].thrust == 5.0  # |(3, 0, 4)|
-    assert p["Actuators"].roll_torque == 0.01 and p["Actuators"].ground_distance is None
+    assert p["Actuators"].roll_torque == 0.01 and p["Position"].ground_distance is None
 
 
 def test_tvc_ground33():
     _, p = packets_of("tvcground33.txt", 1)
     vs = p["VehicleState"]
     assert vs.ground_dist == 1.25 and vs.ground_dist_cov == 0.5 and vs.tvc_thrust == [0.1, -0.2, 7.5]
-    assert p["Actuators"].ground_distance == 1.25
+    assert p["Position"].ground_distance == 1.25
     assert p["MissionState"].t_mission == 38 * S and p["MissionState"].sp_pos == [0.0, 0.0, 120.0]
     assert p["Attitude"].q == [0.5, 0.5, 0.5, 0.5]
     assert p["Gps"].num_sats == 0 and p["Gps"].pos_acc == -0.0 and p["Gps"].vel_acc == 10.0
