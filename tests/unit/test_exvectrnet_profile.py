@@ -863,3 +863,22 @@ def test_mission_state_flip_start_and_stop_altitude_from_mission():
     for cut in (8, 10):  # older sender without the two fields (with and without mode/waypoint)
         m = _mission_state(0x82, pl[:-cut])
         assert m.flip_start_altitude is None and m.stop_altitude is None
+
+
+def test_airdiag_log_line_is_one_untruncated_console_line():
+    """AIRDIAG lines (key=value, ExVectrLink instrumentation) arrive as LOG_TEXT: kept whole, node id in the prefix."""
+    text = "AIRDIAG node=3 " + " ".join(f"k{i}={i * 1000}" for i in range(40))
+    text = text[:233]  # LOG_TEXT payload maximum
+    assert len(text) == 233
+    pl = bytes([1]) + text.encode()
+    (c,) = PROFILE.decode_many(frame(0x02, pl, src=3), "link")
+    assert c.TYPE == "ConsoleText" and c.text.endswith(text) and "AIRDIAG node=3" in c.text
+
+
+def test_both_directions_separate_packets():
+    """TxModuleStats (node 2) is the downlink view and RxModuleStats (node 3) the uplink view, never mixed."""
+    _vals, pl = case_payload("link_stats")
+    tx = by_type(PROFILE.decode_many(frame(0x01, pl, src=2), "link"))
+    rx = by_type(PROFILE.decode_many(frame(0x01, pl, src=3), "link"))
+    assert "TxModuleStats" in tx and "RxModuleStats" not in tx
+    assert "RxModuleStats" in rx and "TxModuleStats" not in rx

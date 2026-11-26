@@ -5,7 +5,7 @@ import { PATH_HINT, describeAirDirections, describeRates } from "../rates/rates_
 registerPanel({
   id: "rates",
   title: "Data rates",
-  consumes: ["RadioLinkStats"],
+  consumes: ["RadioLinkStats", "TxModuleStats", "RxModuleStats"],
   create(el, ctx) {
     const compact = !!(ctx.options && ctx.options.compact);
     if (compact) el.classList.add("rt-c");
@@ -17,7 +17,8 @@ registerPanel({
     airSec.append(bar, upBar);
     const rb = new Bindings(ctx);
     rb.row(airSec, "Router LINK_STATS: air packets up / down", { type: "RadioLinkStats", kind: "vec", unit: "Hz", digits: 1, derive: (e) => (e.f.up_hz === undefined && e.f.down_hz === undefined ? undefined : [e.f.up_hz ?? null, e.f.down_hz ?? null]) });
-    rb.row(airSec, "Router link quality", { type: "RadioLinkStats", field: "lq_pct", unit: "%", digits: 0 });
+    rb.row(airSec, "Downlink (ship -> GS) link quality", { type: "TxModuleStats", field: "rx_lq", unit: "%", digits: 0, missingText: "no data" });
+    rb.row(airSec, "Uplink (GS -> ship) link quality", { type: "RxModuleStats", field: "rx_lq", unit: "%", digits: 0, missingText: "no data" });
     const tbl = section(el, "Streams");
     const head = h("tr", {}, ...["Type", "Path", "Source", "Hz (2 s)", "Hz (10 s)", "Nominal Hz", "Bytes/s", "Age"].map((t) => h("th", { text: t })));
     const body = h("tbody");

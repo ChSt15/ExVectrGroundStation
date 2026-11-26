@@ -322,6 +322,32 @@ class Scenario:
             "antenna": 0,
         }
 
+    def _module_stats(self, t: float, lq: int, rssi: int, snr: int) -> dict[str, Any]:
+        n = int(t * 2)
+        return {
+            "module_uptime": t,
+            "air_state": 3,
+            "rx_lq": lq,
+            "rssi": rssi,
+            "snr": snr,
+            "tx_power": 10,
+            "rx_antenna": 0,
+            "tx_antenna": 1,
+            "air_rx_ok": n % 65536,
+            "air_rx_bad": 0,
+            "frames_dropped": 0,
+            "frames_expired": 0,
+            "queue_peak": 5,
+        }
+
+    def _f_TxModuleStats(self, t: float) -> dict[str, Any]:
+        # the Router hears the ship: downlink quality (differs from the uplink on purpose)
+        return self._module_stats(t, 92, -62, 8)
+
+    def _f_RxModuleStats(self, t: float) -> dict[str, Any]:
+        # the ship radio node hears the ground station: uplink quality
+        return self._module_stats(t, 96, -77, 6)
+
     def handset_channels(self, t: float) -> list[int]:
         ch = [1500] * 16
         ch[2] = 1000

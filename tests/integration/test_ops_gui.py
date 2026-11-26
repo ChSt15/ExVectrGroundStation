@@ -365,6 +365,24 @@ async def test_link_panel_flags_differing_and_over_limit_power(tmp_path):
 
 
 @needs_browser
+async def test_link_panel_and_header_label_both_link_directions(tmp_path):
+    async with rig_with(tmp_path) as rig, browser_check.Browser(1500, 1300, 9378) as b:
+        await open_page(b, rig, ["link"])
+        await until(
+            lambda: b.eval(
+                "['down','up'].every(d => "
+                "document.querySelector(`[data-testid=dir-badge-${d}]`)?.dataset.state === 'fresh')"
+            ),
+            timeout=6,
+            what="both directions live",
+        )
+        panel = await text(b, "[data-panel=link]")
+        assert "Downlink (ship -> GS)" in panel and "Uplink (GS -> ship)" in panel
+        chips = await b.eval("[...document.querySelectorAll('.link-chip')].map(e => e.textContent)")
+        assert [c.split()[0] for c in chips] == ["DL", "UL"] and all("%" in c for c in chips)
+
+
+@needs_browser
 async def test_schema_mismatch_banner_shows_for_an_old_hash_and_clears_on_the_new_one(tmp_path):
     async with (
         rig_with(tmp_path, usb_kw={"schema_hash": 0x3AFA3CCE}) as rig,

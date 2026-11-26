@@ -53,6 +53,8 @@ RADIO_RATES: dict[str, float] = {
     "HomePosition": 1,
     "MissionParams": 0.5,
     "RadioLinkStats": 2,
+    "TxModuleStats": 2,  # downlink view (Router)
+    "RxModuleStats": 2,  # uplink view (ship radio node)
     "RcState": 10,
 }
 PROFILES = {"usb": USB_RATES, "radio": RADIO_RATES}

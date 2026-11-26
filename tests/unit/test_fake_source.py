@@ -236,3 +236,13 @@ async def test_request_rules_each_refusal_pair():
     src = make(answer_requests=True, request_rules=True, request_status=0)
     _, got = await _answer(src, _act(8))  # SAVE_CONFIG is not ruled
     assert [(p.status, p.detail) for p in got] == [(0, 0)]
+
+
+def test_radio_profile_has_both_link_directions():
+    s = make("radio")
+    s.reset(1000)
+    by = {}
+    for p in s.step(2.0):
+        by.setdefault(p.TYPE, p)
+    assert by["TxModuleStats"].rx_lq != by["RxModuleStats"].rx_lq  # two distinct directions
+    assert by["TxModuleStats"].rssi != by["RxModuleStats"].rssi

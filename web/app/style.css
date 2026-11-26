@@ -579,3 +579,6 @@ body[data-layout="tuning"] .group-title { display: none; }
 .cmd-why { color: var(--dim); font-size: var(--fs-xs); }
 .cmd-input { padding: 4px 8px; border-radius: 4px; border: 1px solid var(--line); margin: 4px 0; font-weight: 600; }
 .cmd-input[data-input=pocket] { border-color: var(--warn); color: var(--warn); }
+.link-chip[data-state="stale"] { color: var(--stale); text-decoration: line-through; opacity: .7; } .link-chip[data-state="nodata"] { color: var(--dim); }
+.link-chip[data-tone="ok"] { color: var(--ok); } .link-chip[data-tone="warn"] { color: var(--warn); } .link-chip[data-tone="bad"] { color: var(--bad); }
+.dir-badge { font-weight: 700; } .dir-badge[data-state="stale"] { color: var(--stale); } .dir-badge[data-state="nodata"] { color: var(--dim); }

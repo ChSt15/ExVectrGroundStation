@@ -130,7 +130,7 @@ export function describe(spec, lookup, now, schemaOf = () => undefined) {
   const types = spec.types || [spec.type];
   const entries = types.map((t) => lookup(t, spec.src));
   if (entries.some((e) => !e)) {
-    return { state: "missing", text: "—", unit: "", age: null, src: "", value: undefined, title: "no data received" };
+    return { state: "missing", text: spec.missingText ?? "—", unit: "", age: null, src: "", value: undefined, title: "no data received" };
   }
   let age = 0;
   let stale = false;

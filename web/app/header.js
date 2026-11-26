@@ -1,14 +1,14 @@
 // Header bar: brand, layout views (Bench / Tuning), LIVE / REPLAY data view, RC state (as the core reports
 // it), radio link quality, the recorder block (start / stop, name, duration, size, free space, errors), connection
 // and theme. Recording is manual: Start begins a recording at once, Stop needs no confirmation.
-import { h, makeCell, renderValue } from "./ui.js";
-import { describe } from "./fmt.js";
+import { h } from "./ui.js";
+import { DIRECTIONS, chipText, chipTitle, directionState } from "./link/lq_logic.js";
 import { describeRecorder } from "./status/source_logic.js";
 import { badgeState } from "./update/update_logic.js";
 import { holdControl } from "./command/hold_ctl.js";
 import { HOLD_MS, headerButtons } from "./command/button_logic.js";
 
-export const HEADER_CONSUMES = ["RadioLinkStats"];
+export const HEADER_CONSUMES = ["TxModuleStats", "RxModuleStats"];
 
 const RC_TEXT = { virtual: "VIRTUAL", pocket: "POCKET", idle: "IDLE" };
 
@@ -31,9 +31,11 @@ export function createHeader(ctx, opts) {
   // RC and link chips
   const rc = h("span", { class: "chip rc-chip", "data-testid": "rc-chip", title: "Command stream of the core's command engine and its input (docs/radio.md)" });
   rc.addEventListener("click", () => window.exgs?.dock?.open("radio"));
-  const link = h("span", { class: "chip", title: "radio link quality (Router)" });
-  const linkVal = makeCell();
-  link.append(h("span", { class: "chip-l", text: "LQ" }), linkVal.el);
+  // one chip per link direction (link/lq_logic.js): DL = downlink ship -> GS (TxModuleStats), UL = uplink GS -> ship
+  const linkChips = DIRECTIONS.map((dir) => {
+    const chip = h("span", { class: "chip link-chip", "data-testid": `link-chip-${dir.id}`, "data-direction": dir.id });
+    return { dir, chip };
+  });
   // software update badge (docs/updating.md): shown when a check found new commits or a restart is pending
   const upd = h("button", { class: "chip upd-chip", "data-testid": "update-badge", hidden: true, "aria-label": "software update available: open the Software tab" });
   upd.addEventListener("click", () => window.exgs?.dock?.open("update"));
@@ -85,7 +87,7 @@ export function createHeader(ctx, opts) {
     calChip,
     upd,
     rc,
-    link,
+    ...linkChips.map((c) => c.chip),
     rec,
     spk,
     conn,
@@ -101,9 +103,14 @@ export function createHeader(ctx, opts) {
     const view = ctx.view();
     for (const v of Object.keys(dataBtns)) dataBtns[v].setAttribute("aria-pressed", String(v === view));
     const now = ctx.store.now(view);
-    const dl = describe({ type: "RadioLinkStats", field: "lq_pct", digits: 0, unit: "%" }, (t, src) => ctx.store.get(view, t, src), now ?? Infinity, (t) => ctx.store.schema.get(t));
-    renderValue(linkVal, dl, false);
-    link.dataset.tone = dl.state === "fresh" ? (dl.value < 50 ? "bad" : dl.value < 80 ? "warn" : "ok") : "";
+    for (const { dir, chip } of linkChips) {
+      const e = ctx.store.get(view, dir.type);
+      const st = directionState(dir, e, now ?? Infinity, ctx.store.schema.get(dir.type));
+      chip.textContent = chipText(st);
+      chip.title = chipTitle(st);
+      chip.dataset.state = st.state;
+      chip.dataset.tone = st.tone;
+    }
     // RC state: what the core reports it does (never inferred from clicks)
     const r = ctx.rc();
     const open = ctx.connState() === "open";
