@@ -203,6 +203,8 @@ registerPanel({
         feeder.clear();
         const cal = ctx.store.get(view, "Calibration");
         if (cal) feeder.push("Calibration", cal.t, cal.f);
+        const home = ctx.store.get(view, "HomePosition"); // not in the plot history: the reference of the GNSS metres
+        if (home) feeder.push("HomePosition", home.t, home.f);
         for (const p of historyToPackets(res.series)) feeder.push(p.type, p.t, p.f);
         for (const it of queue) feeder.push(it.type, it.t, it.f);
         status = "";

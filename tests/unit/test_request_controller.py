@@ -446,3 +446,122 @@ def test_arg_f_config_validation():
                 {"action": "ZERO_ESTIMATORS", "target": 1, "arg_f_min": 1}):  # fmt: skip
         with pytest.raises(ConfigError):
             _cfg([bad])
+
+
+# ---- [requests] auto_home (reliable-transport-design 8.1): T-5, late join, epoch change; live and whitelisted only
+
+HOME_LIST = [*WHITELIST, RequestEntry("GET_HOME_POSITION", 1, "Request home position", "Vehicle")]
+
+
+def mission(rig, t_mission_s, phase=0, src="usb"):
+    from exvectr_gs.packets.defs.vehicle import MissionPhase, MissionState
+
+    rig.bus.publish(
+        MissionState(
+            t=rig.clock.now(),
+            src=src,
+            mission_phase=MissionPhase(phase),
+            t_mission=None if t_mission_s is None else int(t_mission_s * 1e9),
+        )
+    )
+
+
+def status(rig, epoch):
+    from exvectr_gs.packets.defs.vehicle import VehicleStatus
+
+    rig.bus.publish(VehicleStatus(t=rig.clock.now(), src="usb", home_epoch=epoch))
+
+
+def homes(rig):
+    return [p for s in rig.sources for p in s.sent if p.action == RequestAction.GET_HOME_POSITION]
+
+
+async def test_auto_home_requests_once_at_t_minus_5_and_not_before():
+    r = Rig(whitelist=HOME_LIST)
+    for t in (-30.0, -10.0, -5.01):
+        mission(r, t)
+        await r.rc.tick()
+    assert homes(r) == []
+    mission(r, -5.0)
+    await r.rc.tick()
+    assert len(homes(r)) == 1 and homes(r)[0].target == 1
+    assert "automatic: T-5" in r.events[-1].detail
+    assert r.rc.status()["inflight"][0]["client"] == "auto"
+    r.ack(homes(r)[0].req_id)
+    for t in (-4.0, -1.0, 0.5, 20.0):  # the same countdown never asks twice
+        mission(r, t)
+        await r.rc.tick()
+    assert len(homes(r)) == 1
+
+
+async def test_auto_home_rearms_for_a_new_countdown_and_ignores_no_mission_time():
+    r = Rig(whitelist=HOME_LIST)
+    mission(r, None)
+    mission(r, -4.0)
+    await r.rc.tick()
+    r.ack(homes(r)[0].req_id)
+    mission(r, -20.0)  # a new countdown starts
+    mission(r, -3.0)
+    await r.rc.tick()
+    assert len(homes(r)) == 2
+
+
+async def test_auto_home_when_joining_a_running_mission_and_on_epoch_change():
+    r = Rig(whitelist=HOME_LIST)
+    mission(r, 12.0, phase=0)  # idle with a positive time: no trigger
+    await r.rc.tick()
+    assert homes(r) == []
+    r2 = Rig(whitelist=HOME_LIST)
+    mission(r2, 12.0, phase=2)  # Ascent already running at the first state
+    await r2.rc.tick()
+    assert len(homes(r2)) == 1 and "joined a running mission" in r2.events[-1].detail
+    r3 = Rig(whitelist=HOME_LIST)
+    status(r3, 1)  # the first epoch seen is not a change
+    await r3.rc.tick()
+    assert homes(r3) == []
+    status(r3, 1)
+    status(r3, 2)
+    await r3.rc.tick()
+    assert len(homes(r3)) == 1 and "home epoch changed" in r3.events[-1].detail
+
+
+async def test_auto_home_off_not_whitelisted_or_without_a_connected_source_sends_nothing():
+    from exvectr_gs.core.config import RequestsSection
+
+    r = Rig(whitelist=HOME_LIST)
+    r.rc.cfg = RequestsSection(auto_home=False, actions=list(HOME_LIST))
+    mission(r, -4.0)
+    await r.rc.tick()
+    assert homes(r) == []
+    r = Rig(whitelist=WHITELIST)  # GET_HOME_POSITION is not in the whitelist
+    mission(r, -4.0)
+    await r.rc.tick()
+    assert homes(r) == [] and r.events == []
+    r = Rig(whitelist=HOME_LIST)
+    r.usb.state = r.link.state = "disconnected"
+    mission(r, -4.0)
+    await r.rc.tick()
+    assert homes(r) == [] and r.rc.status()["inflight"] == []
+    assert r.kinds() == [GsEventKind.link_warning] and "home unknown" in r.events[0].detail
+    r.usb.state = "connected"  # nothing was queued: a source coming back later sends nothing by itself
+    await r.rc.tick()
+    assert homes(r) == []
+
+
+async def test_auto_home_refusal_is_shown_as_reported_and_never_retried_by_the_gs_decision():
+    r = Rig(whitelist=HOME_LIST)
+    mission(r, -4.0)
+    await r.rc.tick()
+    r.ack(homes(r)[0].req_id, status=RequestStatus.REJECTED_STATE, detail=4)
+    assert r.rc.status()["recent"][0]["status_name"] == "REJECTED_STATE"
+    assert any("home unknown" in e.detail and "REJECTED_STATE" in e.detail for e in r.events)
+    r.clock.advance(10)
+    await r.rc.tick()
+    assert len(homes(r)) == 1
+
+
+def test_auto_home_config_default_true_and_validated():
+    assert RequestsSection().auto_home is True
+    assert parse_config({"core": {"source_priority": []}, "requests": {"auto_home": False}}).requests.auto_home is False
+    with pytest.raises(ConfigError):
+        parse_config({"core": {"source_priority": []}, "requests": {"auto_home": "yes"}})

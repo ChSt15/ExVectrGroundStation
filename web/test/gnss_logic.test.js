@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ALTCHECK_DEFAULTS, AltCheck, fixName, gnssUsable, groundSpeed, gnssVelNwu, plotGnssAltitude } from "../app/gnss/gnss_logic.js";
+import { ALTCHECK_DEFAULTS, AltCheck, fixName, gnssUsable, groundSpeed, gnssVelNwu, gnssNwuFromHome, homeLine, plotGnssAltitude } from "../app/gnss/gnss_logic.js";
 import { CalloutEngine } from "../app/callouts/engine.js";
 import { DEFAULTS, mergeSettings } from "../app/callouts/settings.js";
 import { SIGNAL_BY_ID, SignalFeeder } from "../app/plot/catalogue.js";
@@ -169,4 +169,57 @@ test("callout engine: 'Altitude mismatch' once per excursion, off through the ca
   // clamped, validated settings
   assert.equal(mergeSettings(DEFAULTS, { altcheck: { limit_m: -3, hold_s: "x" } }).altcheck.limit_m, 0.1);
   assert.equal(mergeSettings(DEFAULTS, { altcheck: { limit_m: 8 } }).altcheck.limit_m, 8);
+});
+
+const RAD = Math.PI / 180;
+const H0 = { latlon_valid: true, alt_valid: true, lat: 51.5 * RAD, lon: 10 * RAD, alt: 100, epoch: 1 };
+
+test("GNSS metres relative to home: NWU signs, scale at 51.5 deg, altitude", () => {
+  const at = (dlat, dlon, alt = 100) => gnssNwuFromHome({ lat: H0.lat + dlat * RAD, lon: H0.lon + dlon * RAD, alt, fix_type: 3 }, H0);
+  assert.deepEqual(at(0, 0), [0, -0, 0]);
+  const [n, w, u] = at(1e-4, 0, 112.5);
+  assert.ok(Math.abs(n - 11.15) < 0.05 && w === -0 && u === 12.5, `${n} ${w} ${u}`); // north is positive N
+  const [n2, w2] = at(0, 1e-4); // east is negative W: 1e-4 deg of longitude is 6.93 m at 51.5 deg
+  assert.ok(n2 === 0 && Math.abs(w2 + 6.93) < 0.05, `${n2} ${w2}`);
+  const [, w3] = at(0, -1e-4); // west is positive W
+  assert.ok(Math.abs(w3 - 6.93) < 0.05);
+  assert.ok(Math.abs(at(-1e-4, 0)[0] + 11.15) < 0.05); // south is negative N
+  const [, , down] = at(0, 0, 90);
+  assert.equal(down, -10);
+});
+
+test("GNSS metres relative to home: nothing is invented without a home or a fix", () => {
+  const g = { lat: H0.lat, lon: H0.lon, alt: 100, fix_type: 3 };
+  assert.equal(gnssNwuFromHome(g, undefined), null);
+  assert.equal(gnssNwuFromHome(g, { ...H0, latlon_valid: false }), null);
+  assert.equal(gnssNwuFromHome(g, { ...H0, lat: null }), null);
+  assert.equal(gnssNwuFromHome({ ...g, lat: null }, H0), null);
+  assert.equal(gnssNwuFromHome({ ...g, fix_type: 2 }, H0), null);
+  assert.deepEqual(gnssNwuFromHome({ lat: g.lat, lon: g.lon, alt: 100 }, H0), [0, -0, 0]); // fix type not known yet
+  const noAlt = gnssNwuFromHome(g, { ...H0, alt_valid: false });
+  assert.deepEqual(noAlt.slice(0, 2), [0, -0]);
+  assert.ok(Number.isNaN(noAlt[2])); // horizontal known, no vertical reference
+  assert.ok(Number.isNaN(gnssNwuFromHome({ ...g, alt: null }, H0)[2]));
+});
+
+test("home line shows the reported values and says so when no home was received", () => {
+  assert.match(homeLine(undefined).text, /no home position/);
+  const l = homeLine({ ...H0, simulation: true });
+  assert.match(l.text, /51\.5000000°, 10\.0000000°, 100\.0 m \(simulation\), epoch 1/);
+  assert.match(homeLine({ ...H0, latlon_valid: false, alt_valid: false }).text, /no lat\/lon, no altitude/);
+});
+
+test("tuning signals: GNSS N/W/U relative to the latest HomePosition, none without a home", () => {
+  const f = new SignalFeeder(() => ({ push() {}, clear() {} }));
+  const out = {};
+  const sigs = ["gnss.home.N", "gnss.home.W", "gnss.home.U", "gnss.home.h"].map((id) => SIGNAL_BY_ID.get(id));
+  assert.ok(sigs.every(Boolean));
+  const g = { lat: H0.lat + 1e-4 * RAD, lon: H0.lon + 1e-4 * RAD, alt: 105, fix_type: 3 };
+  for (const x of sigs) assert.equal(x.extract(g, f.last), undefined); // no home yet
+  f.push("HomePosition", 1, H0);
+  for (const x of sigs) out[x.id] = x.extract(g, f.last);
+  assert.ok(Math.abs(out["gnss.home.N"] - 11.15) < 0.05);
+  assert.ok(Math.abs(out["gnss.home.W"] + 6.93) < 0.05);
+  assert.equal(out["gnss.home.U"], 5);
+  assert.ok(Math.abs(out["gnss.home.h"] - Math.hypot(11.15, 6.93)) < 0.1);
 });

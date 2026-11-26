@@ -71,6 +71,11 @@ answer_requests = true                         # test double: answers REQUESTs w
 # status exactly as reported. target = ExVectrNetwork node id: 1 vehicle, 2 Router (Pocket module), 3 ship radio node.
 # confirm = "hold" (default) or "danger" (a stronger confirmation: a modal in the GUI, an extra CLI flag).
 [requests]
+# Automatic home request: when true (default) the GS sends one GET_HOME_POSITION to the vehicle at T-5 (mission time first
+# seen in [-5, 0) s), at the first mission state when joining a running mission, and when the vehicle's home epoch changes,
+# so the home is known before a flight. It needs the GET_HOME_POSITION row below, a connected source, and live data (never
+# replay). The home is display data only (GNSS panel, Requests panel). Set false to send home requests by hand only.
+auto_home = true
 # Sources tried in this order, the first one that is connected and can reach the target is used (the vehicle's USB
 # reaches node 1 only, the Router reaches 1 over the air, 2 and 3). Not set: vehicle_usb sources, then link_module
 # sources, then fake sources, each in config order. No suitable connected source: the send is refused, never queued.

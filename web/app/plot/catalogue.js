@@ -5,7 +5,7 @@
 // the ship's formulas from CALIBRATION) are display-only arithmetic on received packets. Angles are shown in degrees
 // and rates in deg/s (the packets are SI: rad, rad/s); the unit is always on the axis and in the legend.
 import { quatToRpy, tiltFromVertical } from "../fmt.js";
-import { plotGnssAltitude } from "../gnss/gnss_logic.js";
+import { plotGnssAltitude, plotGnssFromHome } from "../gnss/gnss_logic.js";
 import { computeCalibrated } from "../sensors/rawsensors_logic.js";
 
 const D = 180 / Math.PI;
@@ -103,6 +103,12 @@ function build() {
     const r = plotGnssAltitude(f, last);
     return r.rel === undefined || r.est === undefined ? undefined : r.est - r.rel;
   }, "Position up minus the relative GNSS altitude"));
+  // GNSS position in metres relative to the vehicle's home, NWU (derived: latest HomePosition + Gps lat/lon/alt)
+  NWU.forEach((a, i) => s.push(sig(`gnss.home.${a}`, `GNSS position ${a} (relative to home)`, "GNSS position", "m", "Gps", (f, last) => plotGnssFromHome(f, last, i), "derived in the ground station from the latest HOME_POSITION and the GNSS lat/lon/alt (WGS-84 tangent plane); needs a home position")));
+  s.push(sig("gnss.home.h", "GNSS horizontal distance from home", "GNSS position", "m", "Gps", (f, last) => {
+    const n = plotGnssFromHome(f, last, 0);
+    return n === undefined ? undefined : Math.hypot(n, plotGnssFromHome(f, last, 1));
+  }, "derived, see GNSS position N"));
   // Control-loop timing (task names are not in the telemetry)
   for (let i = 0; i < 8; i++) {
     s.push(sig(`timing.avg.${i}`, `Task ${i} avg`, "Task timing", "ms", "TaskTiming", (f) => at(f.avg, i, 1e3)));
@@ -126,6 +132,7 @@ export const GRAPH_PRESETS = [
   { id: "rates", title: "Angular rate (estimated)", series: [["rate.x", 0], ["rate.y", 1], ["rate.z", 2]], note: "rate target: not in the telemetry" },
   { id: "pos_up", title: "Altitude vs target", series: [["pos.U", 2], ["sp.pos.U", 2, true]] },
   { id: "alt_check", title: "Altitude cross-check: estimated vs GNSS", series: [["pos.U", 2], ["gnss.alt_rel", 1], ["gnss.alt_diff", 3]], note: "GNSS relative to the home altitude or the start" },
+  { id: "gnss_home", title: "GNSS position relative to home vs estimate", series: [["gnss.home.N", 0], ["pos.N", 0, true], ["gnss.home.W", 1], ["pos.W", 1, true]], note: "GNSS metres derived from HOME_POSITION; needs a home position" },
   { id: "pos_nw", title: "Position N / W vs target", series: [["pos.N", 0], ["sp.pos.N", 0, true], ["pos.W", 1], ["sp.pos.W", 1, true]] },
   { id: "vel", title: "Velocity vs target", series: [["vel.N", 0], ["sp.vel.N", 0, true], ["vel.W", 1], ["sp.vel.W", 1, true], ["vel.U", 2], ["sp.vel.U", 2, true]] },
   { id: "pos_err", title: "Position error (target − current)", series: [["err.pos.N", 0], ["err.pos.W", 1], ["err.pos.U", 2]] },
@@ -250,7 +257,7 @@ export function historyToPackets(series) {
 export const HISTORY_FIELDS = {
   Attitude: ["q", "omega"],
   Position: ["pos", "vel"],
-  Gps: ["alt", "fix_type"],
+  Gps: ["alt", "fix_type", "lat", "lon"],
   MissionState: ["sp_pos", "sp_vel"],
   Actuators: ["flaps", "tvc", "thrust", "roll_torque"],
   FlapState: ["angle", "cmd"],
