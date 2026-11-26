@@ -1,6 +1,7 @@
 import { registerPanel } from "./registry.js";
 import { Bindings, h, section } from "../ui.js";
 import { fmtAge } from "../fmt.js";
+import { DIRECTIONS, antennaText, counterTone, directionState, lqTone } from "../link/lq_logic.js";
 import { POWER_LIMIT_DBM, describeSource, powerReport, powerTone } from "../link/link_logic.js";
 import { confirmDialog } from "../radio/radio_widget.js";
 
@@ -9,7 +10,7 @@ const STATE_TONE = { connected: "ok", searching: "warn", error: "bad", disabled:
 registerPanel({
   id: "link",
   title: "Radio link",
-  consumes: ["VehicleStatus", "LinkStats", "RadioLinkStats", "LinkConfig", "TxModuleStats", "RxModuleStats"],
+  consumes: ["VehicleStatus", "LinkStats", "LinkConfig", "TxModuleStats", "RxModuleStats"],
   create(el, ctx) {
     let b = new Bindings(ctx);
     let key = "";
@@ -66,15 +67,27 @@ registerPanel({
       b2.update();
     }
     const b2 = new Bindings(ctx);
-    const radio = section(el, "Radio (Router)");
+    // The two link directions, labelled explicitly (link/lq_logic.js): never one direction's value in the other's place.
     const rb = new Bindings(ctx);
-    const R = "RadioLinkStats";
-    rb.row(radio, "RSSI (ant 1 / 2)", { type: R, field: "rssi_dbm", kind: "vec", unit: "dBm", digits: 0 });
-    rb.row(radio, "Link quality", { type: R, field: "lq_pct", unit: "%", digits: 0 });
-    rb.row(radio, "SNR", { type: R, field: "snr_db", unit: "dB", digits: 0 });
-    rb.row(radio, "Up / down rate", { type: R, kind: "vec", unit: "Hz", digits: 1, derive: (e) => (e.f.up_hz === undefined && e.f.down_hz === undefined ? undefined : [e.f.up_hz ?? null, e.f.down_hz ?? null]) });
-    rb.row(radio, "Active antenna", { type: R, field: "antenna", digits: 0 });
-    rb.row(radio, "Ship radio node heard on vehicle UART", { type: "VehicleStatus", field: "uart_peer_seen", kind: "text", format: (v) => (v === true ? "seen" : v === false ? "lost" : "n/s") }, { tone: (d) => (d.state === "fresh" && d.value === false ? "warn" : "") });
+    const dirBoxes = DIRECTIONS.map((dir) => {
+      const sec = section(el, dir.title);
+      sec.dataset.direction = dir.id;
+      const badge = h("span", { class: "dir-badge", "data-testid": `dir-badge-${dir.id}` });
+      const note = h("div", { class: "hint", text: dir.node });
+      sec.append(h("div", { class: "row" }, h("span", { class: "lbl", text: "State" }), badge), note);
+      const T = dir.type;
+      const nd = { missingText: "no data" };
+      rb.row(sec, "Link quality (LQ)", { type: T, field: "rx_lq", unit: "%", digits: 0, ...nd }, { key: `${dir.id}-lq`, tone: (d) => (d.state === "fresh" ? lqTone(d.value) : "") });
+      rb.row(sec, "RSSI", { type: T, field: "rssi", unit: "dBm", digits: 0, ...nd }, { key: `${dir.id}-rssi` });
+      rb.row(sec, "SNR", { type: T, field: "snr", unit: "dB", digits: 0, ...nd }, { key: `${dir.id}-snr` });
+      rb.row(sec, "Antenna (rx: this direction, tx: opposite)", { type: T, kind: "text", derive: (e) => (e.f.rx_antenna === undefined && e.f.tx_antenna === undefined ? undefined : antennaText(e.f)), ...nd }, { key: `${dir.id}-ant` });
+      rb.row(sec, "TX power of the measuring node (sends the opposite direction)", { type: T, field: "tx_power", unit: "dBm", digits: 0, ...nd }, { key: `${dir.id}-txp` });
+      rb.row(sec, "Frames expired (cumulative)", { type: T, field: "frames_expired", digits: 0, ...nd }, { key: `${dir.id}-exp`, tone: (d) => (d.state === "fresh" ? counterTone(d.value) : "") });
+      rb.row(sec, "Frames dropped (cumulative)", { type: T, field: "frames_dropped", digits: 0, ...nd }, { key: `${dir.id}-drop`, tone: (d) => (d.state === "fresh" ? counterTone(d.value) : "") });
+      return { dir, badge };
+    });
+    const radio = section(el, "Ship radio node on the vehicle UART");
+    rb.row(radio, "Heard by the vehicle", { type: "VehicleStatus", field: "uart_peer_seen", kind: "text", format: (v) => (v === true ? "seen" : v === false ? "lost" : "n/s") }, { tone: (d) => (d.state === "fresh" && d.value === false ? "warn" : "") });
     const power = section(el, `Transmit power (legal limit ${POWER_LIMIT_DBM} dBm = 10 mW)`);
     const pb = new Bindings(ctx);
     const warnBox = h("div", { class: "pw-warnings", role: "alert" });
@@ -83,7 +96,7 @@ registerPanel({
     pb.row(power, "Router power applied (its LINK_STATS)", { type: "TxModuleStats", field: "tx_power", unit: "dBm", digits: 0 }, { tone: (d) => powerTone(d.value) });
     pb.row(power, "Ship radio node power applied (its LINK_STATS)", { type: "RxModuleStats", field: "tx_power", unit: "dBm", digits: 0 }, { tone: (d) => powerTone(d.value) });
     power.append(cfgNote, warnBox);
-    el.append(srcBox, radio);
+    el.append(srcBox);
 
     function rebuild(sources) {
       b = new Bindings(ctx);
@@ -126,6 +139,14 @@ registerPanel({
       b.update();
       rb.update();
       pb.update();
+      const view = ctx.view();
+      const vnow = ctx.store.now(view);
+      for (const { dir, badge } of dirBoxes) {
+        const st = directionState(dir, ctx.store.get(view, dir.type), vnow === null ? Infinity : vnow, ctx.store.schema.get(dir.type));
+        badge.textContent = st.badge;
+        badge.dataset.state = st.state;
+        badge.dataset.tone = st.state === "stale" ? "warn" : st.state === "nodata" ? "" : "ok";
+      }
       const val = (type) => {
         const d = pb.describeSpec({ type, field: type === "LinkConfig" ? "tx_power_dbm" : "tx_power" });
         return d.state === "fresh" ? d.value : undefined;

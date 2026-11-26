@@ -109,6 +109,12 @@ function build() {
     const n = plotGnssFromHome(f, last, 0);
     return n === undefined ? undefined : Math.hypot(n, plotGnssFromHome(f, last, 1));
   }, "derived, see GNSS position N"));
+  // Link quality per direction (link/lq_logic.js): downlink = TxModuleStats (Router), uplink = RxModuleStats (ship node)
+  for (const [pre, type, name] of [["dl", "TxModuleStats", "Downlink (ship -> GS)"], ["ul", "RxModuleStats", "Uplink (GS -> ship)"]]) {
+    s.push(sig(`link.${pre}.lq`, `${name} LQ`, "Link quality", "%", type, (f) => num(f.rx_lq), "valid air packets in the last 1 s, percent of expected"));
+    s.push(sig(`link.${pre}.rssi`, `${name} RSSI`, "Link quality", "dBm", type, (f) => num(f.rssi), "of the last valid packet"));
+    s.push(sig(`link.${pre}.snr`, `${name} SNR`, "Link quality", "dB", type, (f) => num(f.snr), "of the last valid packet"));
+  }
   // Control-loop timing (task names are not in the telemetry)
   for (let i = 0; i < 8; i++) {
     s.push(sig(`timing.avg.${i}`, `Task ${i} avg`, "Task timing", "ms", "TaskTiming", (f) => at(f.avg, i, 1e3)));
@@ -145,6 +151,9 @@ export const GRAPH_PRESETS = [
   { id: "std_att", title: "Estimator σ attitude (world axes)", series: [["std.att.N", 0], ["std.att.W", 1], ["std.att.U", 2]] },
   { id: "std_vel", title: "Estimator σ velocity", series: [["std.vel.x", 0], ["std.vel.y", 1], ["std.vel.z", 2]] },
   { id: "std_pos", title: "Estimator σ position", series: [["std.pos.x", 0], ["std.pos.y", 1], ["std.pos.z", 2]] },
+  { id: "link_lq", title: "Link quality up/down (LQ)", series: [["link.dl.lq", 0], ["link.ul.lq", 1]], note: "downlink: Router TxModuleStats, uplink: ship radio node RxModuleStats" },
+  { id: "link_rssi", title: "Link RSSI up/down", series: [["link.dl.rssi", 0], ["link.ul.rssi", 1]], note: "downlink: Router, uplink: ship radio node" },
+  { id: "link_snr", title: "Link SNR up/down", series: [["link.dl.snr", 0], ["link.ul.snr", 1]] },
   { id: "timing", title: "Control-loop task timing (avg)", series: [0, 1, 2, 3].map((i) => [`timing.avg.${i}`, i]) },
 ];
 export const DEFAULT_GRAPHS = ["attitude", "rates", "pos_up", "vel", "tvc", "flaps", "gyro_x", "std_att"];

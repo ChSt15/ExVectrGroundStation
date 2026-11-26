@@ -63,6 +63,21 @@ def test_file_layout_and_roundtrip(tmp_path):
     assert got[0].kind == GsEventKind.rec_start and got[-1].kind == GsEventKind.rec_stop
 
 
+def test_both_link_direction_packets_are_recorded_and_replayed(tmp_path):
+    from exvectr_gs.packets.defs.link import RxModuleStats, TxModuleStats
+
+    rec, bus, _now = make(tmp_path)
+    info = rec.start("link")
+    tx = TxModuleStats(t=T0 + 1, src="link", rx_lq=40, rssi=-62, snr=7, tx_power=10, frames_expired=0, frames_dropped=0)
+    rx = RxModuleStats(t=T0 + 2, src="link", rx_lq=96, rssi=-77, snr=5, tx_power=10, frames_expired=1, frames_dropped=2)
+    bus.publish(tx)
+    bus.publish(rx)
+    rec.stop()
+    got = [p for _, p in LogReader(info.path).iter_packets()]
+    assert [p for p in got if isinstance(p, TxModuleStats)] == [tx]
+    assert [p for p in got if isinstance(p, RxModuleStats)] == [rx]
+
+
 def test_never_overwrites(tmp_path):
     rec, bus, now = make(tmp_path)
     stem = local_stem(T0)
