@@ -76,7 +76,8 @@ test("signal catalogue: unique ids, units, presets use known signals, one unit p
   for (const g of GRAPH_PRESETS) {
     assert.ok(g.series.length <= MAX_SERIES, g.id);
     for (const [id] of g.series) assert.ok(SIGNAL_BY_ID.has(id), `${g.id}: ${id}`);
-    assert.equal(graphUnits(presetGraph(g.id)).length, 1, `${g.id} mixes units`);
+    const pg = presetGraph(g.id);
+    for (const side of ["L", "R"]) assert.ok(graphUnits({ series: pg.series.filter((x) => x.axis === side) }).length <= 1, `${g.id} mixes units on axis ${side}`);
   }
   for (const id of DEFAULT_GRAPHS) assert.ok(presetGraph(id), id);
   assert.equal(presetGraph("nope"), null);
@@ -116,7 +117,7 @@ test("graph editing and stored graphs", () => {
   assert.equal(toggleSignal(g2, "att.roll").series.length, 3);
   assert.equal(toggleSignal(g, "bogus"), g);
   const stored = sanitizeGraphs([{ title: "x", series: [{ sig: "att.roll", slot: 9 }, { sig: "gone" }] }, null, 3]);
-  assert.deepEqual(stored, [{ preset: "", title: "x", note: "", series: [{ sig: "att.roll", slot: 1, dash: false }] }]);
+  assert.deepEqual(stored, [{ preset: "", title: "x", note: "", series: [{ sig: "att.roll", slot: 1, dash: false, axis: "L" }] }]);
   assert.equal(sanitizeGraphs("x"), null);
 });
 

@@ -385,6 +385,29 @@ export function filterRows(rows, shown) {
   return rows.filter((r) => r.kind === "header" || shown[r.cat] !== false);
 }
 
+/**
+ * Clear cutoff (display only): drops event rows with t <= cutoff. A mission header stays when a later event of that
+ * mission remains (so the section still names its mission), and goes when the whole section is hidden. The derivation
+ * is untouched, so mission time and dedupe stay right. cutoff null/undefined: nothing hidden.
+ * Returns {rows, hidden} (hidden = number of event rows dropped).
+ */
+export function applyCutoff(rows, cutoff) {
+  if (cutoff === null || cutoff === undefined || !Number.isFinite(cutoff)) return { rows, hidden: 0 };
+  const out = [];
+  let head = null;
+  let hidden = 0;
+  for (const r of rows) {
+    if (r.kind === "header") {
+      head = r;
+    } else if (r.t > cutoff) {
+      if (head) out.push(head);
+      head = null;
+      out.push(r);
+    } else hidden++;
+  }
+  return { rows: out, hidden };
+}
+
 /** Index of the last event row at or before `t` (the current replay position), -1 if none. */
 export function currentIndex(rows, t) {
   let lo = 0;

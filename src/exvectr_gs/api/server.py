@@ -416,7 +416,9 @@ class ApiServer:
 
     async def _op_get_history(self, client: Client, msg: dict) -> dict:
         """`buffer` (extension): "trail" (default, types with history=True at 20 Hz) or "plot" (the tuning
-        graphs: full rate, about 2 min live from `plot_history`; in the replay view read from the open log)."""
+        graphs: full rate, about 2 min live from `plot_history`; in the replay view read from the open log).
+        `whole: true` (replay view, plot buffer) lifts the 600 s limit so the graphs get the entire recording,
+        thinned to `max_points` per series."""
         view, series, t0, t1, max_points = P.parse_history(msg)
         buffer = msg.get("buffer", "trail")
         if buffer not in ("trail", "plot"):
@@ -431,7 +433,10 @@ class ApiServer:
             replayer = self._mod("replayer")
             if replayer is not None and hasattr(replayer, "read_series"):
                 try:
-                    results = await asyncio.to_thread(replayer.read_series, series, t0, t1, max_points)
+                    whole = msg.get("whole", False)
+                    if not isinstance(whole, bool):
+                        raise ProtocolError("invalid_value", "whole must be a boolean")
+                    results = await asyncio.to_thread(replayer.read_series, series, t0, t1, max_points, whole)
                 except (RuntimeError, NotImplementedError, OSError):
                     results = None  # no log open (or it went away): empty series
         out = []

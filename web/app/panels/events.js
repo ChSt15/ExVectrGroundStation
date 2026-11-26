@@ -5,12 +5,14 @@
 // restores it from the core's buffer. Display only: nothing is sent to the vehicle (replay.seek moves the viewer).
 import { registerPanel } from "./registry.js";
 import { h } from "../ui.js";
-import { MissionEvents, CATEGORIES, CATEGORY_LABELS, filterRows, currentIndex, eventsToCsv, fmtEventTime, fmtWall } from "../status/mission_events.js";
+import { MissionEvents, CATEGORIES, CATEGORY_LABELS, filterRows, applyCutoff, currentIndex, eventsToCsv, fmtEventTime, fmtWall } from "../status/mission_events.js";
 
 const ROW_H = 22;
 const OVERSCAN = 8;
 const LS_CATS = "exgs.events.cats";
 const LS_FOLLOW = "exgs.events.follow";
+const LS_CLEAR = "exgs.events.clear_t"; // live clear cutoff (epoch s), per browser
+const LS_AUTOCLEAR = "exgs.events.autoclear";
 const LIVE_REFRESH_MS = 500;
 const ICONS = { mission: "▲", vehicle: "■", command: "▶", link: "◆", log: "●" };
 
@@ -28,6 +30,12 @@ registerPanel({
       shown = {};
     }
     let follow = ctx.ls.get(LS_FOLLOW) !== "0";
+    const cl = Number(ctx.ls.get(LS_CLEAR));
+    let cutoff = ctx.ls.get(LS_CLEAR) !== null && Number.isFinite(cl) && cl > 0 ? cl : null;
+    let autoClear = ctx.ls.get(LS_AUTOCLEAR) === "1";
+    let showCleared = false; // session only
+    let clearedN = 0;
+    let missionCount = null;
     let model = { rows: [], events: [], missions: [] };
     let rows = []; // filtered
     let dirty = false;
@@ -56,11 +64,23 @@ registerPanel({
       ctx.ls.set(LS_FOLLOW, follow ? "1" : "0");
       lastCur = -2;
     });
+    const clearBtn = h("button", { text: "Clear", "data-testid": "ev-clear", onclick: () => clearNow() });
+    const showLink = h("a", { href: "#", class: "ev-showcleared", "data-testid": "ev-showcleared", hidden: true });
+    showLink.addEventListener("click", (e) => {
+      e.preventDefault();
+      showCleared = !showCleared;
+      refilter();
+    });
+    const autoCb = h("input", { type: "checkbox", checked: autoClear, "data-testid": "ev-autoclear" });
+    autoCb.addEventListener("change", () => {
+      autoClear = autoCb.checked;
+      ctx.ls.set(LS_AUTOCLEAR, autoClear ? "1" : "0");
+    });
     const exportBtn = h("button", { text: "Export CSV", "data-testid": "ev-export", title: "Events matching the category filter: mission time, wall time, category, text", onclick: () => exportCsv() });
     const list = h("div", { class: "evlist", "data-testid": "ev-list", tabindex: "0" });
     const spacer = h("div", { class: "evspacer" });
     list.append(spacer);
-    el.append(h("div", { class: "toolbar ev-bar" }, ...boxes, h("label", {}, followCb, " follow"), exportBtn, status), list);
+    el.append(h("div", { class: "toolbar ev-bar" }, ...boxes, h("label", {}, followCb, " follow"), clearBtn, h("label", { title: "Clear the list when a new mission begins (live)" }, autoCb, " clear at new mission"), showLink, exportBtn, status), list);
 
     function exportCsv() {
       const evs = rows.filter((r) => r.kind === "event");
@@ -72,8 +92,29 @@ registerPanel({
       setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     }
 
+    function setCutoff(t) {
+      cutoff = t;
+      showCleared = false;
+      if (t === null) ctx.ls.set(LS_CLEAR, "");
+      else ctx.ls.set(LS_CLEAR, String(t));
+    }
+
+    /** Live only: hide everything up to the newest event now (replay: the button is disabled, the log is not changed). */
+    function clearNow() {
+      if (ctx.view() !== "live" || !model.events.length) return;
+      setCutoff(model.events[model.events.length - 1].t);
+      refilter();
+    }
+
     function refilter() {
-      rows = filterRows(model.rows, shown);
+      const live = ctx.view() === "live";
+      const cut = applyCutoff(filterRows(model.rows, shown), live && !showCleared ? cutoff : null);
+      rows = cut.rows;
+      clearedN = live && cutoff !== null ? applyCutoff(filterRows(model.rows, shown), cutoff).hidden : 0;
+      clearBtn.disabled = !live;
+      clearBtn.title = live ? "Hide all events up to now (display and CSV only; Show cleared restores them)" : "Replay: the log is not changed, so there is nothing to clear";
+      showLink.hidden = !(live && clearedN > 0);
+      showLink.textContent = showCleared ? `Hide cleared (${clearedN})` : `Show cleared (${clearedN})`;
       lastCur = -2;
       spacer.style.height = `${rows.length * ROW_H}px`;
       renderWindow(true);
@@ -82,6 +123,9 @@ registerPanel({
 
     function rebuild() {
       model = me.build();
+      const mc = model.missions.length;
+      if (ctx.view() === "live" && autoClear && missionCount !== null && mc > missionCount) setCutoff(model.missions[mc - 1].start - 1e-6);
+      missionCount = ctx.view() === "live" ? mc : null;
       lastBuild = performance.now();
       dirty = false;
       const nearBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 2 * ROW_H;
@@ -149,6 +193,7 @@ registerPanel({
       const view = ctx.view();
       loading = true;
       queue = [];
+      missionCount = null; // a reload must not auto-clear
       updateStatus();
       try {
         const res = await ctx.api.request("get_events", { view }, 60000);

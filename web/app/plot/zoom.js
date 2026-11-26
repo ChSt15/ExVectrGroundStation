@@ -1,6 +1,14 @@
 // Pure zoom / pan math of the tuning graphs (docs/gui.md "Tuning view", "Mouse"). No DOM, unit tested in
 // web/test/zoom.test.js. Display only.
 
+/**
+ * Mouse mapping of a graph (owner 2026-11-26): left button pans (time, and y of a manual axis), right button draws the
+ * zoom box (Shift = time only, Ctrl = y only). Returns "pan", "box" or null for a button number (0 left, 2 right).
+ */
+export function dragAction(button) {
+  return button === 0 ? "pan" : button === 2 ? "box" : null;
+}
+
 export const MIN_DRAG_PX = 4; // a smaller drag is a click, not a zoom
 export const MIN_SPAN_S = 0.02; // smallest visible time span (below the 100 to 200 Hz sample period the raw samples show)
 
@@ -43,7 +51,7 @@ export function zoomYRange(a, b) {
 
 /**
  * Selection box (pixels, canvas coordinates) to axis ranges. rect = { left, top, width, height } of the plot area,
- * view = { t0, t1, y0, y1 } of the drawn axes. mode: "both" (default), "time" (Shift) or "y" (Ctrl). In "both" an axis
+ * view = { t0, t1, y0, y1, r0?, r1? } of the drawn axes (r0, r1: the right y axis, optional). mode: "both" (default), "time" (Shift) or "y" (Ctrl). In "both" an axis
  * whose drag is below `minPx` is left alone (a thin box zooms the other axis only). Returns { t: [lo, hi] | null,
  * y: [lo, hi] | null } or null when nothing should zoom.
  */
@@ -60,6 +68,8 @@ export function boxToRanges(box, rect, view, { mode = "both", minPx = MIN_DRAG_P
   if (!doT && !doY) return null;
   const tOf = (x) => view.t0 + ((x - rect.left) / rect.width) * (view.t1 - view.t0);
   const vOf = (y) => view.y0 + (1 - (y - rect.top) / rect.height) * (view.y1 - view.y0);
+  const vOfR = (y) => view.r0 + (1 - (y - rect.top) / rect.height) * (view.r1 - view.r0);
+  const hasR = Number.isFinite(view.r0) && Number.isFinite(view.r1) && view.r1 > view.r0;
   let t = null;
   let y = null;
   if (doT) {
@@ -67,7 +77,10 @@ export function boxToRanges(box, rect, view, { mode = "both", minPx = MIN_DRAG_P
     if (!t && !doY) return null;
   }
   if (doY) y = zoomYRange(vOf(ya), vOf(yb));
-  return t || y ? { t, y } : null;
+  if (!t && !y) return null;
+  // second (right) y axis of the graph, when the view has one: the same pixel box on its own scale
+  if (hasR) return { t, y, yr: doY ? zoomYRange(vOfR(ya), vOfR(yb)) : null };
+  return { t, y };
 }
 
 /**

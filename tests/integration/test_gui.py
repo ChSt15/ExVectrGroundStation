@@ -313,7 +313,7 @@ async def test_browser_tuning_graphs_live_history_reload_and_replay():
 
 @needs_browser
 async def test_browser_tuning_box_zoom_pan_and_reset():
-    """Left drag zooms to the box (paused), right drag pans, double click resets; the axis is mission time."""
+    """Right drag zooms to the box (paused), left drag pans, double click resets; the axis is mission time."""
     app = make_app(speed=1.0)
     async with running(app) as rig:
         async with browser_check.Browser(1600, 1000, 9349) as b:
@@ -336,22 +336,23 @@ async def test_browser_tuning_box_zoom_pan_and_reset():
                     "Input.dispatchMouseEvent", type=kind, x=px, y=py, button=button, buttons=buttons, clickCount=clicks
                 )
 
-            # left drag over the middle of the plot: zoom box, paused
+            # right drag over the plot: zoom box, paused
             # (the fake source has only seconds of history, so the box sits at the right end of the 30 s window)
             await mouse("mouseMoved", x + w * 0.85, y + h * 0.3)
-            await mouse("mousePressed", x + w * 0.85, y + h * 0.3, buttons=1)
+            await mouse("mousePressed", x + w * 0.85, y + h * 0.3, button="right", buttons=2)
             for f in (0.88, 0.92, 0.95):
-                await mouse("mouseMoved", x + w * f, y + h * (f - 0.55), buttons=1)
-            await mouse("mouseReleased", x + w * 0.95, y + h * 0.4)
+                await mouse("mouseMoved", x + w * f, y + h * (f - 0.55), button="right", buttons=2)
+            await mouse("mouseReleased", x + w * 0.95, y + h * 0.4, button="right")
             await b.sleep(0.3)
             d1 = await dbg()
             span1 = d1["viewT"][1] - d1["viewT"][0]
             assert d1["paused"] is True and d1["zoomDepth"] == 1 and span1 < span0 * 0.6, (span0, d1)
             assert d1["ys"][0] != "auto" and d1["ys"][1] == "auto", d1["ys"]
-            # right drag pans the window
-            await mouse("mousePressed", x + w * 0.5, y + h * 0.5, button="right", buttons=2)
-            await mouse("mouseMoved", x + w * 0.6, y + h * 0.5, button="right", buttons=2)
-            await mouse("mouseReleased", x + w * 0.6, y + h * 0.5, button="right")
+            # left drag pans the window
+            await mouse("mousePressed", x + w * 0.5, y + h * 0.5, buttons=1)
+            await mouse("mouseMoved", x + w * 0.55, y + h * 0.5, buttons=1)
+            await mouse("mouseMoved", x + w * 0.6, y + h * 0.5, buttons=1)
+            await mouse("mouseReleased", x + w * 0.6, y + h * 0.5)
             await b.sleep(0.3)
             d2 = await dbg()
             assert d2["viewT"][1] - d2["viewT"][0] == pytest.approx(span1, rel=1e-6), d2
@@ -370,8 +371,9 @@ async def test_browser_tuning_box_zoom_pan_and_reset():
 
 
 @needs_browser
-async def test_browser_tuning_graphs_after_a_replay_seek_show_the_whole_history():
-    """Seeking ahead (also while paused) must not leave a gap: the graphs hold the log's data up to the new position."""
+async def test_browser_tuning_replay_shows_the_whole_log_with_a_position_bar():
+    """Replay graphs hold the entire recording from the start (loaded once), a seek does not reload or shrink it, a
+    click on a graph moves the replay position, and the TVC graph has a right axis for the thrust."""
     from pathlib import Path
 
     from tests.support_logs import make_log
@@ -387,16 +389,37 @@ async def test_browser_tuning_graphs_after_a_replay_seek_show_the_whole_history(
             await b.eval("document.querySelector('[data-panel=recording] .sect-title button').click()")
             await b.sleep(0.8)
             await b.eval("[...document.querySelectorAll('[data-panel=recording] .loglist button')][0].click()")
-            await b.sleep(1.5)
+            await b.sleep(2.5)
+            d0 = await b.eval("window.exgs.tuning.debug()")
+            assert d0["windowS"] == "all" and d0["replayKey"], d0
+            lo, hi = d0["ranges"]["att.roll"]
+            assert hi - lo > 20.0 * 0.95, d0["ranges"]["att.roll"]  # the whole log at once, before any seek
+            assert d0["viewT"][1] - d0["viewT"][0] > 20.0 * 0.95, d0["viewT"]
+            n0 = d0["rings"]["att.roll"]
+            assert n0 > 100 * 20.0 * 0.9, n0
+            assert d0["axes"][4] == ["L", "L", "R"] and d0["ysR"][4] == "auto", d0["axes"]  # TVC: thrust on the right
             slider = "document.querySelector('[data-panel=transport] input[type=range]')"
-            for frac in (0.25, 0.8, 0.5):  # forward, forward again, back
+            for frac in (0.25, 0.8, 0.5):
                 set_value = f"s.value = {int(frac * 1000)}; s.dispatchEvent(new Event('input'));"
                 await b.eval(f"(() => {{ const s = {slider}; {set_value} }})()")
-                await b.sleep(2.0)
+                await b.sleep(1.5)
                 d = await b.eval("window.exgs.tuning.debug()")
-                lo, hi = d["ranges"]["att.roll"]
-                n = d["rings"]["att.roll"]
-                span = hi - lo
-                assert span > 20.0 * frac * 0.9, (frac, d["ranges"]["att.roll"])
-                assert n > 100 * span * 0.9, (frac, n, span)  # 100 Hz Attitude at full rate, no gap
+                assert d["rings"]["att.roll"] == n0, (frac, d["rings"]["att.roll"])
+                assert d["replayKey"] == d0["replayKey"]
+                assert d["viewT"] == d0["viewT"], d["viewT"]
+            # a left click on a graph seeks to that time
+            box = await b.eval(
+                "(() => { const r = document.querySelector('.tn-card canvas').getBoundingClientRect();"
+                " return [r.left, r.top, r.width, r.height]; })()"
+            )
+            x, y, w, h = box
+            px = x + 50 + 0.2 * (w - 60)
+            for kind in ("mousePressed", "mouseReleased"):
+                await b.cmd(
+                    "Input.dispatchMouseEvent", type=kind, x=px, y=y + h * 0.5, button="left", buttons=1, clickCount=1
+                )
+            await b.sleep(1.0)
+            d = await b.eval("window.exgs.tuning.debug()")
+            want = d["viewT"][0] + 0.2 * (d["viewT"][1] - d["viewT"][0])
+            assert abs(d["replayT"] - want) < 1.5, (d["replayT"], want)
             assert not [m for m in b.console if "EXCEPTION" in m], b.console

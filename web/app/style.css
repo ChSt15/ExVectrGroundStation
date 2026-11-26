@@ -195,6 +195,7 @@ header.top { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center;
 .tiles { display: grid; gap: 6px; margin-bottom: 6px; }
 .tiles.t1 { grid-template-columns: 1fr; } .tiles.t2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .tiles.t3 { grid-template-columns: repeat(3, minmax(0, 1fr)); } .tiles.t4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.tile-small .big { font-size: var(--fs-m, 1.1em); opacity: .85; }
 .tile { background: var(--surface-2); border-radius: 5px; padding: 4px 8px 5px; min-width: 0; }
 .tile-l { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: .07em; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile .val { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 2px; }
@@ -602,3 +603,8 @@ body[data-layout="tuning"] .group-title { display: none; }
 .evrow[data-state="current"] { background: var(--info-bg); box-shadow: inset 3px 0 0 var(--accent); }
 .evrow[data-state] { cursor: pointer; }
 .evempty { padding: 8px; }
+.tn-axisctl { display: inline-flex; align-items: center; gap: 4px; }
+.tn-axisctl[hidden] { display: none; }
+.tn-side { font-size: 10px; line-height: 1; padding: 1px 3px; border: 1px solid var(--line, currentColor); border-radius: 3px; color: var(--dim); }
+.tn-hov { color: var(--dim); font-family: var(--mono, monospace); }
+.tn-ax { min-width: 1.6em; margin-left: 4px; }
