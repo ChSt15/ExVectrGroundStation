@@ -1,5 +1,6 @@
 // 3D view panel (design 5.5): ship, flaps, trail, setpoint, thrust arrow, ground grid, N/W/Up gizmo.
 // Three.js is vendored under /static/vendor/three and loaded lazily, so a missing library only disables this panel.
+import { createDebounce } from "../status/replay_playhead.js";
 import { registerPanel } from "./registry.js";
 import { h } from "../ui.js";
 import { describe, fmtAge } from "../fmt.js";
@@ -124,6 +125,8 @@ registerPanel({
       const res = await ctx.api.request("get_history", { view: view(), buffer, series: [{ type, fields }], t0, t1, max_points: maxPoints });
       return res.series?.[0];
     }
+
+    const pathQuiet = createDebounce(() => loadHistory(), 250); // replay: refetch the path after the last seek
 
     async function loadHistory() {
       const gen = ++histGen;
@@ -292,8 +295,15 @@ registerPanel({
         target.reset();
         prevMission = null;
         if (isReplay()) clearT = null; // a seek forgets a cleared path; the live path keeps it
-        trail.clear();
-        loadHistory();
+        // replay seeks (scrubbing sends up to ~14 per second): the pose follows from the snapshot, the path up to now is
+        // refetched once the seeks stop (docs/gui.md "Replay smoothness"), not per seek
+        if (isReplay()) {
+          trail.truncateAfter(ctx.now() ?? -Infinity); // keep the old path meanwhile, no blank flash
+          pathQuiet.call();
+        } else {
+          trail.clear();
+          loadHistory();
+        }
         if (entire()) loadFull(400);
         schedule();
       },
@@ -321,6 +331,7 @@ registerPanel({
       },
       destroy() {
         clearTimeout(fullTimer);
+        pathQuiet.cancel();
         const s = scene;
         scene = null;
         s?.dispose();

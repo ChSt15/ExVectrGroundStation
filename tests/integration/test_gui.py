@@ -422,4 +422,29 @@ async def test_browser_tuning_replay_shows_the_whole_log_with_a_position_bar():
             d = await b.eval("window.exgs.tuning.debug()")
             want = d["viewT"][0] + 0.2 * (d["viewT"][1] - d["viewT"][0])
             assert abs(d["replayT"] - want) < 1.5, (d["replayT"], want)
+            # scrubbing is optimistic: the bar moves in the same tick as the slider, before any core push
+            await b.eval(f"(() => {{ const s = {slider}; s.value = 900; s.dispatchEvent(new Event('input')); }})()")
+            d = await b.eval("window.exgs.tuning.debug()")
+            lo, hi = d["viewT"]
+            assert abs(d["replayT"] - (lo + 0.9 * (hi - lo))) < 0.5, d["replayT"]
+            await b.sleep(0.6)
+            # playing: the bar moves smoothly (many distinct positions per second, not one per 500 ms status push), the
+            # series layer is not redrawn for it
+            await b.eval(
+                f"(() => {{ const s = {slider}; s.value = 100; s.dispatchEvent(new Event('input'));"
+                " s.dispatchEvent(new Event('change')); })()"
+            )
+            await b.sleep(0.6)
+            await b.eval("document.querySelector('[data-panel=transport] button.play').click()")
+            await b.sleep(0.8)
+            draws0 = (await b.eval("window.exgs.tuning.debug()"))["layerDraws"]
+            samples = []
+            for _ in range(20):
+                samples.append((await b.eval("window.exgs.tuning.debug()"))["replayT"])
+                await b.sleep(0.1)
+            distinct = len(set(samples))
+            assert distinct >= 8, samples  # a 2 Hz status push alone would give at most 4
+            steps = zip(samples, samples[1:], strict=False)
+            assert all(b2 >= a2 - 1e-9 for a2, b2 in steps), samples  # never backwards
+            assert (await b.eval("window.exgs.tuning.debug()"))["layerDraws"] == draws0, "bar move redrew the series"
             assert not [m for m in b.console if "EXCEPTION" in m], b.console
