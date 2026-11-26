@@ -312,6 +312,64 @@ async def test_browser_tuning_graphs_live_history_reload_and_replay():
 
 
 @needs_browser
+async def test_browser_tuning_box_zoom_pan_and_reset():
+    """Left drag zooms to the box (paused), right drag pans, double click resets; the axis is mission time."""
+    app = make_app(speed=1.0)
+    async with running(app) as rig:
+        async with browser_check.Browser(1600, 1000, 9349) as b:
+            await b.goto(rig.url() + "/")
+            await b.sleep(1.0)
+            await b.eval("window.exgs.layout.set('tuning')")
+            await b.sleep(4.0)
+            dbg = lambda: b.eval("window.exgs.tuning.debug()")  # noqa: E731
+            d0 = await dbg()
+            span0 = d0["viewT"][1] - d0["viewT"][0]
+            assert d0["paused"] is False and d0["zoomDepth"] == 0 and d0["axisMode"] == "mission", d0
+            box = await b.eval(
+                "(() => { const r = document.querySelector('.tn-card canvas').getBoundingClientRect();"
+                " return [r.left, r.top, r.width, r.height]; })()"
+            )
+            x, y, w, h = box
+
+            async def mouse(kind, px, py, button="left", buttons=0, clicks=1):
+                await b.cmd(
+                    "Input.dispatchMouseEvent", type=kind, x=px, y=py, button=button, buttons=buttons, clickCount=clicks
+                )
+
+            # left drag over the middle of the plot: zoom box, paused
+            # (the fake source has only seconds of history, so the box sits at the right end of the 30 s window)
+            await mouse("mouseMoved", x + w * 0.85, y + h * 0.3)
+            await mouse("mousePressed", x + w * 0.85, y + h * 0.3, buttons=1)
+            for f in (0.88, 0.92, 0.95):
+                await mouse("mouseMoved", x + w * f, y + h * (f - 0.55), buttons=1)
+            await mouse("mouseReleased", x + w * 0.95, y + h * 0.4)
+            await b.sleep(0.3)
+            d1 = await dbg()
+            span1 = d1["viewT"][1] - d1["viewT"][0]
+            assert d1["paused"] is True and d1["zoomDepth"] == 1 and span1 < span0 * 0.6, (span0, d1)
+            assert d1["ys"][0] != "auto" and d1["ys"][1] == "auto", d1["ys"]
+            # right drag pans the window
+            await mouse("mousePressed", x + w * 0.5, y + h * 0.5, button="right", buttons=2)
+            await mouse("mouseMoved", x + w * 0.6, y + h * 0.5, button="right", buttons=2)
+            await mouse("mouseReleased", x + w * 0.6, y + h * 0.5, button="right")
+            await b.sleep(0.3)
+            d2 = await dbg()
+            assert d2["viewT"][1] - d2["viewT"][0] == pytest.approx(span1, rel=1e-6), d2
+            assert d2["viewT"][0] < d1["viewT"][0], d2
+            # Back undoes the zoom, double click resets graph y and the window to live
+            click = "[...document.querySelectorAll('.tn-bar button')].find(x => x.textContent === '%s').click()"
+            await b.eval(click % "Reset zoom")
+            await b.sleep(0.4)
+            d3 = await dbg()
+            assert d3["paused"] is False and d3["ys"][0] == "auto", d3
+            assert d3["viewT"][1] - d3["viewT"][0] == pytest.approx(span0, rel=0.05), d3
+            await b.eval(click % "Back")
+            await b.sleep(0.3)
+            assert (await dbg())["paused"] is True  # the zoom state before the reset is back
+            assert not [m for m in b.console if "EXCEPTION" in m], b.console
+
+
+@needs_browser
 async def test_browser_tuning_graphs_after_a_replay_seek_show_the_whole_history():
     """Seeking ahead (also while paused) must not leave a gap: the graphs hold the log's data up to the new position."""
     from pathlib import Path

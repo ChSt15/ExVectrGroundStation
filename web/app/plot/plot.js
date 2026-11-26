@@ -1,6 +1,8 @@
 // Small canvas time-series plot for the tuning graphs (no dependency). One y axis per graph, min/max decimation per
-// pixel column (series.js), shared time cursor, pan by dragging, zoom with the wheel. Colours come from CSS tokens
+// pixel column (series.js), shared time cursor, left drag = selection box zoom (Shift time only, Ctrl y only), right drag =
+// pan, wheel / + / - = zoom, double click = reset, Backspace / Escape = back. The math is in zoom.js. Colours come from CSS tokens
 // (--s1..--s8, --grid, --axis, --dim, --fg) so both themes work.
+import { MIN_DRAG_PX } from "./zoom.js";
 import { decimate, niceTicks, paddedRange, tickDigits, valueRange } from "./series.js";
 
 const PAD = { l: 50, r: 10, t: 6, b: 20 };
@@ -11,7 +13,7 @@ export function seriesColor(el, slot) {
   return css(el, `--s${(slot % 8) + 1}`, "#3987e5");
 }
 
-export function createPlot(container, { onCursor, onPan, onZoom } = {}) {
+export function createPlot(container, { onCursor, onPan, onZoom, onBox, onReset, onBack } = {}) {
   const canvas = document.createElement("canvas");
   canvas.className = "plot-canvas";
   canvas.tabIndex = 0;
@@ -72,10 +74,10 @@ export function createPlot(container, { onCursor, onPan, onZoom } = {}) {
       ctx.fillText(v.toFixed(yd), PAD.l - 6, y);
     }
     // x grid and labels
-    const xt = niceTicks(args.t0, args.t1, Math.max(2, Math.floor((w - PAD.l - PAD.r) / 90)));
+    const xt = args.xTicks || niceTicks(args.t0, args.t1, Math.max(2, Math.floor((w - PAD.l - PAD.r) / 90))).map((t) => ({ t, label: args.xLabel ? args.xLabel(t) : t.toFixed(0) }));
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
-    for (const t of xt) {
+    for (const { t, label } of xt) {
       const x = Math.round(xOf(t, args)) + 0.5;
       ctx.strokeStyle = grid;
       ctx.beginPath();
@@ -83,7 +85,7 @@ export function createPlot(container, { onCursor, onPan, onZoom } = {}) {
       ctx.lineTo(x, hgt - PAD.b);
       ctx.stroke();
       ctx.fillStyle = dim;
-      ctx.fillText(args.xLabel ? args.xLabel(t) : t.toFixed(0), x, hgt - PAD.b + 4);
+      ctx.fillText(label, x, hgt - PAD.b + 4);
     }
     // series (clipped to the plot area)
     ctx.save();
@@ -126,6 +128,16 @@ export function createPlot(container, { onCursor, onPan, onZoom } = {}) {
       ctx.stroke();
       ctx.globalAlpha = 1;
     }
+    if (args.xTitle) {
+      ctx.textAlign = "right";
+      ctx.textBaseline = "top";
+      ctx.fillStyle = dim;
+      ctx.globalAlpha = 0.8;
+      ctx.fillText(args.xTitle, w - PAD.r - 2, PAD.t + 2);
+      ctx.globalAlpha = 1;
+    }
+    // selection box
+    if (sel) drawSel(ctx, axis);
     // frame
     ctx.strokeStyle = axis;
     ctx.strokeRect(PAD.l + 0.5, PAD.t + 0.5, w - PAD.l - PAD.r - 1, hgt - PAD.t - PAD.b - 1);
@@ -133,50 +145,120 @@ export function createPlot(container, { onCursor, onPan, onZoom } = {}) {
     return { yRange: yr, points };
   }
 
-  // interaction: hover = shared cursor, drag = pan (seconds), wheel = zoom (factor)
-  let drag = null;
+  const rect = () => ({ left: PAD.l, top: PAD.t, width: w - PAD.l - PAD.r, height: hgt - PAD.t - PAD.b });
+  const modeOf = (e) => (e.shiftKey ? "time" : e.ctrlKey ? "y" : "both");
+
+  function drawSel(ctx, axis) {
+    const rc = rect();
+    const cl = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    let x0 = cl(sel.x0, rc.left, rc.left + rc.width);
+    let x1 = cl(sel.x1, rc.left, rc.left + rc.width);
+    let y0 = cl(sel.y0, rc.top, rc.top + rc.height);
+    let y1 = cl(sel.y1, rc.top, rc.top + rc.height);
+    if (sel.mode === "time") [y0, y1] = [rc.top, rc.top + rc.height];
+    if (sel.mode === "y") [x0, x1] = [rc.left, rc.left + rc.width];
+    const small = Math.abs(sel.x1 - sel.x0) < MIN_DRAG_PX && Math.abs(sel.y1 - sel.y0) < MIN_DRAG_PX;
+    if (small) return; // not a zoom yet
+    ctx.save();
+    ctx.fillStyle = css(container, "--s1", "#3987e5");
+    ctx.globalAlpha = 0.18;
+    ctx.fillRect(Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0));
+    ctx.globalAlpha = 0.9;
+    ctx.strokeStyle = css(container, "--s1", axis);
+    ctx.setLineDash([4, 3]);
+    ctx.strokeRect(Math.min(x0, x1) + 0.5, Math.min(y0, y1) + 0.5, Math.abs(x1 - x0), Math.abs(y1 - y0));
+    ctx.restore();
+  }
+
+  // interaction: hover = shared cursor; left drag = selection box zoom; right drag = pan; wheel = zoom (factor);
+  // double click = reset; Backspace / Escape = back one zoom step (Escape first cancels a selection in progress)
+  let sel = null; // { x0, y0, x1, y1, mode }
+  let pan = null; // { x, y }
+  const redraw = () => last && draw(last);
+  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
   canvas.addEventListener("pointermove", (e) => {
     if (!last) return;
     const r = canvas.getBoundingClientRect();
     const x = e.clientX - r.left;
-    if (drag) {
-      const dt = ((drag.x - x) / (w - PAD.l - PAD.r)) * (last.t1 - last.t0);
-      drag.x = x;
-      onPan?.(dt);
+    const y = e.clientY - r.top;
+    if (sel) {
+      sel.x1 = x;
+      sel.y1 = y;
+      sel.mode = modeOf(e);
+      redraw();
+      return;
+    }
+    if (pan) {
+      const rc = rect();
+      const dt = ((pan.x - x) / rc.width) * (last.t1 - last.t0);
+      const dv = ((y - pan.y) / rc.height) * (last.yRange[1] - last.yRange[0]);
+      pan.x = x;
+      pan.y = y;
+      onPan?.(dt, dv);
       return;
     }
     onCursor?.(x >= PAD.l && x <= w - PAD.r ? tOf(x, last) : null);
   });
   canvas.addEventListener("pointerleave", () => {
-    if (!drag) onCursor?.(null);
+    if (!sel && !pan) onCursor?.(null);
   });
   canvas.addEventListener("pointerdown", (e) => {
     const r = canvas.getBoundingClientRect();
-    drag = { x: e.clientX - r.left };
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    if (e.button === 0) sel = { x0: x, y0: y, x1: x, y1: y, mode: modeOf(e) };
+    else if (e.button === 2) pan = { x, y };
+    else return;
     try {
       canvas.setPointerCapture(e.pointerId);
     } catch (err) {
       /* synthetic events */
     }
   });
-  const end = () => (drag = null);
-  canvas.addEventListener("pointerup", end);
-  canvas.addEventListener("pointercancel", end);
+  canvas.addEventListener("pointerup", (e) => {
+    if (sel && e.button === 0 && last) {
+      const s = sel;
+      sel = null;
+      s.mode = modeOf(e);
+      onBox?.({ x0: s.x0, y0: s.y0, x1: s.x1, y1: s.y1 }, s.mode, { rect: rect(), view: { t0: last.t0, t1: last.t1, y0: last.yRange[0], y1: last.yRange[1] } });
+      redraw();
+    }
+    if (e.button === 2) pan = null;
+  });
+  canvas.addEventListener("pointercancel", () => {
+    sel = null;
+    pan = null;
+    redraw();
+  });
+  canvas.addEventListener("dblclick", (e) => {
+    e.preventDefault();
+    sel = null;
+    onReset?.();
+  });
   canvas.addEventListener(
     "wheel",
     (e) => {
       if (!onZoom) return;
       e.preventDefault();
-      onZoom(e.deltaY > 0 ? 1.25 : 0.8);
+      const r = canvas.getBoundingClientRect();
+      const rc = rect();
+      const fx = Math.max(0, Math.min(1, (e.clientX - r.left - rc.left) / rc.width));
+      const fy = Math.max(0, Math.min(1, 1 - (e.clientY - r.top - rc.top) / rc.height));
+      onZoom(e.deltaY > 0 ? 1.25 : 0.8, { fx, fy, mode: modeOf(e) });
     },
     { passive: false },
   );
   canvas.addEventListener("keydown", (e) => {
     if (e.key === "ArrowLeft") onPan?.(-(last ? (last.t1 - last.t0) / 10 : 1));
     else if (e.key === "ArrowRight") onPan?.(last ? (last.t1 - last.t0) / 10 : 1);
-    else if (e.key === "+" || e.key === "=") onZoom?.(0.8);
-    else if (e.key === "-") onZoom?.(1.25);
-    else return;
+    else if (e.key === "+" || e.key === "=") onZoom?.(0.8, null);
+    else if (e.key === "-") onZoom?.(1.25, null);
+    else if (e.key === "Backspace" || e.key === "Escape") {
+      if (sel) {
+        sel = null;
+        redraw();
+      } else onBack?.();
+    } else return;
     e.preventDefault();
   });
 
