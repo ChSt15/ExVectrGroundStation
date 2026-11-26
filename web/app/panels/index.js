@@ -2,6 +2,7 @@
 // add an entry to the layout JSON (docs/gui.md).
 import "./attitude.js";
 import "./mission.js";
+import "./events.js";
 import "./position.js";
 import "./systems.js";
 import "./gnss.js";

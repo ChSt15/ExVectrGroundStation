@@ -35,6 +35,8 @@ Status: self-update done on `feature/update-button` (`[update]`, `update.*` ops 
 
 Status: `feature/graph-box-zoom` (owner request 2026-11-26): Tuning graphs: left-drag box zoom (Shift time only, Ctrl y only), right-drag pan, wheel zoom about the pointer, double click / Reset zoom / Back, x axis in continuous mission time (`web/app/status/mission_clock.js`, T0 = mission begin, relative fallback); display only (`docs/gui.md` "Tuning view", "Mouse").
 
+Status: `feature/mission-events` (owner request 2026-11-26): Mission events panel (`events`: timestamp list stamped with mission time and wall time, replay shows the whole recording at once with click-to-seek, live list restored from the core buffer, category filter, CSV export; `web/app/status/mission_events.js`, core op `get_events` + `core/event_history.py`; display only; `docs/gui.md` "Mission events", `docs/api.md`).
+
 Status: `feature/link-lq-split` (owner request 2026-11-26): link quality shown per direction, Downlink (ship -> GS) from `TxModuleStats` and Uplink (GS -> ship) from `RxModuleStats`, in the link panel, header chips DL / UL, rates panel and Tuning signals `link.dl.*` / `link.ul.*` with "Link quality up/down" presets; "no data" and per-direction stale; display only (`docs/gui.md` "Link directions"). `AIRDIAG` console lines are not truncated; no panel yet.
 
 Status: `feature/home-display` (owner issue 2026-11-26): home position and the GNSS position in metres relative to home (NWU, derived in the GUI, WGS-84 tangent plane) in the GNSS panel, graph signals `gnss.home.*`, and the `[requests] auto_home` hook implemented in `requests/controller.py` (T-5, late join, home epoch change; the only automatic request, rules in the safety paragraph above; `docs/requests.md`).

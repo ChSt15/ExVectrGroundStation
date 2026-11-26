@@ -24,6 +24,7 @@ from ..wire import ProfileNotFound, WireProfile, load_profile
 from .bus import Bus
 from .clock import Clock, MonotonicClock
 from .config import ConfigError, GsConfig
+from .event_history import EventHistory
 from .history import PLOT_MAX_HZ, PLOT_TYPES, PLOT_WINDOW_S, History
 from .rates import SYNTHETIC_TYPES, RateTracker, packet_path
 from .state import StateStore
@@ -44,6 +45,7 @@ class CoreApp:
         self.history = History(REGISTRY)
         # full-rate buffer of the tuning graphs (get_history buffer "plot"); the replay view reads the log instead
         self.plot_history = History(REGISTRY, PLOT_WINDOW_S, PLOT_MAX_HZ, PLOT_TYPES)
+        self.event_history = EventHistory()  # kept packets of the mission event list (get_events)
         # replay view (filled by the Replayer; the API serves them as view "replay")
         self.replay_bus = Bus()
         self.replay_store = StateStore(REGISTRY, [], cfg.core.stale_min_s)
@@ -147,6 +149,7 @@ class CoreApp:
         self.store.update(pkt)
         self.history.update(pkt)
         self.plot_history.update(pkt)
+        self.event_history.update(pkt)
         self.packet_counts[pkt.src] += 1
         if pkt.TYPE in ("TxModuleStats", "RxModuleStats") and getattr(pkt, "air_rx_ok", None) is not None:
             self.rates.record_air_counter("down" if pkt.TYPE == "TxModuleStats" else "up", pkt.t, pkt.air_rx_ok)

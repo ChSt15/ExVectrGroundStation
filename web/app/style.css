@@ -582,3 +582,23 @@ body[data-layout="tuning"] .group-title { display: none; }
 .link-chip[data-state="stale"] { color: var(--stale); text-decoration: line-through; opacity: .7; } .link-chip[data-state="nodata"] { color: var(--dim); }
 .link-chip[data-tone="ok"] { color: var(--ok); } .link-chip[data-tone="warn"] { color: var(--warn); } .link-chip[data-tone="bad"] { color: var(--bad); }
 .dir-badge { font-weight: 700; } .dir-badge[data-state="stale"] { color: var(--stale); } .dir-badge[data-state="nodata"] { color: var(--dim); }
+
+/* Mission events panel (docs/gui.md "Mission events"): virtualised list, fixed row height */
+.ev-bar { flex-wrap: wrap; gap: 4px 10px; }
+.ev-bar .ev-status { margin-left: auto; }
+.evlist { position: relative; height: 260px; min-height: 120px; resize: vertical; overflow: auto; border: 1px solid var(--line, #3a3f47); border-radius: 4px; }
+.panel.fill .evlist { flex: 1 1 auto; height: auto; }
+.evspacer { position: relative; min-width: 100%; }
+.evrow { position: absolute; left: 0; right: 0; height: 22px; line-height: 22px; display: flex; gap: 8px; padding: 0 6px; white-space: nowrap; overflow: hidden; font-size: var(--fs-xs, 12px); }
+.evrow .evtm { flex: 0 0 64px; text-align: right; }
+.evrow .evwall { flex: 0 0 62px; }
+.evrow .evic { flex: 0 0 14px; text-align: center; }
+.evrow .evtx { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.evrow[data-tone="warn"] .evtx { color: var(--warn); } .evrow[data-tone="bad"] .evtx { color: var(--bad); font-weight: 600; } .evrow[data-tone="ok"] .evtx { color: var(--ok); }
+.evic.ev-mission, label.ev-mission { color: var(--accent); } .evic.ev-vehicle, label.ev-vehicle { color: var(--ok); }
+.evic.ev-command, label.ev-command { color: var(--sim); } .evic.ev-link, label.ev-link { color: var(--warn); } .evic.ev-log, label.ev-log { color: var(--stale); }
+.evhead { background: var(--info-bg); font-weight: 700; color: var(--accent); }
+.evrow[data-state="upcoming"] { opacity: .45; }
+.evrow[data-state="current"] { background: var(--info-bg); box-shadow: inset 3px 0 0 var(--accent); }
+.evrow[data-state] { cursor: pointer; }
+.evempty { padding: 8px; }

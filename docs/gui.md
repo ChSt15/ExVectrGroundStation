@@ -359,6 +359,28 @@ Changed from before: left drag no longer pans (it draws the zoom box), panning i
 
 **Missing telemetry for tuning** (to be requested from the flight software; nothing is invented here): attitude setpoint (quaternion or angles) and attitude error; angular-rate setpoint; controller terms per axis (P, I, D contributions, integrator states, output saturation flags); commanded vs achieved thrust and torque (it is not documented whether `Actuators` is command or feedback); flap commands (`FlapState.cmd` is not sent by the vehicle); acceleration setpoint; estimator innovations / residuals (GNSS, baro, magnetometer) and covariance diagonals beyond att/vel/pos σ (gyro and accel bias σ); estimated linear acceleration; barometric altitude; task names and valid `max` values for `TaskTiming` (all NaN on the bench), loop period and jitter; battery voltage and current; motor RPM / ESC feedback; the mission plan (list of upcoming points, time to the next phase).
 
+## Mission events (panel `events`, Bench Mission column and Tuning view; `status/mission_events.js`, `panels/events.js`)
+
+A timestamp list of what happened when, display only (nothing is sent; the click-to-seek in replay moves the viewer, not the vehicle). Each row: **mission time** (the continuous mission clock of `status/mission_clock.js`: `T-` before T0, `T+` after, not the per-phase `t_mission`; `—` before the first mission started; after a mission's end it keeps counting from that mission's T0 until the next countdown), **wall time** (local, full date and time in the tooltip), a category icon, the text (`xN` = identical console/GS lines folded within 60 s) and the source packet type (tooltip). A new mission starts a section header `Mission N, begun at <time>` in the same list.
+
+- **Replay:** when a log is opened the core reads the whole recording once (`get_events`, docs/api.md), so the list shows ALL events immediately; events after the replay position are dimmed (`upcoming`), the last event at or before the position is highlighted, **Follow** (remembered) scrolls to it, and a click seeks the replay to that event. A seek does not reload the list.
+- **Live:** the list grows with the packets; after a page reload or reconnect it is restored from the core's buffer (newest 40000 kept packets) and continues.
+- **Filter and export:** category checkboxes Mission / Vehicle / Command / Link / Log (remembered in the browser), **Export CSV** of the filtered events (`mission_time_s, mission_time, wall_time_utc, category, text, mission, source_type`; text cells starting with `= + @ -` get a leading apostrophe against spreadsheet formula injection). The list is virtualised (fixed row height, only the visible rows are in the DOM), so thousands of events are fine.
+
+Events and their sources (one stateful deriver, the same code for the whole recording and the live stream; it reacts to a VALUE CHANGE, so repeated identical states give nothing and two sources reporting the same change within 3 s give one event; the first value seen is a silent baseline except armed, motors enabled, simulation, failsafe, set failure bits and the vehicle mode, marked "(state at start of data)"):
+
+| Category | Event | Source |
+|---|---|---|
+| mission | countdown start, mission begin (T0), mission end (Completed / reset to Idle / clock lost), already running when the data begins | mission clock over `MissionState` |
+| mission | mission phase change, mission mode change, mission index and waypoint change | `MissionState` |
+| vehicle | vehicle mode change, armed / disarmed, motors enabled / disabled (the vehicle's gate), simulation on / off, failsafe set / cleared, ready to arm, each failure bit set / cleared (named as in the status bar), vehicle flags (ABORT latched, FAILSAFE latched, ... warn/bad bits of `ctrl_flags`), degraded bits | `VehicleStatus` |
+| command | what the GS sent: GO (SA), profile (SB), SIMULATION/REAL (SC), motors armed / disarmed (SD), SE pressed / released, GS failsafe requested / cleared, command session start, Pocket stream live / lost, input virtual / Pocket | `CmdState` (the GS's own recorded command state) |
+| command | what the vehicle applied (same fields), control source change, mission profile latched, go refused (with the reason), lease events, requests sent / ACK / timeout (`REQUEST_ACK ... DONE` lines), the engine's `ABORT sent` / failsafe lines | `CmdApplied`, `VehicleStatus`, `GsEvent` |
+| link | source up / down, ship-node / Router link warnings and the vehicle losing the GS (`gs_present`, degraded bits 1 and 2) | `GsEvent`, `VehicleStatus` |
+| log | recording start / stop, operator notes, vehicle console lines: bellyflop kick started / finished, RTH descent starts, landing declared, and everything `callouts/log_patterns.js` classifies (WARNING / ERROR lines, refusals, calibration, countdown abort) | `GsEvent`, `Note`, `ConsoleText` |
+
+Limits: the telemetry carries the current mission step only, so "waypoint reached" is the reported waypoint or index changing, nothing more. `CmdApplied` exists on USB only. The core reduces the packets (`core/event_history.py`, a data reduction, not an interpretation); a recording with more than 100000 kept packets is cut and the status line says so. To show the panel elsewhere add `{"panel": "events"}` to a group of `config/layout.default.json` (a panel can be in one place per view only).
+
 ## Known gaps
 
 - Replay: the controls are wired to `replay.*` and `status.replay`, but were exercised only against the "not available" answer because the Replayer (T4) is not merged in this branch. Scrubber markers for `GsEvent`, `Note` and mode changes (design 5.7) need index data the API does not expose yet.
