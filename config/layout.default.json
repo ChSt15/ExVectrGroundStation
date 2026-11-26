@@ -117,6 +117,9 @@
               }
             },
             {
+              "panel": "events"
+            },
+            {
               "panel": "targetvs",
               "options": {
                 "compact": true

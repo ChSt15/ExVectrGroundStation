@@ -89,6 +89,7 @@ class ApiServer:
             "unsubscribe": self._op_unsubscribe,
             "get_snapshot": self._op_get_snapshot,
             "get_history": self._op_get_history,
+            "get_events": self._op_get_events,
             "get_rates": self._op_get_rates,
             "rec.start": self._op_rec_start,
             "rec.stop": self._op_rec_stop,
@@ -451,6 +452,25 @@ class ApiServer:
                     res[fname] = [None if v is None else v / 1e9 for v in res[fname]]
             out.append({"type": s["type"], "src": s["src"], **res})
         return {"series": out}
+
+    async def _op_get_events(self, client: Client, msg: dict) -> dict:
+        """Extension (mission event list, docs/gui.md "Mission events"): the change-filtered packets the GUI derives
+        its events from (`core/event_history.py`). Live: the core's buffer (newest 40000 kept packets, so a page
+        reload restores the list as far as it reaches). Replay: one pass over the WHOLE open log. Display data only."""
+        view = P.view_of(msg)
+        truncated = False
+        if view == "live":
+            eh = self._mod("event_history")
+            pkts = eh.packets() if eh is not None else []
+        else:
+            pkts = []
+            replayer = self._mod("replayer")
+            if replayer is not None and hasattr(replayer, "read_events"):
+                try:
+                    pkts, truncated = await asyncio.to_thread(replayer.read_events)
+                except (RuntimeError, NotImplementedError, OSError):
+                    pkts = []  # no log open
+        return {"view": view, "truncated": truncated, "packets": [P.packet_to_json(p) for p in pkts]}
 
     # ------------------------------------------------------------ ops: recording, logs, replay
 

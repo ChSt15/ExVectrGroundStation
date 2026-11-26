@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from ..core.bus import Bus
+from ..core.event_history import EVENT_TYPES, EventFilter
 from ..core.history import History
 from ..core.rates import SYNTHETIC_TYPES, RateTracker, StreamRates, packet_path
 from ..core.state import StateStore
@@ -47,6 +48,9 @@ class ReplayStatus:
     t_start: int | None
     t_end: int | None
     speed: float
+
+
+MAX_EVENT_PACKETS = 100_000  # `read_events`: kept packets of the whole log
 
 
 class Replayer:
@@ -170,6 +174,15 @@ class Replayer:
         reader = self._reader
         assert reader is not None
         return read_series(reader.path, idx, specs, t0, t1, max_points)
+
+    def read_events(self, limit: int = MAX_EVENT_PACKETS) -> tuple[list[Packet], bool]:
+        """The packets of the whole open log that the mission event list is derived from (`EVENT_TYPES`, reduced by
+        `EventFilter`), in time order, and whether the list was cut at `limit`. One pass over the file: blocking,
+        call it in a worker thread. Raises RuntimeError when no log is open."""
+        idx = self._need_open()
+        reader = self._reader
+        assert reader is not None
+        return read_events(reader.path, idx, limit)
 
     def read_rates(self, windows: tuple[float, ...]) -> tuple[int, list[StreamRates]]:
         """Per-type packet rates at the replay position, in replay time: the log lines of the last `max(windows)` s
@@ -354,6 +367,28 @@ def read_series(path, idx: LogIndex, specs: list[dict], t0: int, t1: int, max_po
                 res[name].append(getattr(p, name, None))
         out.append(res)
     return out
+
+
+def read_events(path, idx: LogIndex, limit: int = MAX_EVENT_PACKETS) -> tuple[list[Packet], bool]:
+    """Whole log, only the `EVENT_TYPES` lines decoded, change-filtered per (type, source) like the live buffer."""
+    out: list[Packet] = []
+    flt = EventFilter()
+    wanted = {t.encode() for t in EVENT_TYPES}
+    with _open(path) as fh:
+        fh.seek(idx.offset_for(0))
+        for raw in fh:
+            if not raw.endswith(b"\n") or raw[:1] == b"#":
+                continue
+            parts = raw.split(b" ", 3)
+            if len(parts) < 3 or parts[2] not in wanted:
+                continue
+            with contextlib.suppress(Exception):
+                pkt = decode_line(raw.decode("utf-8", "replace").rstrip("\r\n"))
+                if pkt is not None and flt.accept(pkt):
+                    out.append(pkt)
+                    if len(out) >= limit:
+                        return sorted(out, key=lambda p: p.t), True
+    return sorted(out, key=lambda p: p.t), False
 
 
 def _type_of(pkt: Packet) -> str:
