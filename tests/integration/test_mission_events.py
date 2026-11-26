@@ -110,3 +110,23 @@ async def test_events_panel_replay_shows_everything_and_seeks(tmp_path):
             ),
             what="filter",
         )
+
+
+@needs_browser
+async def test_events_panel_clear_hides_rows_new_events_show_and_show_cleared_restores(tmp_path):
+    app = make_app()
+    for i in range(3):
+        app.bus.publish(ConsoleText(t=T0_NS + i * S, src="usb", text=f"[node 1 WARNING] old {i}"))
+    async with running(app, sources=False) as rig, browser_check.Browser(1500, 1300, 9375) as b:
+        await open_page(b, rig)
+        tx = "[...document.querySelectorAll('[data-testid=ev-row] .evtx')].map(e => e.textContent)"
+        click = "document.querySelector('[data-testid=%s]').click()"
+        await until(lambda: b.eval(f"({tx}).length >= 3"), what="old rows", timeout=15)
+        await b.eval(click % "ev-clear")
+        await until(lambda: b.eval(f"({tx}).length === 0"), what="cleared")
+        assert await b.eval("document.querySelector('[data-testid=ev-showcleared]').textContent") == "Show cleared (3)"
+        app.bus.publish(ConsoleText(t=T0_NS + 10 * S, src="usb", text="[node 1 WARNING] fresh"))
+        await until(lambda: b.eval(f"({tx}).length === 1"), what="new event after the clear", timeout=10)
+        assert (await b.eval(tx)) == ["fresh"]
+        await b.eval(click % "ev-showcleared")
+        await until(lambda: b.eval(f"({tx}).length === 4"), what="restored")

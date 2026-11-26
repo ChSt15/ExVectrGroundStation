@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MissionEvents, deriveEvents, eventsToCsv, filterRows, currentIndex, fmtEventTime } from "../app/status/mission_events.js";
+import { MissionEvents, deriveEvents, eventsToCsv, filterRows, applyCutoff, currentIndex, fmtEventTime } from "../app/status/mission_events.js";
 
 const near = (a, b, e = 1e-9) => assert.ok(Math.abs(a - b) < e, `${a} vs ${b}`);
 const ms = (t, tm, phase, extra = {}) => ({ type: "MissionState", src: "usb", t, f: { t_mission: tm, mission_phase: phase, mission_mode: "Running", mission_index: 0, ...extra } });
@@ -239,4 +239,22 @@ test("CSV, filter, current index, time format", () => {
   assert.equal(fmtEventTime(0), "T0");
   assert.equal(fmtEventTime(-5.04), "T-5.0");
   assert.equal(fmtEventTime(12.34), "T+12.3");
+});
+
+test("clear cutoff hides events up to it, keeps the mission header of later events", () => {
+  const r = deriveEvents(mission(1000, [con(1001, "[node 1 WARNING] a"), con(1003, "[node 1 WARNING] b")]));
+  const evs = r.rows.filter((x) => x.kind === "event");
+  assert.deepEqual(applyCutoff(r.rows, null), { rows: r.rows, hidden: 0 });
+  const all = applyCutoff(r.rows, 0);
+  assert.equal(all.hidden, 0);
+  assert.equal(all.rows.length, r.rows.length);
+  const cut = applyCutoff(r.rows, 1002);
+  assert.equal(cut.hidden, evs.filter((x) => x.t <= 1002).length);
+  const kept = cut.rows.filter((x) => x.kind === "event");
+  assert.ok(kept.length > 0 && kept.every((x) => x.t > 1002));
+  assert.equal(cut.rows[0].kind, "header", "section header kept for the remaining events");
+  assert.equal(kept[0].tm, evs.find((x) => x.t === kept[0].t).tm, "mission time untouched");
+  const none = applyCutoff(r.rows, 1e9);
+  assert.equal(none.rows.length, 0, "an empty section loses its header");
+  assert.equal(none.hidden, evs.length);
 });
