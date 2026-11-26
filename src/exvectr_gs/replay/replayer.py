@@ -165,15 +165,18 @@ class Replayer:
             speed=self._speed,
         )
 
-    def read_series(self, specs: list[dict], t0: int, t1: int, max_points: int) -> list[dict[str, list]]:
+    def read_series(
+        self, specs: list[dict], t0: int, t1: int, max_points: int, whole: bool = False
+    ) -> list[dict[str, list]]:
         """Full-rate series of the open log for the tuning graphs (get_history buffer "plot", replay view).
         `specs`: `[{type, src, fields}]`; returns one `{"t": [...ns], "<field>": [...]}` per spec, like
         `History.query`. Reads the log file: blocking, call it in a worker thread. The span is limited to
-        `MAX_SERIES_SPAN_S` before t1. Raises RuntimeError when no log is open."""
+        `MAX_SERIES_SPAN_S` before t1 unless `whole` (the replay graphs load the entire recording once; the points are
+        thinned by a stride while reading, so memory stays bounded). Raises RuntimeError when no log is open."""
         idx = self._need_open()
         reader = self._reader
         assert reader is not None
-        return read_series(reader.path, idx, specs, t0, t1, max_points)
+        return read_series(reader.path, idx, specs, t0, t1, max_points, whole)
 
     def read_events(self, limit: int = MAX_EVENT_PACKETS) -> tuple[list[Packet], bool]:
         """The packets of the whole open log that the mission event list is derived from (`EVENT_TYPES`, reduced by
@@ -320,12 +323,17 @@ MAX_SERIES_SPAN_S = 600
 _OUT_OF_ORDER_NS = 1_000_000_000  # log lines may be slightly out of time order; read this far past t1
 
 
-def read_series(path, idx: LogIndex, specs: list[dict], t0: int, t1: int, max_points: int) -> list[dict[str, list]]:
+def read_series(
+    path, idx: LogIndex, specs: list[dict], t0: int, t1: int, max_points: int, whole: bool = False
+) -> list[dict[str, list]]:
     """One pass over the lines with t0 <= t <= t1 of a log, decoding only the wanted types (see
     `Replayer.read_series`). A spec without `src` takes the source with the most packets in the range."""
-    t0 = max(t0, t1 - MAX_SERIES_SPAN_S * 1_000_000_000)
+    if not whole:
+        t0 = max(t0, t1 - MAX_SERIES_SPAN_S * 1_000_000_000)
     want = {s["type"] for s in specs}
     per: dict[tuple[str, str], list[Packet]] = {}
+    seen: dict[tuple[str, str], int] = {}  # packets per key before thinning
+    stride: dict[tuple[str, str], int] = {}
     if t1 >= t0:
         with _open(path) as fh:
             fh.seek(idx.offset_for(t0))
@@ -347,7 +355,16 @@ def read_series(path, idx: LogIndex, specs: list[dict], t0: int, t1: int, max_po
                 with contextlib.suppress(Exception):
                     pkt = decode_line(raw.decode("utf-8", "replace").rstrip("\r\n"))
                     if pkt is not None:
-                        per.setdefault((typ, pkt.src), []).append(pkt)
+                        key = (typ, pkt.src)
+                        n = seen[key] = seen.get(key, 0) + 1
+                        k = stride.setdefault(key, 1)
+                        if (n - 1) % k:
+                            continue
+                        lst = per.setdefault(key, [])
+                        lst.append(pkt)
+                        if max_points > 0 and len(lst) >= 2 * max_points:
+                            per[key] = lst[::2]  # keep memory bounded: every other kept packet, double the stride
+                            stride[key] = k * 2
     out = []
     for s in specs:
         fields = s["fields"]
@@ -355,8 +372,8 @@ def read_series(path, idx: LogIndex, specs: list[dict], t0: int, t1: int, max_po
         if s.get("src") is not None:
             pkts = per.get((s["type"], s["src"]), [])
         else:
-            cands = [v for k, v in per.items() if k[0] == s["type"]]
-            pkts = max(cands, key=len) if cands else []
+            cands = [k for k in per if k[0] == s["type"]]
+            pkts = per[max(cands, key=lambda k: seen[k])] if cands else []
         pkts.sort(key=lambda p: p.t)
         if max_points > 0 and len(pkts) > max_points:
             step = len(pkts) / max_points

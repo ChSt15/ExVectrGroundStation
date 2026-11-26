@@ -89,6 +89,24 @@ async def test_replay_ops_snapshots_history_markers_and_status():
         assert p0["t"] == sorted(p0["t"]) and len(p0["pos"]) == len(p0["t"])
         assert v0["t"] and isinstance(v0["mode"][0], str)
         assert await c.err("get_history", buffer="x", series=[], t0=0, t1=1) == "invalid_value"
+        # whole: true lifts the 600 s span limit (the log here is 20 s: a 1 s window ends well inside it) and the
+        # series is thinned to max_points while reading, spanning the whole range
+        whole = await c.ok(
+            "get_history",
+            view="replay",
+            buffer="plot",
+            series=[{"type": "Position", "fields": ["pos"]}],
+            t0=T0_NS / 1e9 - 1,
+            t1=T0_NS / 1e9 + 100,
+            max_points=40,
+            whole=True,
+        )
+        (w0,) = whole["series"]
+        assert 0 < len(w0["t"]) <= 40 and w0["t"] == sorted(w0["t"])
+        assert w0["t"][-1] - w0["t"][0] > 15  # the entire 20 s log, thinned
+        assert await c.err("get_history", view="replay", buffer="plot", series=[], t0=0, t1=1, whole="yes") == (
+            "invalid_value"
+        )
         live_h = await c.ok("get_history", view="live", series=[{"type": "Position", "fields": ["pos"]}], t0=0, t1=1e12)
         assert live_h["series"][0]["t"] == []  # replay history never reaches the live view
         markers = await c.ok("replay.markers")

@@ -249,3 +249,19 @@ async def test_seek_in_one_hour_log_under_200_ms(tmp_path):
         rp.seek(rng.randint(s.t_start, s.t_end))
         worst = max(worst, time.perf_counter() - t0)
     assert worst < 0.2, f"seek took {worst * 1000:.0f} ms"
+
+
+async def test_read_series_whole_lifts_the_600_s_limit_and_bounds_the_points(tmp_path):
+    base = make_log(tmp_path / "base", "full", 20.0)
+    d = tmp_path / "lib"
+    d.mkdir()
+    write_long_log(d / "long.exlog", 0.2, base)  # 720 s
+    rp = Replayer(LogLibrary(d), Bus(), StateStore(REGISTRY, []), History(REGISTRY))
+    await rp.open("long.exlog")
+    s = rp.status()
+    specs = [{"type": "Attitude", "src": None, "fields": ["omega"]}]
+    (cut,) = rp.read_series(specs, s.t_start, s.t_end, 100_000)
+    assert cut["t"][-1] - cut["t"][0] <= 600 * S  # the plot buffer limit
+    (full,) = rp.read_series(specs, s.t_start, s.t_end, 500, whole=True)
+    assert 0 < len(full["t"]) <= 500 and full["t"] == sorted(full["t"])
+    assert full["t"][-1] - full["t"][0] > 700 * S  # the entire log, thinned

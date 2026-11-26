@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { RingSeries, decimate } from "../app/plot/series.js";
-import { MIN_SPAN_S, ZoomStack, boxToRanges, panWindow, panY, zoomAbout, zoomTimeRange, zoomYRange } from "../app/plot/zoom.js";
+import { MIN_SPAN_S, ZoomStack, boxToRanges, dragAction, panWindow, panY, zoomAbout, zoomTimeRange, zoomYRange } from "../app/plot/zoom.js";
 import { MissionClock } from "../app/status/mission_clock.js";
 import { fmtT, missionAxis } from "../app/plot/missionclock.js";
 
@@ -127,4 +127,19 @@ test("fmtT", () => {
   assert.equal(fmtT(0), "T0");
   assert.equal(fmtT(-0.001, 1), "T0");
   assert.equal(fmtT(NaN), "—");
+});
+
+test("mouse mapping: left drag pans, right drag draws the zoom box", () => {
+  assert.equal(dragAction(0), "pan");
+  assert.equal(dragAction(2), "box");
+  assert.equal(dragAction(1), null);
+});
+
+test("box zoom also maps the same pixel box on a right y axis", () => {
+  const r = boxToRanges({ x0: 100, y0: 10, x1: 200, y1: 60 }, rect, { ...view, r0: 0, r1: 1000 });
+  assert.ok(r.y && r.yr && r.yr[1] > r.yr[0]);
+  assert.ok(r.yr[1] - r.yr[0] < 1000);
+  const t = boxToRanges({ x0: 100, y0: 10, x1: 200, y1: 60 }, rect, { ...view, r0: 0, r1: 1000 }, { mode: "time" });
+  assert.equal(t.yr, null);
+  assert.equal("yr" in boxToRanges({ x0: 100, y0: 10, x1: 200, y1: 60 }, rect, view), false);
 });

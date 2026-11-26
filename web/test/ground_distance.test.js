@@ -25,5 +25,5 @@ test("ground distance is a plottable signal (Position.ground_distance, m); NaN s
 
 test("a saved graph with the old act.ground_distance id resolves to pos.ground_distance", () => {
   const out = sanitizeGraphs([{ title: "g", series: [{ sig: "act.ground_distance", slot: 2, dash: true }, { sig: "nonsense" }] }]);
-  assert.deepEqual(out[0].series, [{ sig: "pos.ground_distance", slot: 2, dash: true }]);
+  assert.deepEqual(out[0].series, [{ sig: "pos.ground_distance", slot: 2, dash: true, axis: "L" }]);
 });

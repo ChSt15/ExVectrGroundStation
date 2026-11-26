@@ -1,9 +1,13 @@
-// Small canvas time-series plot for the tuning graphs (no dependency). One y axis per graph, min/max decimation per
-// pixel column (series.js), shared time cursor, left drag = selection box zoom (Shift time only, Ctrl y only), right drag =
-// pan, wheel / + / - = zoom, double click = reset, Backspace / Escape = back. The math is in zoom.js. Colours come from CSS tokens
+// Small canvas time-series plot for the tuning graphs (no dependency). A left and an optional right y axis (each series
+// on one of them, axes.js), min/max decimation per pixel column (series.js), shared time cursor, left drag = pan,
+// right drag = selection box zoom (Shift time only, Ctrl y only), wheel / + / - = zoom, double click = reset,
+// Backspace / Escape = back. In replay (`replay: true` args) the cursor is the replay position bar: a click seeks, a
+// drag on the bar scrubs (onSeek). The math is in zoom.js, axes.js and replayview.js. Colours come from CSS tokens
 // (--s1..--s8, --grid, --axis, --dim, --fg) so both themes work.
-import { MIN_DRAG_PX } from "./zoom.js";
-import { decimate, niceTicks, paddedRange, tickDigits, valueRange } from "./series.js";
+import { MIN_DRAG_PX, dragAction } from "./zoom.js";
+import { axisRange, hasRight, padsFor, sideOf } from "./axes.js";
+import { decimate, niceTicks, tickDigits } from "./series.js";
+import { nearBar } from "./replayview.js";
 
 const PAD = { l: 50, r: 10, t: 6, b: 20 };
 
@@ -13,7 +17,7 @@ export function seriesColor(el, slot) {
   return css(el, `--s${(slot % 8) + 1}`, "#3987e5");
 }
 
-export function createPlot(container, { onCursor, onPan, onZoom, onBox, onReset, onBack } = {}) {
+export function createPlot(container, { onCursor, onPan, onZoom, onBox, onReset, onBack, onSeek } = {}) {
   const canvas = document.createElement("canvas");
   canvas.className = "plot-canvas";
   canvas.tabIndex = 0;
@@ -37,29 +41,34 @@ export function createPlot(container, { onCursor, onPan, onZoom, onBox, onReset,
   }
   resize();
 
-  const xOf = (t, a) => PAD.l + ((t - a.t0) / (a.t1 - a.t0)) * (w - PAD.l - PAD.r);
-  const tOf = (x, a) => a.t0 + ((x - PAD.l) / (w - PAD.l - PAD.r)) * (a.t1 - a.t0);
+  let pad = { ...PAD }; // l / r change with a right axis
+  const xOf = (t, a) => pad.l + ((t - a.t0) / (a.t1 - a.t0)) * (w - pad.l - pad.r);
+  const tOf = (x, a) => a.t0 + ((x - pad.l) / (w - pad.l - pad.r)) * (a.t1 - a.t0);
 
-  /**
-   * args: { t0, t1, series: [{ rs, slot, dash }], yRange: [lo, hi] | null (auto), cursorT, xLabel(t) }.
-   * Returns { yRange used, points drawn }.
-   */
   function draw(args) {
     const ctx = canvas.getContext("2d");
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, hgt);
-    const cols = Math.max(10, Math.floor(w - PAD.l - PAD.r));
+    const dual = hasRight(args.series);
+    pad = { ...PAD, ...padsFor(dual) };
+    const cols = Math.max(10, Math.floor(w - pad.l - pad.r));
     const dec = args.series.map((s) => decimate(s.rs, args.t0, args.t1, cols));
-    const yr = args.yRange || paddedRange(valueRange(dec.map((d) => d.v)));
-    const [y0, y1] = yr;
-    const yOf = (v) => PAD.t + (1 - (v - y0) / (y1 - y0)) * (hgt - PAD.t - PAD.b);
+    const listsOf = (side) => dec.filter((_, k) => sideOf(args.series[k]) === side).map((d) => d.v);
+    const yr = axisRange(args.yRange, listsOf("L"));
+    const yrR = dual ? axisRange(args.yRangeR, listsOf("R")) : null;
+    const plotH = hgt - PAD.t - PAD.b;
+    const mapper = (r) => (v) => PAD.t + (1 - (v - r[0]) / (r[1] - r[0])) * plotH;
+    const yOf = mapper(yr);
+    const yOfR = yrR ? mapper(yrR) : null;
     const grid = css(container, "--grid", "rgba(128,128,128,.18)");
     const axis = css(container, "--axis", "rgba(128,128,128,.5)");
     const dim = css(container, "--dim", "#8b98a8");
+    const fg = css(container, "--fg", "#e6edf3");
     ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
     ctx.lineWidth = 1;
-    // y grid and labels
-    const yt = niceTicks(y0, y1, Math.max(2, Math.floor((hgt - PAD.t - PAD.b) / 34)));
+    const axisInk = (side) => args.axes?.[side]?.color || dim;
+    // left y grid and labels
+    const yt = niceTicks(yr[0], yr[1], Math.max(2, Math.floor(plotH / 34)));
     const yd = tickDigits(yt);
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
@@ -67,14 +76,45 @@ export function createPlot(container, { onCursor, onPan, onZoom, onBox, onReset,
       const y = Math.round(yOf(v)) + 0.5;
       ctx.strokeStyle = v === 0 ? axis : grid;
       ctx.beginPath();
-      ctx.moveTo(PAD.l, y);
-      ctx.lineTo(w - PAD.r, y);
+      ctx.moveTo(pad.l, y);
+      ctx.lineTo(w - pad.r, y);
       ctx.stroke();
-      ctx.fillStyle = dim;
-      ctx.fillText(v.toFixed(yd), PAD.l - 6, y);
+      ctx.fillStyle = dual ? axisInk("L") : dim;
+      ctx.fillText(v.toFixed(yd), pad.l - 6, y);
+    }
+    // right y axis: own ticks and labels (no grid lines, the left axis owns the grid), coloured like its series
+    if (yrR) {
+      const rt = niceTicks(yrR[0], yrR[1], Math.max(2, Math.floor(plotH / 34)));
+      const rd = tickDigits(rt);
+      ctx.textAlign = "left";
+      for (const v of rt) {
+        const y = Math.round(yOfR(v)) + 0.5;
+        ctx.strokeStyle = axisInk("R");
+        ctx.beginPath();
+        ctx.moveTo(w - pad.r, y);
+        ctx.lineTo(w - pad.r + 4, y);
+        ctx.stroke();
+        ctx.fillStyle = axisInk("R");
+        ctx.fillText(v.toFixed(rd), w - pad.r + 6, y);
+      }
+    }
+    // axis titles (rotated) when there are two axes
+    if (dual) {
+      for (const side of ["L", "R"]) {
+        const label = args.axes?.[side]?.label;
+        if (!label) continue;
+        ctx.save();
+        ctx.translate(side === "L" ? 9 : w - 9, PAD.t + plotH / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = axisInk(side);
+        ctx.fillText(label, 0, 0, plotH);
+        ctx.restore();
+      }
     }
     // x grid and labels
-    const xt = args.xTicks || niceTicks(args.t0, args.t1, Math.max(2, Math.floor((w - PAD.l - PAD.r) / 90))).map((t) => ({ t, label: args.xLabel ? args.xLabel(t) : t.toFixed(0) }));
+    const xt = args.xTicks || niceTicks(args.t0, args.t1, Math.max(2, Math.floor((w - pad.l - pad.r) / 90))).map((t) => ({ t, label: args.xLabel ? args.xLabel(t) : t.toFixed(0) }));
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
     for (const { t, label } of xt) {
@@ -90,11 +130,12 @@ export function createPlot(container, { onCursor, onPan, onZoom, onBox, onReset,
     // series (clipped to the plot area)
     ctx.save();
     ctx.beginPath();
-    ctx.rect(PAD.l, PAD.t, w - PAD.l - PAD.r, hgt - PAD.t - PAD.b);
+    ctx.rect(pad.l, PAD.t, w - pad.l - pad.r, plotH);
     ctx.clip();
     let points = 0;
     args.series.forEach((s, k) => {
       const d = dec[k];
+      const yMap = sideOf(s) === "R" && yOfR ? yOfR : yOf;
       ctx.strokeStyle = seriesColor(container, s.slot);
       ctx.lineWidth = 1.6;
       ctx.setLineDash(s.dash ? [6, 4] : []);
@@ -107,7 +148,7 @@ export function createPlot(container, { onCursor, onPan, onZoom, onBox, onReset,
           continue;
         }
         const x = xOf(d.t[i], args);
-        const y = yOf(v);
+        const y = yMap(v);
         if (pen) ctx.lineTo(x, y);
         else ctx.moveTo(x, y);
         pen = true;
@@ -117,35 +158,50 @@ export function createPlot(container, { onCursor, onPan, onZoom, onBox, onReset,
     });
     ctx.setLineDash([]);
     ctx.restore();
-    // cursor
-    if (args.cursorT != null && args.cursorT >= args.t0 && args.cursorT <= args.t1) {
-      const x = Math.round(xOf(args.cursorT, args)) + 0.5;
-      ctx.strokeStyle = css(container, "--fg", "#e6edf3");
-      ctx.globalAlpha = 0.55;
+    // cursors: hover (live) / replay position bar (replay, thick) plus a thin dashed hover cursor
+    let barX = null;
+    const vline = (t, width, alpha, dash) => {
+      if (t == null || t < args.t0 || t > args.t1) return null;
+      const x = Math.round(xOf(t, args)) + 0.5;
+      ctx.strokeStyle = fg;
+      ctx.lineWidth = width;
+      ctx.globalAlpha = alpha;
+      ctx.setLineDash(dash);
       ctx.beginPath();
       ctx.moveTo(x, PAD.t);
       ctx.lineTo(x, hgt - PAD.b);
       ctx.stroke();
+      ctx.setLineDash([]);
       ctx.globalAlpha = 1;
-    }
+      ctx.lineWidth = 1;
+      return x;
+    };
+    if (args.replay) {
+      vline(args.hoverT, 1, 0.35, [2, 3]);
+      barX = vline(args.cursorT, 2, 0.9, []);
+      if (barX !== null) {
+        ctx.fillStyle = fg; // grab handle at the top
+        ctx.fillRect(barX - 4, PAD.t, 8, 4);
+      }
+    } else vline(args.cursorT, 1, 0.55, []);
     if (args.xTitle) {
       ctx.textAlign = "right";
       ctx.textBaseline = "top";
       ctx.fillStyle = dim;
       ctx.globalAlpha = 0.8;
-      ctx.fillText(args.xTitle, w - PAD.r - 2, PAD.t + 2);
+      ctx.fillText(args.xTitle, w - pad.r - 2, PAD.t + 2);
       ctx.globalAlpha = 1;
     }
     // selection box
     if (sel) drawSel(ctx, axis);
     // frame
     ctx.strokeStyle = axis;
-    ctx.strokeRect(PAD.l + 0.5, PAD.t + 0.5, w - PAD.l - PAD.r - 1, hgt - PAD.t - PAD.b - 1);
-    last = { ...args, yRange: yr };
-    return { yRange: yr, points };
+    ctx.strokeRect(pad.l + 0.5, PAD.t + 0.5, w - pad.l - pad.r - 1, plotH - 1);
+    last = { ...args, yRange: yr, yRangeR: yrR, barX };
+    return { yRange: yr, yRangeR: yrR, points };
   }
 
-  const rect = () => ({ left: PAD.l, top: PAD.t, width: w - PAD.l - PAD.r, height: hgt - PAD.t - PAD.b });
+  const rect = () => ({ left: pad.l, top: PAD.t, width: w - pad.l - pad.r, height: hgt - PAD.t - PAD.b });
   const modeOf = (e) => (e.shiftKey ? "time" : e.ctrlKey ? "y" : "both");
 
   function drawSel(ctx, axis) {
@@ -170,11 +226,14 @@ export function createPlot(container, { onCursor, onPan, onZoom, onBox, onReset,
     ctx.restore();
   }
 
-  // interaction: hover = shared cursor; left drag = selection box zoom; right drag = pan; wheel = zoom (factor);
-  // double click = reset; Backspace / Escape = back one zoom step (Escape first cancels a selection in progress)
+  // interaction (owner 2026-11-26): hover = shared cursor; left drag = pan (replay: a click seeks, a drag on the bar
+  // scrubs); right drag = selection box zoom; wheel = zoom (factor); double click = reset; Backspace / Escape = back
+  // one zoom step (Escape first cancels a selection in progress)
   let sel = null; // { x0, y0, x1, y1, mode }
-  let pan = null; // { x, y }
+  let pan = null; // { x, y, x0, y0, moved }
+  let scrub = false;
   const redraw = () => last && draw(last);
+  const inPlotX = (x) => x >= pad.l && x <= w - pad.r;
   canvas.addEventListener("contextmenu", (e) => e.preventDefault());
   canvas.addEventListener("pointermove", (e) => {
     if (!last) return;
@@ -188,27 +247,38 @@ export function createPlot(container, { onCursor, onPan, onZoom, onBox, onReset,
       redraw();
       return;
     }
-    if (pan) {
-      const rc = rect();
-      const dt = ((pan.x - x) / rc.width) * (last.t1 - last.t0);
-      const dv = ((y - pan.y) / rc.height) * (last.yRange[1] - last.yRange[0]);
-      pan.x = x;
-      pan.y = y;
-      onPan?.(dt, dv);
+    if (scrub) {
+      onSeek?.(tOf(Math.max(pad.l, Math.min(w - pad.r, x)), last), false);
       return;
     }
-    onCursor?.(x >= PAD.l && x <= w - PAD.r ? tOf(x, last) : null);
+    if (pan) {
+      const rc = rect();
+      if (Math.abs(x - pan.x0) >= MIN_DRAG_PX || Math.abs(y - pan.y0) >= MIN_DRAG_PX) pan.moved = true;
+      if (!pan.moved) return;
+      const dt = ((pan.x - x) / rc.width) * (last.t1 - last.t0);
+      const dv = ((y - pan.y) / rc.height) * (last.yRange[1] - last.yRange[0]);
+      const dvR = last.yRangeR ? ((y - pan.y) / rc.height) * (last.yRangeR[1] - last.yRangeR[0]) : 0;
+      pan.x = x;
+      pan.y = y;
+      onPan?.(dt, dv, dvR);
+      return;
+    }
+    canvas.style.cursor = last.replay && nearBar(x, last.barX) ? "col-resize" : "";
+    onCursor?.(inPlotX(x) ? tOf(x, last) : null);
   });
   canvas.addEventListener("pointerleave", () => {
-    if (!sel && !pan) onCursor?.(null);
+    if (!sel && !pan && !scrub) onCursor?.(null);
   });
   canvas.addEventListener("pointerdown", (e) => {
     const r = canvas.getBoundingClientRect();
     const x = e.clientX - r.left;
     const y = e.clientY - r.top;
-    if (e.button === 0) sel = { x0: x, y0: y, x1: x, y1: y, mode: modeOf(e) };
-    else if (e.button === 2) pan = { x, y };
-    else return;
+    const act = dragAction(e.button);
+    if (act === "box") sel = { x0: x, y0: y, x1: x, y1: y, mode: modeOf(e) };
+    else if (act === "pan") {
+      if (last?.replay && onSeek && nearBar(x, last.barX)) scrub = true;
+      else pan = { x, y, x0: x, y0: y, moved: false };
+    } else return;
     try {
       canvas.setPointerCapture(e.pointerId);
     } catch (err) {
@@ -216,18 +286,33 @@ export function createPlot(container, { onCursor, onPan, onZoom, onBox, onReset,
     }
   });
   canvas.addEventListener("pointerup", (e) => {
-    if (sel && e.button === 0 && last) {
+    const act = dragAction(e.button);
+    if (sel && act === "box" && last) {
       const s = sel;
       sel = null;
       s.mode = modeOf(e);
-      onBox?.({ x0: s.x0, y0: s.y0, x1: s.x1, y1: s.y1 }, s.mode, { rect: rect(), view: { t0: last.t0, t1: last.t1, y0: last.yRange[0], y1: last.yRange[1] } });
+      const view = { t0: last.t0, t1: last.t1, y0: last.yRange[0], y1: last.yRange[1] };
+      if (last.yRangeR) Object.assign(view, { r0: last.yRangeR[0], r1: last.yRangeR[1] });
+      onBox?.({ x0: s.x0, y0: s.y0, x1: s.x1, y1: s.y1 }, s.mode, { rect: rect(), view });
       redraw();
     }
-    if (e.button === 2) pan = null;
+    if (act === "pan") {
+      if (scrub) {
+        const r = canvas.getBoundingClientRect();
+        onSeek?.(tOf(Math.max(pad.l, Math.min(w - pad.r, e.clientX - r.left)), last), true);
+      } else if (pan && !pan.moved && last?.replay && onSeek) {
+        const r = canvas.getBoundingClientRect();
+        const x = e.clientX - r.left;
+        if (inPlotX(x)) onSeek(tOf(x, last), true); // a click on a graph moves the replay position
+      }
+      scrub = false;
+      pan = null;
+    }
   });
   canvas.addEventListener("pointercancel", () => {
     sel = null;
     pan = null;
+    scrub = false;
     redraw();
   });
   canvas.addEventListener("dblclick", (e) => {

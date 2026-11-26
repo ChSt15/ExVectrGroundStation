@@ -132,8 +132,8 @@ export const SIGNAL_TYPES = [...new Set([...SIGNALS.map((x) => x.type), "Calibra
 export const MAX_SERIES = 8; // per graph: the categorical palette has eight slots
 
 /**
- * Ready-made graphs. `series`: [signal id, colour slot, dashed]. A target and its current value share the colour
- * slot (same entity), the target is dashed. One unit per graph (no second y axis).
+ * Ready-made graphs. `series`: [signal id, colour slot, dashed, axis "L" (default) | "R"]. A target and its current value share the colour
+ * slot (same entity), the target is dashed. One unit per axis: a graph can have a second (right) y axis.
  */
 export const GRAPH_PRESETS = [
   { id: "attitude", title: "Attitude roll / pitch / yaw", series: [["att.roll", 0], ["att.pitch", 1], ["att.yaw", 2]], note: "attitude target: not in the telemetry" },
@@ -144,7 +144,7 @@ export const GRAPH_PRESETS = [
   { id: "pos_nw", title: "Position N / W vs target", series: [["pos.N", 0], ["sp.pos.N", 0, true], ["pos.W", 1], ["sp.pos.W", 1, true]] },
   { id: "vel", title: "Velocity vs target", series: [["vel.N", 0], ["sp.vel.N", 0, true], ["vel.W", 1], ["sp.vel.W", 1, true], ["vel.U", 2], ["sp.vel.U", 2, true]] },
   { id: "pos_err", title: "Position error (target − current)", series: [["err.pos.N", 0], ["err.pos.W", 1], ["err.pos.U", 2]] },
-  { id: "tvc", title: "TVC deflection", series: [["act.tvc.x", 0], ["act.tvc.y", 1]] },
+  { id: "tvc", title: "TVC deflection and thrust", series: [["act.tvc.x", 0], ["act.tvc.y", 1], ["act.thrust", 3, false, "R"]], note: "thrust (N) on the right axis" },
   { id: "thrust", title: "Thrust", series: [["act.thrust", 3]] },
   { id: "flaps", title: "Flaps: command (Actuators) vs angle (FlapState)", series: [["act.flap.TL", 0, true], ["flap.TL", 0], ["act.flap.TR", 1, true], ["flap.TR", 1], ["act.flap.BL", 2, true], ["flap.BL", 2], ["act.flap.BR", 3, true], ["flap.BR", 3]] },
   { id: "gyro_x", title: "Gyro x: raw / calibrated / estimated", series: [["imu.gyro.x", 0], ["cal.gyro.x", 1], ["est.gyro.x", 2], ["rate.x", 3]] },
@@ -163,7 +163,7 @@ export const DEFAULT_GRAPHS = ["attitude", "rates", "pos_up", "vel", "tvc", "fla
 /** A graph definition from a preset id (deep copy), or null. */
 export function presetGraph(id) {
   const p = GRAPH_PRESETS.find((g) => g.id === id);
-  return p ? { preset: p.id, title: p.title, note: p.note || "", series: p.series.map(([sigId, slot, dash]) => ({ sig: sigId, slot, dash: !!dash })) } : null;
+  return p ? { preset: p.id, title: p.title, note: p.note || "", series: p.series.map(([sigId, slot, dash, axis]) => ({ sig: sigId, slot, dash: !!dash, axis: axis === "R" ? "R" : "L" })) } : null;
 }
 
 /** Validate a stored graph list (localStorage): unknown signals are dropped, at most MAX_SERIES per graph. */
@@ -176,7 +176,7 @@ export function sanitizeGraphs(raw) {
       .map((x) => (x && typeof x === "object" && SIGNAL_ALIASES[x.sig] ? { ...x, sig: SIGNAL_ALIASES[x.sig] } : x))
       .filter((x) => x && SIGNAL_BY_ID.has(x.sig))
       .slice(0, MAX_SERIES)
-      .map((x) => ({ sig: x.sig, slot: Number.isInteger(x.slot) ? ((x.slot % MAX_SERIES) + MAX_SERIES) % MAX_SERIES : 0, dash: !!x.dash }));
+      .map((x) => ({ sig: x.sig, slot: Number.isInteger(x.slot) ? ((x.slot % MAX_SERIES) + MAX_SERIES) % MAX_SERIES : 0, dash: !!x.dash, axis: x.axis === "R" ? "R" : "L" }));
     out.push({ preset: typeof g.preset === "string" ? g.preset : "", title: typeof g.title === "string" ? g.title.slice(0, 80) : "Graph", note: typeof g.note === "string" ? g.note : "", series });
   }
   return out;
@@ -190,12 +190,25 @@ export function toggleSignal(graph, sigId) {
   const used = new Set(graph.series.map((x) => x.slot));
   let slot = 0;
   while (used.has(slot) && slot < MAX_SERIES - 1) slot++;
-  return { ...graph, series: [...graph.series, { sig: sigId, slot, dash: false }] };
+  return { ...graph, series: [...graph.series, { sig: sigId, slot, dash: false, axis: "L" }] };
+}
+
+/** Put a signal of the graph on the left or right y axis (no change for an unknown signal). */
+export function setAxis(graph, sigId, side) {
+  return { ...graph, series: graph.series.map((x) => (x.sig === sigId ? { ...x, axis: side === "R" ? "R" : "L" } : x)) };
 }
 
 /** Units of a graph's signals, for the axis label ("deg", or "m, m/s" when the user mixed them). */
 export function graphUnits(graph) {
   return [...new Set(graph.series.map((x) => SIGNAL_BY_ID.get(x.sig)?.unit).filter(Boolean))];
+}
+
+/** Axis title of one side: "Thrust [N]" for a single series, else the units ("deg"); "" when the side is empty. */
+export function axisTitle(graph, side) {
+  const list = graph.series.filter((x) => (x.axis === "R" ? "R" : "L") === side).map((x) => SIGNAL_BY_ID.get(x.sig)).filter(Boolean);
+  if (!list.length) return "";
+  const units = [...new Set(list.map((s) => s.unit))];
+  return list.length === 1 ? `${list[0].label} [${list[0].unit}]` : units.join(", ");
 }
 
 /**
