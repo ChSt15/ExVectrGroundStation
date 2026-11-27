@@ -278,6 +278,10 @@ class VehicleStatus(Packet):
     cmd_session: int | None = f(
         desc="low 16 bits of the CMD_STATE session the vehicle latched, 0 = none; None = older sender"
     )
+    profile_selected: int | None = f(
+        desc="mission profile (0, 1, 2) the vehicle takes from the last accepted CMD_STATE, as CmdApplied.profile, "
+        "255 = none yet; None = older sender"
+    )
 
 
 @packet(

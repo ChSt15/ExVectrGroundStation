@@ -83,6 +83,7 @@ _VS_TAIL_END = {
     "mission_profile": 35,
     "rc_rejected": 36,
     "cmd_session": 38,
+    "profile_selected": 39,
 }
 
 

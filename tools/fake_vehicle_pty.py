@@ -376,6 +376,7 @@ class FakeVehiclePty:
                 calib_state=sc.fields("VehicleStatus", t)["calib_state"],
                 ctrl=(0x180, 0, 0, 255, self.cmd_rejects),  # USB_FRESH | UART_FRESH, nothing refused, no profile
                 cmd_session=0 if self.cmd_session is None else self.cmd_session,
+                profile_selected=255,  # the pty fake does not track the profile of the last CMD_STATE
             )
             return self._data(src, 0, net.PORT_VEHICLE_STATUS, pl)
         if name == "POSE":

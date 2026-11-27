@@ -265,6 +265,7 @@ class FakeSource(Source):
             if self.last_cmd is not None:
                 fields["ctrl_source"] = ControlSource.GS
                 fields["cmd_session"] = int(self.last_cmd.session) & 0xFFFF
+                fields["profile_selected"] = int(self.last_cmd.profile)
         if type_name == "VehicleState":
             fields["sim"] = self.simulation
             if self._fault("unknown_enum", td):

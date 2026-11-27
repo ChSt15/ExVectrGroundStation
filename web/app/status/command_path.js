@@ -27,6 +27,7 @@ export function commandPathRows(entry) {
   row("flags", "Command path", names.length ? names.join(", ") : "nothing pending", tone);
   if (typeof f.go_refusal === "number" && f.go_refusal > 0) row("go_refusal", "Go refused", goRefusalText(f.go_refusal), "warn");
   if (typeof f.mission_profile === "number" && f.mission_profile !== 255) row("mission_profile", "Profile (SB at go)", profileText(f.mission_profile));
+  if (typeof f.profile_selected === "number" && f.profile_selected !== 255) row("profile_selected", "Profile selected (SB as applied)", profileText(f.profile_selected));
   row("countdown", "Go countdown", COUNTDOWN_NOTE);
   return rows;
 }
