@@ -478,3 +478,16 @@ test("settings migration: a saved 'Belly flop' phase name becomes Descent", () =
   assert.equal(mergeSettings(DEFAULTS, { phaseNames: { Descent: "Belly flop" } }).phaseNames.Descent, "Descent");
   assert.equal(mergeSettings(DEFAULTS, { phaseNames: { Descent: "Dive" } }).phaseNames.Descent, "Dive");
 });
+
+test("countdown: Mission start once even when t_mission jitters across 0 (USB and link values interleave)", () => {
+  const { run, step, w } = rig();
+  w.ms.t_mission = -0.3;
+  run();
+  const said = [];
+  for (const t of [0.05, -0.1, 0.1, -0.05, 0.2, -0.02, 0.3]) said.push(...texts(step(0.1, { ms: { t_mission: t } })));
+  assert.deepEqual(said, ["Mission start"]);
+  step(0.1, { ms: { t_mission: -20 } }); // a new countdown re-arms it
+  const again = [];
+  for (const t of [-0.2, 0.1]) again.push(...texts(step(0.1, { ms: { t_mission: t } })));
+  assert.deepEqual(again, ["Mission start"]);
+});

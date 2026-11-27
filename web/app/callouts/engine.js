@@ -213,9 +213,11 @@ export class CalloutEngine {
     }
     const prev = st.tm;
     st.tm = tm;
+    if (tm < -1) st.startSaid = false; // a new countdown re-arms it; jitter between sources near T0 (-0.1 / +0.1) does not
     if (prev === undefined) return;
     if (tm < prev || tm - prev > 2.0) return; // mission time reset or a jump: baseline only
-    if (prev < 0 && tm >= 0) {
+    if (prev < 0 && tm >= 0 && !st.startSaid) {
+      st.startSaid = true; // once per countdown, however often t_mission crosses 0 (USB and radio link values interleave)
       out.push(ev("countdown.start", "countdown", "Mission start", "info", PRIORITY.countdown, { maxAge: 3 }));
       return;
     }
