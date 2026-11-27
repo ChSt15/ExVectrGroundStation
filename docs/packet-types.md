@@ -164,6 +164,7 @@ Version 1, direction `down`, nominal rate 5 Hz, history: no.
 | `mission_profile` | int | - | SB position latched at the last go (0, 1, 2), 255 = none; None = older sender |
 | `rc_rejected` | int | - | wrapping count of rejected CMD_STATE frames on the vehicle; None = older sender |
 | `cmd_session` | int | - | low 16 bits of the CMD_STATE session the vehicle latched, 0 = none; None = older sender |
+| `profile_selected` | int | - | mission profile (0, 1, 2) the vehicle takes from the last accepted CMD_STATE, as CmdApplied.profile, 255 = none yet; None = older sender |
 
 ## CmdApplied
 

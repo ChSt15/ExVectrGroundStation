@@ -287,6 +287,7 @@ def pack_vehicle_status(
     calib_state: int | None = None,
     ctrl: tuple[int, int, int, int, int] | None = None,
     cmd_session: int | None = None,
+    profile_selected: int | None = None,
 ) -> bytes:
     flags = (
         (1 if vs["armed"] else 0)
@@ -321,7 +322,11 @@ def pack_vehicle_status(
     # T9b tail: ctrl_flags u16, go_refusal u8, degraded_bits u8, mission_profile u8 (255 none), rc_rejected u8
     pl += struct.pack("<HBBBB", *ctrl)
     # GS-control tail: cmd_session u16 (low 16 bits of the latched CMD_STATE session, 0 none); absent = older sender
-    return pl if cmd_session is None else pl + struct.pack("<H", cmd_session & 0xFFFF)
+    if cmd_session is None:
+        return pl
+    pl += struct.pack("<H", cmd_session & 0xFFFF)
+    # profile_selected u8 (the profile of the last accepted CMD_STATE, 255 none); absent = older sender
+    return pl if profile_selected is None else pl + bytes([profile_selected & 0xFF])
 
 
 def pack_cmd_applied(

@@ -31,4 +31,13 @@ test("mission indicator", () => {
   assert.deepEqual([none.text, none.tone], ["none", "none"]);
   assert.match(missionIndicator({}, 2, 0).title, /Mismatch: the vehicle applies profile 2, the ground station sends 0/);
   assert.ok(!/Mismatch/.test(missionIndicator({}, 2, 2).title));
+  // over the air: no CmdApplied, VehicleStatus.profile_selected is the vehicle-confirmed selection
+  const air = missionIndicator({ profile_selected: 2, mission_profile: 255, mission_mode: "Idle" }, undefined, 0);
+  assert.deepEqual([air.text, air.tag, air.tone], ["flight", "selected", "flight"]);
+  assert.match(air.title, /VEHICLE_STATUS/);
+  assert.match(air.title, /Mismatch: the vehicle reports \(VEHICLE_STATUS\) profile 2, the ground station sends 0/);
+  assert.equal(missionIndicator({ profile_selected: 255 }, undefined, 1).text, "waypoint test"); // 255 = none: GS-sent
+  assert.equal(missionIndicator({ profile_selected: null }, undefined, 1).text, "waypoint test"); // older sender
+  assert.match(missionIndicator({ profile_selected: 0 }, 1, 1).title, /CmdApplied/); // CmdApplied preferred
+  assert.equal(missionIndicator({ profile_selected: 0, mission_profile: 2, mission_mode: "Running" }, undefined, 0).tag, "running");
 });

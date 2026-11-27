@@ -16,6 +16,8 @@ test("command path rows: vehicle-reported mode, motors armed, flags, refusal, pr
   assert.equal(r.flags.tone, "bad");
   assert.equal(r.go_refusal.text, "estimator zeroing window or no valid zero");
   assert.equal(r.mission_profile.text, "2 (flight)");
+  assert.equal(rowsOf({ profile_selected: 1 }).profile_selected.text, "1 (waypoint test)");
+  assert.equal(rowsOf({ profile_selected: 255 }).profile_selected, undefined);
   assert.equal(r.countdown.text, COUNTDOWN_NOTE);
   const q = rowsOf({ simulation: false, armed: false, ctrl_flags: 0, go_refusal: 0, mission_profile: 255 });
   assert.equal(q.mode.text, "REAL SENSORS");

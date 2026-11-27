@@ -716,7 +716,7 @@ def decode_vector(name, port, via="usb"):
 
 
 def test_schema_hash_is_the_pinned_one():
-    assert xp.SCHEMA_HASH == 0xF49ACD01
+    assert xp.SCHEMA_HASH == 0x0A200F8A
 
 
 def test_calib_state_decodes_into_booleans():
@@ -805,12 +805,21 @@ def test_vehicle_status_t9b_tail_and_older_payloads():
     vs, ms = sc.fields("VehicleState", 30.0), sc.fields("MissionState", 30.0)
     base = (1, vs, ms["mission_mode"], ms["mission_phase"])
     full = net.pack_vehicle_status(
-        *base, home_epoch=1, calib_state=0, ctrl=(0x180 | 2, 6, 0b101, 2, 9), cmd_session=0xBEEF
+        *base,
+        home_epoch=1,
+        calib_state=0,
+        ctrl=(0x180 | 2, 6, 0b101, 2, 9),
+        cmd_session=0xBEEF,
+        profile_selected=1,
     )
-    assert len(full) == 38 == xp.VehicleStatus.MAX_SIZE
+    assert len(full) == 39 == xp.VehicleStatus.MAX_SIZE
     s = by_type(PROFILE.decode_many(frame(0x20, full), "usb"))["VehicleStatus"]
     assert (s.ctrl_flags, s.go_refusal, s.degraded_bits, s.mission_profile, s.rc_rejected) == (0x182, 6, 5, 2, 9)
-    assert s.cmd_session == 0xBEEF
+    assert s.cmd_session == 0xBEEF and s.profile_selected == 1
+    # a sender without profile_selected: None (the generated module would say 0 = hover test)
+    nops = by_type(PROFILE.decode_many(frame(0x20, full[:38]), "usb"))["VehicleStatus"]
+    assert nops.cmd_session == 0xBEEF and nops.profile_selected is None
+    assert xp.VehicleStatus.decode(full[:38]).profile_selected == 0
     # a sender with the T9b tail but without cmd_session: None, not "no session"
     t9b = by_type(PROFILE.decode_many(frame(0x20, full[:36]), "usb"))["VehicleStatus"]
     assert t9b.rc_rejected == 9 and t9b.cmd_session is None
@@ -818,7 +827,15 @@ def test_vehicle_status_t9b_tail_and_older_payloads():
     old = net.pack_vehicle_status(*base, home_epoch=1, calib_state=0)
     s = by_type(PROFILE.decode_many(frame(0x20, old), "usb"))["VehicleStatus"]
     assert xp.VehicleStatus.decode(old).mission_profile == 0
-    assert (s.ctrl_flags, s.go_refusal, s.degraded_bits, s.mission_profile, s.rc_rejected, s.cmd_session) == (None,) * 6
+    assert (
+        s.ctrl_flags,
+        s.go_refusal,
+        s.degraded_bits,
+        s.mission_profile,
+        s.rc_rejected,
+        s.cmd_session,
+        s.profile_selected,
+    ) == (None,) * 7
     part = full[:34]  # ctrl_flags and go_refusal present, the rest not
     s = by_type(PROFILE.decode_many(frame(0x20, part), "usb"))["VehicleStatus"]
     assert (s.ctrl_flags, s.go_refusal, s.degraded_bits, s.mission_profile) == (0x182, 6, 5, None)

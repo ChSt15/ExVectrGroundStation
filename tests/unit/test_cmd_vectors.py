@@ -18,7 +18,7 @@ CMD_FAIL = [c for c in V["decode_fail"] if c["packet"] == "CMD_STATE"]
 
 
 def test_the_vectors_are_the_pinned_ones():
-    assert xp.SCHEMA_HASH == 0xF49ACD01 and CMD_CASES and CMD_FAIL
+    assert xp.SCHEMA_HASH == 0x0A200F8A and CMD_CASES and CMD_FAIL
 
 
 @pytest.mark.parametrize("case", CMD_CASES, ids=lambda c: c["name"])
