@@ -7,3 +7,4 @@ __pycache__/
 
 # local machine config (docs/install-frame.md)
 config/gs.local.toml
+config/gs.frame.toml
